@@ -1,0 +1,3 @@
+/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/keeply.dir
+/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/edit_cache.dir
+/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/rebuild_cache.dir
