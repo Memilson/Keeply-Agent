@@ -1,3 +1,5 @@
 /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/keeply.dir
+/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/keeply_api_ws_smoke.dir
+/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/keeply_rest_http.dir
 /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/edit_cache.dir
 /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles/rebuild_cache.dir

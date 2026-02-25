@@ -83,75 +83,75 @@ CMakeFiles/keeply.dir/main_cli.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/main_cli.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/main_cli.cpp -o CMakeFiles/keeply.dir/main_cli.cpp.s
 
-CMakeFiles/keeply.dir/api.cpp.o: CMakeFiles/keeply.dir/flags.make
-CMakeFiles/keeply.dir/api.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/api.cpp
-CMakeFiles/keeply.dir/api.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/keeply.dir/api.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/api.cpp.o -MF CMakeFiles/keeply.dir/api.cpp.o.d -o CMakeFiles/keeply.dir/api.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/api.cpp
+CMakeFiles/keeply.dir/ApiRest/api.cpp.o: CMakeFiles/keeply.dir/flags.make
+CMakeFiles/keeply.dir/ApiRest/api.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/ApiRest/api.cpp
+CMakeFiles/keeply.dir/ApiRest/api.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/keeply.dir/ApiRest/api.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/ApiRest/api.cpp.o -MF CMakeFiles/keeply.dir/ApiRest/api.cpp.o.d -o CMakeFiles/keeply.dir/ApiRest/api.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/ApiRest/api.cpp
 
-CMakeFiles/keeply.dir/api.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/api.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/api.cpp > CMakeFiles/keeply.dir/api.cpp.i
+CMakeFiles/keeply.dir/ApiRest/api.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/ApiRest/api.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/ApiRest/api.cpp > CMakeFiles/keeply.dir/ApiRest/api.cpp.i
 
-CMakeFiles/keeply.dir/api.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/api.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/api.cpp -o CMakeFiles/keeply.dir/api.cpp.s
+CMakeFiles/keeply.dir/ApiRest/api.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/ApiRest/api.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/ApiRest/api.cpp -o CMakeFiles/keeply.dir/ApiRest/api.cpp.s
 
-CMakeFiles/keeply.dir/compactar.cpp.o: CMakeFiles/keeply.dir/flags.make
-CMakeFiles/keeply.dir/compactar.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/compactar.cpp
-CMakeFiles/keeply.dir/compactar.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/keeply.dir/compactar.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/compactar.cpp.o -MF CMakeFiles/keeply.dir/compactar.cpp.o.d -o CMakeFiles/keeply.dir/compactar.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/compactar.cpp
+CMakeFiles/keeply.dir/Backup/compactar.cpp.o: CMakeFiles/keeply.dir/flags.make
+CMakeFiles/keeply.dir/Backup/compactar.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/Backup/compactar.cpp
+CMakeFiles/keeply.dir/Backup/compactar.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/keeply.dir/Backup/compactar.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/Backup/compactar.cpp.o -MF CMakeFiles/keeply.dir/Backup/compactar.cpp.o.d -o CMakeFiles/keeply.dir/Backup/compactar.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/Backup/compactar.cpp
 
-CMakeFiles/keeply.dir/compactar.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/compactar.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/compactar.cpp > CMakeFiles/keeply.dir/compactar.cpp.i
+CMakeFiles/keeply.dir/Backup/compactar.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/Backup/compactar.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/Backup/compactar.cpp > CMakeFiles/keeply.dir/Backup/compactar.cpp.i
 
-CMakeFiles/keeply.dir/compactar.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/compactar.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/compactar.cpp -o CMakeFiles/keeply.dir/compactar.cpp.s
+CMakeFiles/keeply.dir/Backup/compactar.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/Backup/compactar.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/Backup/compactar.cpp -o CMakeFiles/keeply.dir/Backup/compactar.cpp.s
 
-CMakeFiles/keeply.dir/restore.cpp.o: CMakeFiles/keeply.dir/flags.make
-CMakeFiles/keeply.dir/restore.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/restore.cpp
-CMakeFiles/keeply.dir/restore.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/keeply.dir/restore.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/restore.cpp.o -MF CMakeFiles/keeply.dir/restore.cpp.o.d -o CMakeFiles/keeply.dir/restore.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/restore.cpp
+CMakeFiles/keeply.dir/Backup/restore.cpp.o: CMakeFiles/keeply.dir/flags.make
+CMakeFiles/keeply.dir/Backup/restore.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/Backup/restore.cpp
+CMakeFiles/keeply.dir/Backup/restore.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/keeply.dir/Backup/restore.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/Backup/restore.cpp.o -MF CMakeFiles/keeply.dir/Backup/restore.cpp.o.d -o CMakeFiles/keeply.dir/Backup/restore.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/Backup/restore.cpp
 
-CMakeFiles/keeply.dir/restore.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/restore.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/restore.cpp > CMakeFiles/keeply.dir/restore.cpp.i
+CMakeFiles/keeply.dir/Backup/restore.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/Backup/restore.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/Backup/restore.cpp > CMakeFiles/keeply.dir/Backup/restore.cpp.i
 
-CMakeFiles/keeply.dir/restore.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/restore.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/restore.cpp -o CMakeFiles/keeply.dir/restore.cpp.s
+CMakeFiles/keeply.dir/Backup/restore.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/Backup/restore.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/Backup/restore.cpp -o CMakeFiles/keeply.dir/Backup/restore.cpp.s
 
-CMakeFiles/keeply.dir/scan.cpp.o: CMakeFiles/keeply.dir/flags.make
-CMakeFiles/keeply.dir/scan.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/scan.cpp
-CMakeFiles/keeply.dir/scan.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/keeply.dir/scan.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/scan.cpp.o -MF CMakeFiles/keeply.dir/scan.cpp.o.d -o CMakeFiles/keeply.dir/scan.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/scan.cpp
+CMakeFiles/keeply.dir/Backup/scan.cpp.o: CMakeFiles/keeply.dir/flags.make
+CMakeFiles/keeply.dir/Backup/scan.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/Backup/scan.cpp
+CMakeFiles/keeply.dir/Backup/scan.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/keeply.dir/Backup/scan.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/Backup/scan.cpp.o -MF CMakeFiles/keeply.dir/Backup/scan.cpp.o.d -o CMakeFiles/keeply.dir/Backup/scan.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/Backup/scan.cpp
 
-CMakeFiles/keeply.dir/scan.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/scan.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/scan.cpp > CMakeFiles/keeply.dir/scan.cpp.i
+CMakeFiles/keeply.dir/Backup/scan.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/Backup/scan.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/Backup/scan.cpp > CMakeFiles/keeply.dir/Backup/scan.cpp.i
 
-CMakeFiles/keeply.dir/scan.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/scan.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/scan.cpp -o CMakeFiles/keeply.dir/scan.cpp.s
+CMakeFiles/keeply.dir/Backup/scan.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/Backup/scan.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/Backup/scan.cpp -o CMakeFiles/keeply.dir/Backup/scan.cpp.s
 
-CMakeFiles/keeply.dir/storage.cpp.o: CMakeFiles/keeply.dir/flags.make
-CMakeFiles/keeply.dir/storage.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/storage.cpp
-CMakeFiles/keeply.dir/storage.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/keeply.dir/storage.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/storage.cpp.o -MF CMakeFiles/keeply.dir/storage.cpp.o.d -o CMakeFiles/keeply.dir/storage.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/storage.cpp
+CMakeFiles/keeply.dir/Backup/storage.cpp.o: CMakeFiles/keeply.dir/flags.make
+CMakeFiles/keeply.dir/Backup/storage.cpp.o: /home/angelo/Documentos/GitHub/KEEPLY/Backup/storage.cpp
+CMakeFiles/keeply.dir/Backup/storage.cpp.o: CMakeFiles/keeply.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/keeply.dir/Backup/storage.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply.dir/Backup/storage.cpp.o -MF CMakeFiles/keeply.dir/Backup/storage.cpp.o.d -o CMakeFiles/keeply.dir/Backup/storage.cpp.o -c /home/angelo/Documentos/GitHub/KEEPLY/Backup/storage.cpp
 
-CMakeFiles/keeply.dir/storage.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/storage.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/storage.cpp > CMakeFiles/keeply.dir/storage.cpp.i
+CMakeFiles/keeply.dir/Backup/storage.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply.dir/Backup/storage.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/KEEPLY/Backup/storage.cpp > CMakeFiles/keeply.dir/Backup/storage.cpp.i
 
-CMakeFiles/keeply.dir/storage.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/storage.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/storage.cpp -o CMakeFiles/keeply.dir/storage.cpp.s
+CMakeFiles/keeply.dir/Backup/storage.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply.dir/Backup/storage.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/KEEPLY/Backup/storage.cpp -o CMakeFiles/keeply.dir/Backup/storage.cpp.s
 
 CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.o: CMakeFiles/keeply.dir/flags.make
 CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.o: _deps/blake3_src-src/c/blake3.c
@@ -240,11 +240,11 @@ CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_avx2.c.s: cmake_force
 # Object files for target keeply
 keeply_OBJECTS = \
 "CMakeFiles/keeply.dir/main_cli.cpp.o" \
-"CMakeFiles/keeply.dir/api.cpp.o" \
-"CMakeFiles/keeply.dir/compactar.cpp.o" \
-"CMakeFiles/keeply.dir/restore.cpp.o" \
-"CMakeFiles/keeply.dir/scan.cpp.o" \
-"CMakeFiles/keeply.dir/storage.cpp.o" \
+"CMakeFiles/keeply.dir/ApiRest/api.cpp.o" \
+"CMakeFiles/keeply.dir/Backup/compactar.cpp.o" \
+"CMakeFiles/keeply.dir/Backup/restore.cpp.o" \
+"CMakeFiles/keeply.dir/Backup/scan.cpp.o" \
+"CMakeFiles/keeply.dir/Backup/storage.cpp.o" \
 "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.o" \
 "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o" \
 "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.o" \
@@ -256,11 +256,11 @@ keeply_OBJECTS = \
 keeply_EXTERNAL_OBJECTS =
 
 keeply: CMakeFiles/keeply.dir/main_cli.cpp.o
-keeply: CMakeFiles/keeply.dir/api.cpp.o
-keeply: CMakeFiles/keeply.dir/compactar.cpp.o
-keeply: CMakeFiles/keeply.dir/restore.cpp.o
-keeply: CMakeFiles/keeply.dir/scan.cpp.o
-keeply: CMakeFiles/keeply.dir/storage.cpp.o
+keeply: CMakeFiles/keeply.dir/ApiRest/api.cpp.o
+keeply: CMakeFiles/keeply.dir/Backup/compactar.cpp.o
+keeply: CMakeFiles/keeply.dir/Backup/restore.cpp.o
+keeply: CMakeFiles/keeply.dir/Backup/scan.cpp.o
+keeply: CMakeFiles/keeply.dir/Backup/storage.cpp.o
 keeply: CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.o
 keeply: CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o
 keeply: CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.o

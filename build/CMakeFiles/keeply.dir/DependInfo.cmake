@@ -14,12 +14,12 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c/blake3_portable.c" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.o" "gcc" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.o.d"
   "/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c/blake3_sse2.c" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse2.c.o" "gcc" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse2.c.o.d"
   "/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c/blake3_sse41.c" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse41.c.o" "gcc" "CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse41.c.o.d"
-  "/home/angelo/Documentos/GitHub/KEEPLY/api.cpp" "CMakeFiles/keeply.dir/api.cpp.o" "gcc" "CMakeFiles/keeply.dir/api.cpp.o.d"
-  "/home/angelo/Documentos/GitHub/KEEPLY/compactar.cpp" "CMakeFiles/keeply.dir/compactar.cpp.o" "gcc" "CMakeFiles/keeply.dir/compactar.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/KEEPLY/ApiRest/api.cpp" "CMakeFiles/keeply.dir/ApiRest/api.cpp.o" "gcc" "CMakeFiles/keeply.dir/ApiRest/api.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/KEEPLY/Backup/compactar.cpp" "CMakeFiles/keeply.dir/Backup/compactar.cpp.o" "gcc" "CMakeFiles/keeply.dir/Backup/compactar.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/KEEPLY/Backup/restore.cpp" "CMakeFiles/keeply.dir/Backup/restore.cpp.o" "gcc" "CMakeFiles/keeply.dir/Backup/restore.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/KEEPLY/Backup/scan.cpp" "CMakeFiles/keeply.dir/Backup/scan.cpp.o" "gcc" "CMakeFiles/keeply.dir/Backup/scan.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/KEEPLY/Backup/storage.cpp" "CMakeFiles/keeply.dir/Backup/storage.cpp.o" "gcc" "CMakeFiles/keeply.dir/Backup/storage.cpp.o.d"
   "/home/angelo/Documentos/GitHub/KEEPLY/main_cli.cpp" "CMakeFiles/keeply.dir/main_cli.cpp.o" "gcc" "CMakeFiles/keeply.dir/main_cli.cpp.o.d"
-  "/home/angelo/Documentos/GitHub/KEEPLY/restore.cpp" "CMakeFiles/keeply.dir/restore.cpp.o" "gcc" "CMakeFiles/keeply.dir/restore.cpp.o.d"
-  "/home/angelo/Documentos/GitHub/KEEPLY/scan.cpp" "CMakeFiles/keeply.dir/scan.cpp.o" "gcc" "CMakeFiles/keeply.dir/scan.cpp.o.d"
-  "/home/angelo/Documentos/GitHub/KEEPLY/storage.cpp" "CMakeFiles/keeply.dir/storage.cpp.o" "gcc" "CMakeFiles/keeply.dir/storage.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

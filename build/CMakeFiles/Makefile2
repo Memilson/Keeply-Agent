@@ -64,6 +64,8 @@ CMAKE_BINARY_DIR = /home/angelo/Documentos/GitHub/KEEPLY/build
 
 # The main recursive "all" target.
 all: CMakeFiles/keeply.dir/all
+all: CMakeFiles/keeply_api_ws_smoke.dir/all
+all: CMakeFiles/keeply_rest_http.dir/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
@@ -72,6 +74,8 @@ preinstall:
 
 # The main recursive "clean" target.
 clean: CMakeFiles/keeply.dir/clean
+clean: CMakeFiles/keeply_api_ws_smoke.dir/clean
+clean: CMakeFiles/keeply_rest_http.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -99,6 +103,58 @@ keeply: CMakeFiles/keeply.dir/rule
 CMakeFiles/keeply.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/clean
 .PHONY : CMakeFiles/keeply.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/keeply_api_ws_smoke.dir
+
+# All Build rule for target.
+CMakeFiles/keeply_api_ws_smoke.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 "Built target keeply_api_ws_smoke"
+.PHONY : CMakeFiles/keeply_api_ws_smoke.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/keeply_api_ws_smoke.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles 15
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/keeply_api_ws_smoke.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles 0
+.PHONY : CMakeFiles/keeply_api_ws_smoke.dir/rule
+
+# Convenience name for target.
+keeply_api_ws_smoke: CMakeFiles/keeply_api_ws_smoke.dir/rule
+.PHONY : keeply_api_ws_smoke
+
+# clean rule for target.
+CMakeFiles/keeply_api_ws_smoke.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/clean
+.PHONY : CMakeFiles/keeply_api_ws_smoke.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/keeply_rest_http.dir
+
+# All Build rule for target.
+CMakeFiles/keeply_rest_http.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles --progress-num=29,30,31,32,33,34,35,36,37,38,39,40,41,42 "Built target keeply_rest_http"
+.PHONY : CMakeFiles/keeply_rest_http.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/keeply_rest_http.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles 14
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/keeply_rest_http.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/KEEPLY/build/CMakeFiles 0
+.PHONY : CMakeFiles/keeply_rest_http.dir/rule
+
+# Convenience name for target.
+keeply_rest_http: CMakeFiles/keeply_rest_http.dir/rule
+.PHONY : keeply_rest_http
+
+# clean rule for target.
+CMakeFiles/keeply_rest_http.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/clean
+.PHONY : CMakeFiles/keeply_rest_http.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

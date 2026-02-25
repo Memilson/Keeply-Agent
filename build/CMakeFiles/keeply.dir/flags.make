@@ -5,13 +5,13 @@
 # compile CXX with /usr/bin/c++
 C_DEFINES = -DBLAKE3_NO_AVX512 -DBLAKE3_USE_NEON=0
 
-C_INCLUDES = -I/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c
+C_INCLUDES = -I/home/angelo/Documentos/GitHub/KEEPLY -I/home/angelo/Documentos/GitHub/KEEPLY/ApiRest -I/home/angelo/Documentos/GitHub/KEEPLY/WebSocket -I/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c
 
 C_FLAGS = 
 
 CXX_DEFINES = -DBLAKE3_NO_AVX512 -DBLAKE3_USE_NEON=0
 
-CXX_INCLUDES = -I/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c
+CXX_INCLUDES = -I/home/angelo/Documentos/GitHub/KEEPLY -I/home/angelo/Documentos/GitHub/KEEPLY/ApiRest -I/home/angelo/Documentos/GitHub/KEEPLY/WebSocket -I/home/angelo/Documentos/GitHub/KEEPLY/build/_deps/blake3_src-src/c
 
 CXX_FLAGS = -std=gnu++17
 

@@ -129,12 +129,289 @@ keeply/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/build
 .PHONY : keeply/fast
 
+#=============================================================================
+# Target rules for targets named keeply_api_ws_smoke
+
+# Build rule for target.
+keeply_api_ws_smoke: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 keeply_api_ws_smoke
+.PHONY : keeply_api_ws_smoke
+
+# fast build rule for target.
+keeply_api_ws_smoke/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/build
+.PHONY : keeply_api_ws_smoke/fast
+
+#=============================================================================
+# Target rules for targets named keeply_rest_http
+
+# Build rule for target.
+keeply_rest_http: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 keeply_rest_http
+.PHONY : keeply_rest_http
+
+# fast build rule for target.
+keeply_rest_http/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/build
+.PHONY : keeply_rest_http/fast
+
+ApiRest/api-rest.o: ApiRest/api-rest.cpp.o
+.PHONY : ApiRest/api-rest.o
+
+# target to build an object file
+ApiRest/api-rest.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api-rest.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api-rest.cpp.o
+.PHONY : ApiRest/api-rest.cpp.o
+
+ApiRest/api-rest.i: ApiRest/api-rest.cpp.i
+.PHONY : ApiRest/api-rest.i
+
+# target to preprocess a source file
+ApiRest/api-rest.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api-rest.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api-rest.cpp.i
+.PHONY : ApiRest/api-rest.cpp.i
+
+ApiRest/api-rest.s: ApiRest/api-rest.cpp.s
+.PHONY : ApiRest/api-rest.s
+
+# target to generate assembly for a file
+ApiRest/api-rest.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api-rest.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api-rest.cpp.s
+.PHONY : ApiRest/api-rest.cpp.s
+
+ApiRest/api.o: ApiRest/api.cpp.o
+.PHONY : ApiRest/api.o
+
+# target to build an object file
+ApiRest/api.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/ApiRest/api.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api.cpp.o
+.PHONY : ApiRest/api.cpp.o
+
+ApiRest/api.i: ApiRest/api.cpp.i
+.PHONY : ApiRest/api.i
+
+# target to preprocess a source file
+ApiRest/api.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/ApiRest/api.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api.cpp.i
+.PHONY : ApiRest/api.cpp.i
+
+ApiRest/api.s: ApiRest/api.cpp.s
+.PHONY : ApiRest/api.s
+
+# target to generate assembly for a file
+ApiRest/api.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/ApiRest/api.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/ApiRest/api.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/ApiRest/api.cpp.s
+.PHONY : ApiRest/api.cpp.s
+
+Backup/compactar.o: Backup/compactar.cpp.o
+.PHONY : Backup/compactar.o
+
+# target to build an object file
+Backup/compactar.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/compactar.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/compactar.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/compactar.cpp.o
+.PHONY : Backup/compactar.cpp.o
+
+Backup/compactar.i: Backup/compactar.cpp.i
+.PHONY : Backup/compactar.i
+
+# target to preprocess a source file
+Backup/compactar.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/compactar.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/compactar.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/compactar.cpp.i
+.PHONY : Backup/compactar.cpp.i
+
+Backup/compactar.s: Backup/compactar.cpp.s
+.PHONY : Backup/compactar.s
+
+# target to generate assembly for a file
+Backup/compactar.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/compactar.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/compactar.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/compactar.cpp.s
+.PHONY : Backup/compactar.cpp.s
+
+Backup/restore.o: Backup/restore.cpp.o
+.PHONY : Backup/restore.o
+
+# target to build an object file
+Backup/restore.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/restore.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/restore.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/restore.cpp.o
+.PHONY : Backup/restore.cpp.o
+
+Backup/restore.i: Backup/restore.cpp.i
+.PHONY : Backup/restore.i
+
+# target to preprocess a source file
+Backup/restore.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/restore.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/restore.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/restore.cpp.i
+.PHONY : Backup/restore.cpp.i
+
+Backup/restore.s: Backup/restore.cpp.s
+.PHONY : Backup/restore.s
+
+# target to generate assembly for a file
+Backup/restore.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/restore.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/restore.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/restore.cpp.s
+.PHONY : Backup/restore.cpp.s
+
+Backup/scan.o: Backup/scan.cpp.o
+.PHONY : Backup/scan.o
+
+# target to build an object file
+Backup/scan.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/scan.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/scan.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/scan.cpp.o
+.PHONY : Backup/scan.cpp.o
+
+Backup/scan.i: Backup/scan.cpp.i
+.PHONY : Backup/scan.i
+
+# target to preprocess a source file
+Backup/scan.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/scan.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/scan.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/scan.cpp.i
+.PHONY : Backup/scan.cpp.i
+
+Backup/scan.s: Backup/scan.cpp.s
+.PHONY : Backup/scan.s
+
+# target to generate assembly for a file
+Backup/scan.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/scan.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/scan.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/scan.cpp.s
+.PHONY : Backup/scan.cpp.s
+
+Backup/storage.o: Backup/storage.cpp.o
+.PHONY : Backup/storage.o
+
+# target to build an object file
+Backup/storage.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/storage.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/storage.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/storage.cpp.o
+.PHONY : Backup/storage.cpp.o
+
+Backup/storage.i: Backup/storage.cpp.i
+.PHONY : Backup/storage.i
+
+# target to preprocess a source file
+Backup/storage.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/storage.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/storage.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/storage.cpp.i
+.PHONY : Backup/storage.cpp.i
+
+Backup/storage.s: Backup/storage.cpp.s
+.PHONY : Backup/storage.s
+
+# target to generate assembly for a file
+Backup/storage.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/storage.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/Backup/storage.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/Backup/storage.cpp.s
+.PHONY : Backup/storage.cpp.s
+
+HTTP/api_ws_smoke_main.o: HTTP/api_ws_smoke_main.cpp.o
+.PHONY : HTTP/api_ws_smoke_main.o
+
+# target to build an object file
+HTTP/api_ws_smoke_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/HTTP/api_ws_smoke_main.cpp.o
+.PHONY : HTTP/api_ws_smoke_main.cpp.o
+
+HTTP/api_ws_smoke_main.i: HTTP/api_ws_smoke_main.cpp.i
+.PHONY : HTTP/api_ws_smoke_main.i
+
+# target to preprocess a source file
+HTTP/api_ws_smoke_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/HTTP/api_ws_smoke_main.cpp.i
+.PHONY : HTTP/api_ws_smoke_main.cpp.i
+
+HTTP/api_ws_smoke_main.s: HTTP/api_ws_smoke_main.cpp.s
+.PHONY : HTTP/api_ws_smoke_main.s
+
+# target to generate assembly for a file
+HTTP/api_ws_smoke_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/HTTP/api_ws_smoke_main.cpp.s
+.PHONY : HTTP/api_ws_smoke_main.cpp.s
+
+HTTP/rest_http_main.o: HTTP/rest_http_main.cpp.o
+.PHONY : HTTP/rest_http_main.o
+
+# target to build an object file
+HTTP/rest_http_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/HTTP/rest_http_main.cpp.o
+.PHONY : HTTP/rest_http_main.cpp.o
+
+HTTP/rest_http_main.i: HTTP/rest_http_main.cpp.i
+.PHONY : HTTP/rest_http_main.i
+
+# target to preprocess a source file
+HTTP/rest_http_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/HTTP/rest_http_main.cpp.i
+.PHONY : HTTP/rest_http_main.cpp.i
+
+HTTP/rest_http_main.s: HTTP/rest_http_main.cpp.s
+.PHONY : HTTP/rest_http_main.s
+
+# target to generate assembly for a file
+HTTP/rest_http_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/HTTP/rest_http_main.cpp.s
+.PHONY : HTTP/rest_http_main.cpp.s
+
+WebSocket/ws.o: WebSocket/ws.cpp.o
+.PHONY : WebSocket/ws.o
+
+# target to build an object file
+WebSocket/ws.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/WebSocket/ws.cpp.o
+.PHONY : WebSocket/ws.cpp.o
+
+WebSocket/ws.i: WebSocket/ws.cpp.i
+.PHONY : WebSocket/ws.i
+
+# target to preprocess a source file
+WebSocket/ws.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/WebSocket/ws.cpp.i
+.PHONY : WebSocket/ws.cpp.i
+
+WebSocket/ws.s: WebSocket/ws.cpp.s
+.PHONY : WebSocket/ws.s
+
+# target to generate assembly for a file
+WebSocket/ws.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/WebSocket/ws.cpp.s
+.PHONY : WebSocket/ws.cpp.s
+
 _deps/blake3_src-src/c/blake3.o: _deps/blake3_src-src/c/blake3.c.o
 .PHONY : _deps/blake3_src-src/c/blake3.o
 
 # target to build an object file
 _deps/blake3_src-src/c/blake3.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3.c.o
 .PHONY : _deps/blake3_src-src/c/blake3.c.o
 
 _deps/blake3_src-src/c/blake3.i: _deps/blake3_src-src/c/blake3.c.i
@@ -143,6 +420,8 @@ _deps/blake3_src-src/c/blake3.i: _deps/blake3_src-src/c/blake3.c.i
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3.c.i
 .PHONY : _deps/blake3_src-src/c/blake3.c.i
 
 _deps/blake3_src-src/c/blake3.s: _deps/blake3_src-src/c/blake3.c.s
@@ -151,6 +430,8 @@ _deps/blake3_src-src/c/blake3.s: _deps/blake3_src-src/c/blake3.c.s
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3.c.s
 .PHONY : _deps/blake3_src-src/c/blake3.c.s
 
 _deps/blake3_src-src/c/blake3_avx2.o: _deps/blake3_src-src/c/blake3_avx2.c.o
@@ -159,6 +440,8 @@ _deps/blake3_src-src/c/blake3_avx2.o: _deps/blake3_src-src/c/blake3_avx2.c.o
 # target to build an object file
 _deps/blake3_src-src/c/blake3_avx2.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_avx2.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_avx2.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_avx2.c.o
 .PHONY : _deps/blake3_src-src/c/blake3_avx2.c.o
 
 _deps/blake3_src-src/c/blake3_avx2.i: _deps/blake3_src-src/c/blake3_avx2.c.i
@@ -167,6 +450,8 @@ _deps/blake3_src-src/c/blake3_avx2.i: _deps/blake3_src-src/c/blake3_avx2.c.i
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3_avx2.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_avx2.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_avx2.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_avx2.c.i
 .PHONY : _deps/blake3_src-src/c/blake3_avx2.c.i
 
 _deps/blake3_src-src/c/blake3_avx2.s: _deps/blake3_src-src/c/blake3_avx2.c.s
@@ -175,6 +460,8 @@ _deps/blake3_src-src/c/blake3_avx2.s: _deps/blake3_src-src/c/blake3_avx2.c.s
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3_avx2.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_avx2.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_avx2.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_avx2.c.s
 .PHONY : _deps/blake3_src-src/c/blake3_avx2.c.s
 
 _deps/blake3_src-src/c/blake3_dispatch.o: _deps/blake3_src-src/c/blake3_dispatch.c.o
@@ -183,6 +470,8 @@ _deps/blake3_src-src/c/blake3_dispatch.o: _deps/blake3_src-src/c/blake3_dispatch
 # target to build an object file
 _deps/blake3_src-src/c/blake3_dispatch.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o
 .PHONY : _deps/blake3_src-src/c/blake3_dispatch.c.o
 
 _deps/blake3_src-src/c/blake3_dispatch.i: _deps/blake3_src-src/c/blake3_dispatch.c.i
@@ -191,6 +480,8 @@ _deps/blake3_src-src/c/blake3_dispatch.i: _deps/blake3_src-src/c/blake3_dispatch
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3_dispatch.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_dispatch.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_dispatch.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_dispatch.c.i
 .PHONY : _deps/blake3_src-src/c/blake3_dispatch.c.i
 
 _deps/blake3_src-src/c/blake3_dispatch.s: _deps/blake3_src-src/c/blake3_dispatch.c.s
@@ -199,6 +490,8 @@ _deps/blake3_src-src/c/blake3_dispatch.s: _deps/blake3_src-src/c/blake3_dispatch
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3_dispatch.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_dispatch.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_dispatch.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_dispatch.c.s
 .PHONY : _deps/blake3_src-src/c/blake3_dispatch.c.s
 
 _deps/blake3_src-src/c/blake3_portable.o: _deps/blake3_src-src/c/blake3_portable.c.o
@@ -207,6 +500,8 @@ _deps/blake3_src-src/c/blake3_portable.o: _deps/blake3_src-src/c/blake3_portable
 # target to build an object file
 _deps/blake3_src-src/c/blake3_portable.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_portable.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_portable.c.o
 .PHONY : _deps/blake3_src-src/c/blake3_portable.c.o
 
 _deps/blake3_src-src/c/blake3_portable.i: _deps/blake3_src-src/c/blake3_portable.c.i
@@ -215,6 +510,8 @@ _deps/blake3_src-src/c/blake3_portable.i: _deps/blake3_src-src/c/blake3_portable
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3_portable.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_portable.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_portable.c.i
 .PHONY : _deps/blake3_src-src/c/blake3_portable.c.i
 
 _deps/blake3_src-src/c/blake3_portable.s: _deps/blake3_src-src/c/blake3_portable.c.s
@@ -223,6 +520,8 @@ _deps/blake3_src-src/c/blake3_portable.s: _deps/blake3_src-src/c/blake3_portable
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3_portable.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_portable.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_portable.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_portable.c.s
 .PHONY : _deps/blake3_src-src/c/blake3_portable.c.s
 
 _deps/blake3_src-src/c/blake3_sse2.o: _deps/blake3_src-src/c/blake3_sse2.c.o
@@ -231,6 +530,8 @@ _deps/blake3_src-src/c/blake3_sse2.o: _deps/blake3_src-src/c/blake3_sse2.c.o
 # target to build an object file
 _deps/blake3_src-src/c/blake3_sse2.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse2.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse2.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse2.c.o
 .PHONY : _deps/blake3_src-src/c/blake3_sse2.c.o
 
 _deps/blake3_src-src/c/blake3_sse2.i: _deps/blake3_src-src/c/blake3_sse2.c.i
@@ -239,6 +540,8 @@ _deps/blake3_src-src/c/blake3_sse2.i: _deps/blake3_src-src/c/blake3_sse2.c.i
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3_sse2.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse2.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse2.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse2.c.i
 .PHONY : _deps/blake3_src-src/c/blake3_sse2.c.i
 
 _deps/blake3_src-src/c/blake3_sse2.s: _deps/blake3_src-src/c/blake3_sse2.c.s
@@ -247,6 +550,8 @@ _deps/blake3_src-src/c/blake3_sse2.s: _deps/blake3_src-src/c/blake3_sse2.c.s
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3_sse2.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse2.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse2.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse2.c.s
 .PHONY : _deps/blake3_src-src/c/blake3_sse2.c.s
 
 _deps/blake3_src-src/c/blake3_sse41.o: _deps/blake3_src-src/c/blake3_sse41.c.o
@@ -255,6 +560,8 @@ _deps/blake3_src-src/c/blake3_sse41.o: _deps/blake3_src-src/c/blake3_sse41.c.o
 # target to build an object file
 _deps/blake3_src-src/c/blake3_sse41.c.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse41.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse41.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse41.c.o
 .PHONY : _deps/blake3_src-src/c/blake3_sse41.c.o
 
 _deps/blake3_src-src/c/blake3_sse41.i: _deps/blake3_src-src/c/blake3_sse41.c.i
@@ -263,6 +570,8 @@ _deps/blake3_src-src/c/blake3_sse41.i: _deps/blake3_src-src/c/blake3_sse41.c.i
 # target to preprocess a source file
 _deps/blake3_src-src/c/blake3_sse41.c.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse41.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse41.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse41.c.i
 .PHONY : _deps/blake3_src-src/c/blake3_sse41.c.i
 
 _deps/blake3_src-src/c/blake3_sse41.s: _deps/blake3_src-src/c/blake3_sse41.c.s
@@ -271,55 +580,9 @@ _deps/blake3_src-src/c/blake3_sse41.s: _deps/blake3_src-src/c/blake3_sse41.c.s
 # target to generate assembly for a file
 _deps/blake3_src-src/c/blake3_sse41.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/_deps/blake3_src-src/c/blake3_sse41.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_api_ws_smoke.dir/build.make CMakeFiles/keeply_api_ws_smoke.dir/_deps/blake3_src-src/c/blake3_sse41.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_rest_http.dir/build.make CMakeFiles/keeply_rest_http.dir/_deps/blake3_src-src/c/blake3_sse41.c.s
 .PHONY : _deps/blake3_src-src/c/blake3_sse41.c.s
-
-api.o: api.cpp.o
-.PHONY : api.o
-
-# target to build an object file
-api.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/api.cpp.o
-.PHONY : api.cpp.o
-
-api.i: api.cpp.i
-.PHONY : api.i
-
-# target to preprocess a source file
-api.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/api.cpp.i
-.PHONY : api.cpp.i
-
-api.s: api.cpp.s
-.PHONY : api.s
-
-# target to generate assembly for a file
-api.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/api.cpp.s
-.PHONY : api.cpp.s
-
-compactar.o: compactar.cpp.o
-.PHONY : compactar.o
-
-# target to build an object file
-compactar.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/compactar.cpp.o
-.PHONY : compactar.cpp.o
-
-compactar.i: compactar.cpp.i
-.PHONY : compactar.i
-
-# target to preprocess a source file
-compactar.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/compactar.cpp.i
-.PHONY : compactar.cpp.i
-
-compactar.s: compactar.cpp.s
-.PHONY : compactar.s
-
-# target to generate assembly for a file
-compactar.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/compactar.cpp.s
-.PHONY : compactar.cpp.s
 
 main_cli.o: main_cli.cpp.o
 .PHONY : main_cli.o
@@ -345,78 +608,6 @@ main_cli.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/main_cli.cpp.s
 .PHONY : main_cli.cpp.s
 
-restore.o: restore.cpp.o
-.PHONY : restore.o
-
-# target to build an object file
-restore.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/restore.cpp.o
-.PHONY : restore.cpp.o
-
-restore.i: restore.cpp.i
-.PHONY : restore.i
-
-# target to preprocess a source file
-restore.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/restore.cpp.i
-.PHONY : restore.cpp.i
-
-restore.s: restore.cpp.s
-.PHONY : restore.s
-
-# target to generate assembly for a file
-restore.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/restore.cpp.s
-.PHONY : restore.cpp.s
-
-scan.o: scan.cpp.o
-.PHONY : scan.o
-
-# target to build an object file
-scan.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/scan.cpp.o
-.PHONY : scan.cpp.o
-
-scan.i: scan.cpp.i
-.PHONY : scan.i
-
-# target to preprocess a source file
-scan.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/scan.cpp.i
-.PHONY : scan.cpp.i
-
-scan.s: scan.cpp.s
-.PHONY : scan.s
-
-# target to generate assembly for a file
-scan.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/scan.cpp.s
-.PHONY : scan.cpp.s
-
-storage.o: storage.cpp.o
-.PHONY : storage.o
-
-# target to build an object file
-storage.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/storage.cpp.o
-.PHONY : storage.cpp.o
-
-storage.i: storage.cpp.i
-.PHONY : storage.i
-
-# target to preprocess a source file
-storage.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/storage.cpp.i
-.PHONY : storage.cpp.i
-
-storage.s: storage.cpp.s
-.PHONY : storage.s
-
-# target to generate assembly for a file
-storage.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/storage.cpp.s
-.PHONY : storage.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -426,6 +617,35 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... keeply"
+	@echo "... keeply_api_ws_smoke"
+	@echo "... keeply_rest_http"
+	@echo "... ApiRest/api-rest.o"
+	@echo "... ApiRest/api-rest.i"
+	@echo "... ApiRest/api-rest.s"
+	@echo "... ApiRest/api.o"
+	@echo "... ApiRest/api.i"
+	@echo "... ApiRest/api.s"
+	@echo "... Backup/compactar.o"
+	@echo "... Backup/compactar.i"
+	@echo "... Backup/compactar.s"
+	@echo "... Backup/restore.o"
+	@echo "... Backup/restore.i"
+	@echo "... Backup/restore.s"
+	@echo "... Backup/scan.o"
+	@echo "... Backup/scan.i"
+	@echo "... Backup/scan.s"
+	@echo "... Backup/storage.o"
+	@echo "... Backup/storage.i"
+	@echo "... Backup/storage.s"
+	@echo "... HTTP/api_ws_smoke_main.o"
+	@echo "... HTTP/api_ws_smoke_main.i"
+	@echo "... HTTP/api_ws_smoke_main.s"
+	@echo "... HTTP/rest_http_main.o"
+	@echo "... HTTP/rest_http_main.i"
+	@echo "... HTTP/rest_http_main.s"
+	@echo "... WebSocket/ws.o"
+	@echo "... WebSocket/ws.i"
+	@echo "... WebSocket/ws.s"
 	@echo "... _deps/blake3_src-src/c/blake3.o"
 	@echo "... _deps/blake3_src-src/c/blake3.i"
 	@echo "... _deps/blake3_src-src/c/blake3.s"
@@ -444,24 +664,9 @@ help:
 	@echo "... _deps/blake3_src-src/c/blake3_sse41.o"
 	@echo "... _deps/blake3_src-src/c/blake3_sse41.i"
 	@echo "... _deps/blake3_src-src/c/blake3_sse41.s"
-	@echo "... api.o"
-	@echo "... api.i"
-	@echo "... api.s"
-	@echo "... compactar.o"
-	@echo "... compactar.i"
-	@echo "... compactar.s"
 	@echo "... main_cli.o"
 	@echo "... main_cli.i"
 	@echo "... main_cli.s"
-	@echo "... restore.o"
-	@echo "... restore.i"
-	@echo "... restore.s"
-	@echo "... scan.o"
-	@echo "... scan.i"
-	@echo "... scan.s"
-	@echo "... storage.o"
-	@echo "... storage.i"
-	@echo "... storage.s"
 .PHONY : help
 
 

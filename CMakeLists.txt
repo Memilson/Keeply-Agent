@@ -26,14 +26,19 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blake3_src)
 
 set(KEEPLY_CORE
-    api.cpp
-    compactar.cpp
-    restore.cpp
-    scan.cpp
-    storage.cpp
+    ApiRest/api.cpp
+    Backup/compactar.cpp
+    Backup/restore.cpp
+    Backup/scan.cpp
+    Backup/storage.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
     ${blake3_src_SOURCE_DIR}/c/blake3_portable.c
+)
+
+set(KEEPLY_API_WS
+    ApiRest/api-rest.cpp
+    WebSocket/ws.cpp
 )
 
 set(BLAKE3_SIMD_SOURCES)
@@ -63,19 +68,56 @@ add_executable(keeply
     ${KEEPLY_CORE}
 )
 
-target_include_directories(keeply PRIVATE
+set(KEEPLY_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/ApiRest
+    ${CMAKE_CURRENT_SOURCE_DIR}/WebSocket
     ${blake3_src_SOURCE_DIR}/c
 )
 
-target_compile_definitions(keeply PRIVATE
-    BLAKE3_USE_NEON=0
-    BLAKE3_NO_AVX512
-)
-
-target_link_libraries(keeply PRIVATE
+set(KEEPLY_COMMON_LIBS
     OpenSSL::SSL
     OpenSSL::Crypto
     ZLIB::ZLIB
     SQLite::SQLite3
     ${ZSTD_LIB}
 )
+
+target_include_directories(keeply PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+target_compile_definitions(keeply PRIVATE
+    BLAKE3_USE_NEON=0
+    BLAKE3_NO_AVX512
+)
+
+target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
+
+add_executable(keeply_api_ws_smoke
+    HTTP/api_ws_smoke_main.cpp
+    ${KEEPLY_CORE}
+    ${KEEPLY_API_WS}
+)
+
+target_include_directories(keeply_api_ws_smoke PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+target_compile_definitions(keeply_api_ws_smoke PRIVATE
+    BLAKE3_USE_NEON=0
+    BLAKE3_NO_AVX512
+)
+
+target_link_libraries(keeply_api_ws_smoke PRIVATE ${KEEPLY_COMMON_LIBS})
+
+add_executable(keeply_rest_http
+    HTTP/rest_http_main.cpp
+    ${KEEPLY_CORE}
+    ApiRest/api-rest.cpp
+)
+
+target_include_directories(keeply_rest_http PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+target_compile_definitions(keeply_rest_http PRIVATE
+    BLAKE3_USE_NEON=0
+    BLAKE3_NO_AVX512
+)
+
+target_link_libraries(keeply_rest_http PRIVATE ${KEEPLY_COMMON_LIBS})

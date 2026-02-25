@@ -57,4 +57,6 @@ set(CMAKE_MAKEFILE_PRODUCTS
 # Dependency information for all targets:
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/keeply.dir/DependInfo.cmake"
+  "CMakeFiles/keeply_api_ws_smoke.dir/DependInfo.cmake"
+  "CMakeFiles/keeply_rest_http.dir/DependInfo.cmake"
   )

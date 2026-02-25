@@ -88,10 +88,38 @@ static bool shouldStoreRawByExtension(const fs::path& p) {
     return kRawExt.find(ext) != kRawExt.end();
 }
 
+static fs::path normalizeAbsBestEffort(const fs::path& p) {
+    std::error_code ec;
+    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
+    if (ec) abs = p;
+    return abs.lexically_normal();
+}
+
+static std::unordered_set<std::string> buildSelfBackupExclusions(const fs::path& archiveAbs) {
+    std::unordered_set<std::string> out;
+    out.reserve(10);
+
+    const fs::path db = normalizeAbsBestEffort(archiveAbs);
+    out.insert(db.string());
+    // Compatibilidade com variantes de pack do projeto:
+    // - formato atual de alguns branches: "<archive>.keeply"
+    // - formato alternativo: "<archive>.chunks.pack"
+    out.insert(fs::path(db.string() + ".keeply").string());
+    out.insert(fs::path(db.string() + ".chunks.pack").string());
+    out.insert(fs::path(db.string() + "-wal").string());
+    out.insert(fs::path(db.string() + "-shm").string());
+    out.insert(fs::path(db.string() + "-journal").string());
+    out.insert(fs::path(db.string() + ".keeply-wal").string());
+    out.insert(fs::path(db.string() + ".keeply-shm").string());
+    out.insert(fs::path(db.string() + ".keeply-journal").string());
+    return out;
+}
+
 // ============================= SCAN BACKUP ===============================
 
 BackupStats runBackup(StorageArchive& arc,
                       const fs::path& sourceRoot,
+                      const fs::path& archivePath,
                       const std::string& label) {
     BackupStats stats;
 
@@ -100,6 +128,8 @@ BackupStats runBackup(StorageArchive& arc,
     }
 
     std::cout << "Iniciando backup...\n";
+
+    const auto selfBackupExclusions = buildSelfBackupExclusions(archivePath);
 
     arc.begin();
 
@@ -193,9 +223,14 @@ BackupStats runBackup(StorageArchive& arc,
                 }
                 continue;
             }
-            ++stats.scanned;
-
             const fs::path fullPath = it->path();
+            const fs::path fullAbs = normalizeAbsBestEffort(fullPath);
+            if (selfBackupExclusions.find(fullAbs.string()) != selfBackupExclusions.end()) {
+                maybePrintProgress(fullPath);
+                continue;
+            }
+
+            ++stats.scanned;
             const std::string rel =
                 normalizeRelPath(fs::relative(fullPath, sourceRoot).string());
 
@@ -401,7 +436,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot,
     }
 
     StorageArchive arc(archiveAbs);
-    return runBackup(arc, sourceAbs, label);
+    return runBackup(arc, sourceAbs, archiveAbs, label);
 }
 
 } // namespace keeply
