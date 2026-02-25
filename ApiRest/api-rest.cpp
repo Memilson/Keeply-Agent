@@ -73,7 +73,9 @@ RestResponse KeeplyRestApi::handleGetState() {
     oss << "{"
         << "\"source\":\"" << escapeJson(s.source) << "\","
         << "\"archive\":\"" << escapeJson(s.archive) << "\","
-        << "\"restoreRoot\":\"" << escapeJson(s.restoreRoot) << "\""
+        << "\"restoreRoot\":\"" << escapeJson(s.restoreRoot) << "\","
+        << "\"archiveSplitEnabled\":" << (s.archiveSplitEnabled ? "true" : "false") << ","
+        << "\"archiveSplitMaxBytes\":" << s.archiveSplitMaxBytes
         << "}";
     return jsonOk(oss.str());
 }

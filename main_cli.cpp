@@ -55,6 +55,12 @@ void printConfig(const KeeplyApi& api) {
     std::cout << "Origem (scan): " << st.source << "\n";
     std::cout << "Arquivo backup: " << st.archive << "  [DB com chunks compactados]\n";
     std::cout << "Restore root  : " << st.restoreRoot << "\n";
+    std::cout << "Split archive : "
+              << (st.archiveSplitEnabled ? "ON" : "OFF");
+    if (st.archiveSplitEnabled) {
+        std::cout << " (maxBytes=" << st.archiveSplitMaxBytes << ")";
+    }
+    std::cout << "\n";
 }
 void printUsage(const char* argv0) {
     std::cout

@@ -259,6 +259,8 @@ struct AppState {
     std::string source = DEFAULT_SOURCE_ROOT.string();
     std::string archive = DEFAULT_ARCHIVE_PATH.string();
     std::string restoreRoot = DEFAULT_RESTORE_ROOT.string();
+    bool archiveSplitEnabled = false;
+    std::uint64_t archiveSplitMaxBytes = 0; // 0 = desabilitado (placeholder para futura divisao)
 };
 
 class KeeplyApi {
@@ -269,6 +271,8 @@ public:
     void setSource(const std::string& source);
     void setArchive(const std::string& archive);
     void setRestoreRoot(const std::string& restoreRoot);
+    void setArchiveSplitMaxBytes(std::uint64_t maxBytes); // TODO: ligar no storage write path
+    void disableArchiveSplit();
     bool archiveExists() const;
 
     BackupStats runBackup(const std::string& label);
