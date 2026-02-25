@@ -41,18 +41,54 @@ static ChunkHash blake3_digest32(const unsigned char* data, std::size_t len) {
 
 static bool shouldSkipDirByName(const fs::path& p) {
     const std::string name = p.filename().string();
-    return name == ".cache" ||
-           name == "node_modules" ||
-           name == ".keeply" ||
-           name == ".npm" ||
-           name == ".pnpm-store" ||
-           name == ".yarn" ||
-           name == ".gradle" ||
-           name == ".m2" ||
-           name == ".cargo" ||
-           name == ".rustup" ||
-           name == ".venv" ||
-           name == "venv";
+    std::string lower = name;
+    for (char& c : lower) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+
+    static const std::unordered_set<std::string> kSkipDirNames = {
+        // Package/dependency caches
+        ".cache", ".npm", ".pnpm-store", ".yarn", ".yarn-cache",
+        "node_modules", ".m2", ".gradle", ".ivy2", ".sbt",
+        ".cargo", ".rustup", "target",
+
+        // Python
+        ".venv", "venv", "env", ".tox", ".nox",
+        ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__",
+        ".hypothesis", ".ipynb_checkpoints",
+
+        // JS/Frontend tool caches
+        ".next", ".nuxt", ".svelte-kit", ".angular", ".vite",
+        ".turbo", ".parcel-cache", ".eslintcache", ".sass-cache",
+        ".cache-loader",
+
+        // Java/Kotlin/Android/IDE
+        ".idea", ".android", ".kotlin", ".classpath", ".settings",
+
+        // C/C++/Rust/Go/CMake build dirs (comuns)
+        "cmake-build-debug", "cmake-build-release", "cmake-build-relwithdebinfo",
+        "cmake-build-minsizerel", "build", "build-debug", "build-release",
+        "debug", "release", "out", "obj", "bin",
+
+        // Misc dev/infra
+        ".terraform", ".terragrunt-cache", ".serverless", ".aws-sam",
+        ".dart_tool", ".pub-cache", ".bundle", ".vendor-cache",
+
+        // Projeto
+        ".keeply"
+    };
+
+    if (kSkipDirNames.find(lower) != kSkipDirNames.end()) {
+        return true;
+    }
+
+    // Heurísticas genéricas para caches temporários
+    if (lower.size() >= 6 && lower.substr(lower.size() - 6) == ".cache") return true;
+    if (lower.size() >= 5 && lower.substr(lower.size() - 5) == "cache") return true;
+    if (lower.find("-cache") != std::string::npos) return true;
+    if (lower.find("_cache") != std::string::npos) return true;
+
+    return false;
 }
 
 static bool pathContainsTrashSegment(const fs::path& relPath) {
