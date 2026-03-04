@@ -1,32 +1,133 @@
 #include "keeply.hpp"
+#include "change_tracker.hpp"
 
 #include <blake3.h>
-
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <queue>
 #include <system_error>
-#include <cstddef>
 #include <thread>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 namespace keeply {
 
 namespace fs = std::filesystem;
 
-struct ChunkHashHasher {
-    std::size_t operator()(const ChunkHash& h) const noexcept {
-        std::size_t v = 1469598103934665603ULL;
-        for (unsigned char b : h) {
-            v ^= static_cast<std::size_t>(b);
-            v *= 1099511628211ULL;
+// =========================================================================
+// ESTRUTURAS DE ALTA PERFORMANCE E CONCORRÊNCIA
+// =========================================================================
+
+class BloomFilter {
+    std::vector<bool> bits;
+    std::size_t size;
+public:
+    BloomFilter(std::size_t size_in_bits) : size(size_in_bits) {
+        bits.resize(size, false);
+    }
+
+    void add(const ChunkHash& h) {
+        std::size_t hash1 = 0, hash2 = 0;
+        std::memcpy(&hash1, h.data(), sizeof(std::size_t));
+        std::memcpy(&hash2, h.data() + sizeof(std::size_t), sizeof(std::size_t));
+        bits[(hash1) % size] = true;
+        bits[(hash2) % size] = true;
+        bits[(hash1 + hash2) % size] = true;
+    }
+
+    bool possiblyContains(const ChunkHash& h) const {
+        std::size_t hash1 = 0, hash2 = 0;
+        std::memcpy(&hash1, h.data(), sizeof(std::size_t));
+        std::memcpy(&hash2, h.data() + sizeof(std::size_t), sizeof(std::size_t));
+        return bits[(hash1) % size] && bits[(hash2) % size] && bits[(hash1 + hash2) % size];
+    }
+};
+
+template <typename T>
+class ThreadSafeQueue {
+    std::queue<T> queue_;
+    std::mutex mutex_;
+    std::condition_variable cond_;
+    bool finished_ = false;
+public:
+    void push(T item) {
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            queue_.push(std::move(item));
         }
-        return v;
+        cond_.notify_one();
+    }
+    bool pop(T& item) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cond_.wait(lock, [this]() { return !queue_.empty() || finished_; });
+        if (queue_.empty() && finished_) return false;
+        item = std::move(queue_.front());
+        queue_.pop();
+        return true;
+    }
+    void finish() {
+        { std::unique_lock<std::mutex> lock(mutex_); finished_ = true; }
+        cond_.notify_all();
+    }
+};
+
+// =========================================================================
+// TAREFAS DO PIPELINE
+// =========================================================================
+
+struct FileProcessTask {
+    fs::path fullPath;
+    std::string relPath;
+    sqlite3_int64 size;
+    sqlite3_int64 mtime;
+};
+
+struct ChunkInsertDbTask {
+    ChunkHash hash;
+    std::size_t rawSize;
+    std::vector<unsigned char> data;
+    std::string compressionType;
+};
+
+struct FileCommitDbTask {
+    std::string relPath;
+    sqlite3_int64 size;
+    sqlite3_int64 mtime;
+    std::vector<StorageArchive::PendingFileChunk> chunks;
+};
+
+using DbOperation = std::variant<ChunkInsertDbTask, FileCommitDbTask>;
+
+struct AtomicStats {
+    std::atomic<std::size_t> scanned{0};
+    std::atomic<std::size_t> added{0};
+    std::atomic<std::size_t> reused{0};
+    std::atomic<std::size_t> chunks{0};
+    std::atomic<std::size_t> uniqueChunksInserted{0};
+    std::atomic<std::size_t> bytesRead{0};
+    std::atomic<std::size_t> warnings{0};
+
+    BackupStats toBackupStats() const {
+        BackupStats s;
+        s.scanned = scanned.load();
+        s.added = added.load();
+        s.reused = reused.load();
+        s.chunks = chunks.load();
+        s.uniqueChunksInserted = uniqueChunksInserted.load();
+        s.bytesRead = bytesRead.load();
+        s.warnings = warnings.load();
+        return s;
     }
 };
 
@@ -39,55 +140,20 @@ static ChunkHash blake3_digest32(const unsigned char* data, std::size_t len) {
     return out;
 }
 
-static bool shouldSkipDirByName(const fs::path& p) {
-    const std::string name = p.filename().string();
-    std::string lower = name;
-    for (char& c : lower) {
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    }
+static std::string lowerAscii(std::string s) {
+    for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    return s;
+}
 
+static bool shouldSkipDirByName(const std::string& lowerName) {
     static const std::unordered_set<std::string> kSkipDirNames = {
-        // Package/dependency caches
-        ".cache", ".npm", ".pnpm-store", ".yarn", ".yarn-cache",
-        "node_modules", ".m2", ".gradle", ".ivy2", ".sbt",
-        ".cargo", ".rustup", "target",
-
-        // Python
-        ".venv", "venv", "env", ".tox", ".nox",
-        ".pytest_cache", ".mypy_cache", ".ruff_cache", "__pycache__",
-        ".hypothesis", ".ipynb_checkpoints",
-
-        // JS/Frontend tool caches
-        ".next", ".nuxt", ".svelte-kit", ".angular", ".vite",
-        ".turbo", ".parcel-cache", ".eslintcache", ".sass-cache",
-        ".cache-loader",
-
-        // Java/Kotlin/Android/IDE
-        ".idea", ".android", ".kotlin", ".classpath", ".settings",
-
-        // C/C++/Rust/Go/CMake build dirs (comuns)
-        "cmake-build-debug", "cmake-build-release", "cmake-build-relwithdebinfo",
-        "cmake-build-minsizerel", "build", "build-debug", "build-release",
-        "debug", "release", "out", "obj", "bin",
-
-        // Misc dev/infra
-        ".terraform", ".terragrunt-cache", ".serverless", ".aws-sam",
-        ".dart_tool", ".pub-cache", ".bundle", ".vendor-cache",
-
-        // Projeto
-        ".keeply"
+        ".cache", ".npm", "node_modules", ".m2", ".cargo", "target",
+        ".venv", "venv", "__pycache__", ".idea", ".android",
+        "build", "out", "obj", "bin", ".terraform", ".keeply"
     };
-
-    if (kSkipDirNames.find(lower) != kSkipDirNames.end()) {
-        return true;
-    }
-
-    // Heurísticas genéricas para caches temporários
-    if (lower.size() >= 6 && lower.substr(lower.size() - 6) == ".cache") return true;
-    if (lower.size() >= 5 && lower.substr(lower.size() - 5) == "cache") return true;
-    if (lower.find("-cache") != std::string::npos) return true;
-    if (lower.find("_cache") != std::string::npos) return true;
-
+    if (kSkipDirNames.find(lowerName) != kSkipDirNames.end()) return true;
+    if (lowerName.size() >= 6 && lowerName.substr(lowerName.size() - 6) == ".cache") return true;
+    if (lowerName.find("-cache") != std::string::npos) return true;
     return false;
 }
 
@@ -105,20 +171,10 @@ static bool pathContainsTrashSegment(const fs::path& relPath) {
     return false;
 }
 
-static std::string lowerAscii(std::string s) {
-    for (char& c : s) {
-        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    }
-    return s;
-}
-
 static bool shouldStoreRawByExtension(const fs::path& p) {
     static const std::unordered_set<std::string> kRawExt = {
-        ".keeply", ".zip", ".7z", ".rar", ".gz", ".bz2", ".xz", ".zst", ".tgz",
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif",
-        ".mp3", ".aac", ".ogg", ".flac", ".m4a",
-        ".mp4", ".mkv", ".avi", ".mov", ".webm",
-        ".pdf", ".iso", ".apk", ".deb", ".rpm"
+        ".keeply", ".zip", ".7z", ".rar", ".gz", ".jpg", ".png", 
+        ".mp3", ".mp4", ".mkv", ".pdf", ".iso", ".apk"
     };
     const std::string ext = lowerAscii(p.extension().string());
     return kRawExt.find(ext) != kRawExt.end();
@@ -133,346 +189,418 @@ static fs::path normalizeAbsBestEffort(const fs::path& p) {
 
 static std::unordered_set<std::string> buildSelfBackupExclusions(const fs::path& archiveAbs) {
     std::unordered_set<std::string> out;
-    out.reserve(10);
-
-    const fs::path db = normalizeAbsBestEffort(archiveAbs);
-    out.insert(db.string());
-    // Compatibilidade com variantes de pack do projeto:
-    // - formato atual de alguns branches: "<archive>.keeply"
-    // - formato alternativo: "<archive>.chunks.pack"
-    out.insert(fs::path(db.string() + ".keeply").string());
-    out.insert(fs::path(db.string() + ".chunks.pack").string());
-    out.insert(fs::path(db.string() + "-wal").string());
-    out.insert(fs::path(db.string() + "-shm").string());
-    out.insert(fs::path(db.string() + "-journal").string());
-    out.insert(fs::path(db.string() + ".keeply-wal").string());
-    out.insert(fs::path(db.string() + ".keeply-shm").string());
-    out.insert(fs::path(db.string() + ".keeply-journal").string());
+    const std::string base = normalizeAbsBestEffort(archiveAbs).string();
+    out.insert(base);
+    out.insert(base + ".keeply");
+    out.insert(base + ".chunks.pack");
+    out.insert(base + "-wal");
+    out.insert(base + "-shm");
+    out.insert(base + "-journal");
     return out;
 }
 
-// ============================= SCAN BACKUP ===============================
+static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue) {
+    const std::string value = lowerAscii(trim(rawValue));
+    if (value.empty()) return defaultValue;
+    if (value == "1" || value == "true" || value == "on" || value == "yes") return true;
+    if (value == "0" || value == "false" || value == "off" || value == "no") return false;
+    return defaultValue;
+}
 
-BackupStats runBackup(StorageArchive& arc,
-                      const fs::path& sourceRoot,
-                      const fs::path& archivePath,
-                      const std::string& label) {
-    BackupStats stats;
-
-    if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot)) {
-        throw std::runtime_error("Diretorio de origem invalido.");
+static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, bool defaultValue) {
+    sqlite3* rawDb = nullptr;
+    const int openRc = sqlite3_open_v2(
+        archivePath.string().c_str(),
+        &rawDb,
+        SQLITE_OPEN_READONLY,
+        nullptr
+    );
+    if (openRc != SQLITE_OK) {
+        if (rawDb) sqlite3_close(rawDb);
+        return defaultValue;
     }
 
-    std::cout << "Iniciando backup...\n";
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT v FROM meta WHERE k = ? LIMIT 1;";
+    if (sqlite3_prepare_v2(rawDb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_close(rawDb);
+        return defaultValue;
+    }
 
-    const auto selfBackupExclusions = buildSelfBackupExclusions(archivePath);
+    sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
+    bool out = defaultValue;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(stmt, 0);
+        if (text) out = parseBoolConfigValue(reinterpret_cast<const char*>(text), defaultValue);
+    }
 
+    sqlite3_finalize(stmt);
+    sqlite3_close(rawDb);
+    return out;
+}
+
+static bool shouldSkipRelativeFileByPolicy(const std::string& relPathStr) {
+    const fs::path relPath(relPathStr);
+    if (pathContainsTrashSegment(relPath)) return true;
+    for (const auto& part : relPath.parent_path()) {
+        if (shouldSkipDirByName(lowerAscii(part.string()))) return true;
+    }
+    return false;
+}
+
+static void queueFileForBackup(
+    const fs::path& fullPath,
+    const fs::path& sourceRoot,
+    const std::unordered_set<std::string>& selfExclusions,
+    std::unordered_set<std::string>& seenPaths,
+    const std::map<std::string, FileInfo>& prevMap,
+    StorageArchive& arc,
+    sqlite3_int64 snapshotId,
+    ThreadSafeQueue<FileProcessTask>& jobQueue,
+    AtomicStats& stats)
+{
+    std::error_code qec;
+    if (!fs::is_regular_file(fullPath, qec)) {
+        stats.warnings++;
+        return;
+    }
+
+    const fs::path fullAbs = normalizeAbsBestEffort(fullPath);
+    if (selfExclusions.find(fullAbs.string()) != selfExclusions.end()) return;
+
+    stats.scanned++;
+    const std::string rel = normalizeRelPath(fs::relative(fullPath, sourceRoot, qec).string());
+    if (qec || !isSafeRelativePath(rel) || shouldSkipRelativeFileByPolicy(rel) || !seenPaths.insert(rel).second) {
+        stats.warnings++;
+        return;
+    }
+
+    const auto size1 = fs::file_size(fullPath, qec);
+    const auto mtimeRaw1 = fs::last_write_time(fullPath, qec);
+    if (qec) {
+        stats.warnings++;
+        return;
+    }
+    const auto mtime1 = fileTimeToUnixSeconds(mtimeRaw1);
+
+    auto prevIt = prevMap.find(rel);
+    if (prevIt != prevMap.end() &&
+        prevIt->second.size == static_cast<sqlite3_int64>(size1) &&
+        prevIt->second.mtime == static_cast<sqlite3_int64>(mtime1)) {
+        arc.cloneFileFromPrevious(snapshotId, rel, prevIt->second);
+        stats.reused++;
+        return;
+    }
+
+    jobQueue.push({fullPath, rel, static_cast<sqlite3_int64>(size1), static_cast<sqlite3_int64>(mtime1)});
+}
+
+static bool tryQueueFilesFromChangeTracker(
+    const fs::path& sourceRoot,
+    const std::unordered_set<std::string>& selfExclusions,
+    const std::map<std::string, FileInfo>& prevMap,
+    StorageArchive& arc,
+    sqlite3_int64 snapshotId,
+    ThreadSafeQueue<FileProcessTask>& jobQueue,
+    AtomicStats& stats,
+    std::uint64_t lastToken,
+    std::uint64_t& newToken)
+{
+    auto tracker = createPlatformChangeTracker();
+    if (!tracker) return false;
+    if (!tracker->isAvailable()) {
+        std::cout
+            << "CBT habilitado, mas o backend nativo "
+            << tracker->backendName()
+            << " ainda nao esta implementado. Usando full scan.\n";
+        return false;
+    }
+
+    tracker->startTracking(sourceRoot);
+    const std::vector<ChangedFile> changes = tracker->getChanges(lastToken, newToken);
+
+    std::unordered_set<std::string> changedPaths;
+    std::unordered_set<std::string> deletedPaths;
+    changedPaths.reserve(changes.size());
+    deletedPaths.reserve(changes.size());
+
+    for (const auto& change : changes) {
+        const std::string rel = normalizeRelPath(change.relPath);
+        if (!isSafeRelativePath(rel) || shouldSkipRelativeFileByPolicy(rel)) {
+            stats.warnings++;
+            continue;
+        }
+        if (change.isDeleted) {
+            deletedPaths.insert(rel);
+            continue;
+        }
+        changedPaths.insert(rel);
+    }
+
+    std::cout
+        << "CBT ativo (" << tracker->backendName() << "): "
+        << changedPaths.size() << " mudanca(s), "
+        << deletedPaths.size() << " remocao(oes).\n";
+
+    for (const auto& [relPath, prev] : prevMap) {
+        if (changedPaths.find(relPath) != changedPaths.end()) continue;
+        if (deletedPaths.find(relPath) != deletedPaths.end()) continue;
+        arc.cloneFileFromPrevious(snapshotId, relPath, prev);
+        stats.reused++;
+    }
+
+    std::unordered_set<std::string> seenPaths;
+    seenPaths.reserve(changedPaths.size());
+    for (const auto& relPath : changedPaths) {
+        queueFileForBackup(
+            sourceRoot / fs::path(relPath),
+            sourceRoot,
+            selfExclusions,
+            seenPaths,
+            prevMap,
+            arc,
+            snapshotId,
+            jobQueue,
+            stats
+        );
+    }
+
+    return true;
+}
+
+static std::optional<std::uint64_t> tryCaptureChangeTrackerBaselineToken(const fs::path& sourceRoot) {
+    auto tracker = createPlatformChangeTracker();
+    if (!tracker || !tracker->isAvailable()) return std::nullopt;
+
+    tracker->startTracking(sourceRoot);
+    std::uint64_t newToken = 0;
+    static_cast<void>(tracker->getChanges(0, newToken));
+    if (newToken == 0) return std::nullopt;
+    return newToken;
+}
+
+// =========================================================================
+// WORKERS DO PIPELINE
+// =========================================================================
+
+void processFilesWorker(
+    ThreadSafeQueue<FileProcessTask>& jobQueue,
+    ThreadSafeQueue<DbOperation>& dbQueue,
+    BloomFilter& globalBloom,
+    std::mutex& bloomMutex,
+    AtomicStats& stats) 
+{
+    FileProcessTask task;
+    std::vector<unsigned char> buffer(CHUNK_SIZE);
+
+    while (jobQueue.pop(task)) {
+        std::ifstream in(task.fullPath, std::ios::binary);
+        if (!in) { stats.warnings++; continue; }
+
+        const bool storeRaw = shouldStoreRawByExtension(task.fullPath);
+        std::vector<StorageArchive::PendingFileChunk> pendingChunks;
+        int chunkIndex = 0;
+
+        while (in) {
+            in.read(reinterpret_cast<char*>(buffer.data()), buffer.size());
+            std::streamsize n = in.gcount();
+            if (n <= 0) break;
+
+            const ChunkHash chunkHash = blake3_digest32(buffer.data(), static_cast<std::size_t>(n));
+            stats.bytesRead += static_cast<std::size_t>(n);
+            stats.chunks++;
+
+            bool isNewChunk = false;
+            {
+                std::lock_guard<std::mutex> lock(bloomMutex);
+                if (!globalBloom.possiblyContains(chunkHash)) {
+                    globalBloom.add(chunkHash);
+                    isNewChunk = true;
+                }
+            }
+
+            if (isNewChunk) {
+                ChunkInsertDbTask chunkTask;
+                chunkTask.hash = chunkHash;
+                chunkTask.rawSize = static_cast<std::size_t>(n);
+                
+                if (storeRaw) {
+                    chunkTask.data.assign(buffer.begin(), buffer.begin() + n);
+                    chunkTask.compressionType = "raw";
+                } else {
+                    // OTIMIZAÇÃO APLICADA: Zero-Allocation Copy
+                    // Passamos chunkTask.data por referência. O zstdCompress aloca a memória internamente.
+                    Compactador::zstdCompress(buffer.data(), n, 1, chunkTask.data);
+                    chunkTask.compressionType = "zstd";
+                }
+                dbQueue.push(std::move(chunkTask));
+            }
+
+            pendingChunks.push_back({chunkIndex, chunkHash, static_cast<std::size_t>(n)});
+            ++chunkIndex;
+        }
+
+        std::error_code qec;
+        const auto size2 = fs::file_size(task.fullPath, qec);
+        const auto mtimeRaw2 = fs::last_write_time(task.fullPath, qec);
+        
+        if (!qec && task.size == static_cast<sqlite3_int64>(size2) && 
+            task.mtime == fileTimeToUnixSeconds(mtimeRaw2)) {
+            FileCommitDbTask commitTask{task.relPath, task.size, task.mtime, std::move(pendingChunks)};
+            dbQueue.push(std::move(commitTask));
+            stats.added++;
+        } else {
+            stats.warnings++;
+        }
+    }
+}
+
+void databaseWriterWorker(
+    StorageArchive& arc,
+    sqlite3_int64 snapshotId,
+    ThreadSafeQueue<DbOperation>& dbQueue,
+    AtomicStats& stats) 
+{
+    DbOperation op;
+    while (dbQueue.pop(op)) {
+        if (std::holds_alternative<ChunkInsertDbTask>(op)) {
+            auto& chunk = std::get<ChunkInsertDbTask>(op);
+            bool inserted = arc.insertChunkIfMissing(chunk.hash, chunk.rawSize, chunk.data, chunk.compressionType);
+            if (inserted) stats.uniqueChunksInserted++;
+            
+        } else if (std::holds_alternative<FileCommitDbTask>(op)) {
+            auto& file = std::get<FileCommitDbTask>(op);
+            const sqlite3_int64 fileId = arc.insertFilePlaceholder(snapshotId, file.relPath, file.size, file.mtime);
+            arc.addFileChunksBulk(fileId, file.chunks);
+        }
+    }
+}
+
+// =========================================================================
+// ORQUESTRADOR PRINCIPAL
+// =========================================================================
+
+BackupStats runBackup(StorageArchive& arc, const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label) {
+    AtomicStats stats;
+    if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot)) throw std::runtime_error("Origem invalida.");
+
+    std::cout << "Iniciando backup Enterprise-Grade...\n";
+    const auto selfExclusions = buildSelfBackupExclusions(archivePath);
+    const bool cbtEnabled = readArchiveBoolConfig(archivePath, "scan.cbt.enabled", false);
+    std::uint64_t newCbtToken = 0;
+    
     arc.begin();
 
     try {
         auto prevSnapshotOpt = arc.latestSnapshotId();
+        const std::uint64_t lastCbtToken = arc.latestSnapshotCbtToken().value_or(0);
         std::map<std::string, FileInfo> prevMap;
-        if (prevSnapshotOpt) {
-            std::cout << "Carregando snapshot anterior #" << *prevSnapshotOpt << "...\n";
-            prevMap = arc.loadSnapshotFileMap(*prevSnapshotOpt);
-            std::cout << "Snapshot anterior carregado: " << prevMap.size() << " arquivos\n";
-        } else {
-            std::cout << "Sem snapshot anterior.\n";
+        if (prevSnapshotOpt) prevMap = arc.loadSnapshotFileMap(*prevSnapshotOpt);
+
+        const sqlite3_int64 snapshotId = arc.createSnapshot(sourceRoot.string(), label);
+        std::unordered_set<std::string> seenPaths;
+        seenPaths.reserve(100000);
+
+        BloomFilter globalBloom(16 * 1024 * 1024 * 8); // 16MB de RAM para proteger contra bilhões de colisões
+        std::mutex bloomMutex;
+
+        ThreadSafeQueue<FileProcessTask> jobQueue;
+        ThreadSafeQueue<DbOperation> dbQueue;
+
+        std::thread dbThread(databaseWriterWorker, std::ref(arc), snapshotId, std::ref(dbQueue), std::ref(stats));
+
+        const unsigned hwThreads = std::thread::hardware_concurrency();
+        const unsigned workerCount = std::max<unsigned>(1, hwThreads > 2 ? hwThreads - 2 : 1);
+        std::vector<std::thread> workers;
+        for (unsigned i = 0; i < workerCount; ++i) {
+            workers.emplace_back(processFilesWorker, std::ref(jobQueue), std::ref(dbQueue), 
+                                 std::ref(globalBloom), std::ref(bloomMutex), std::ref(stats));
         }
-        const sqlite3_int64 snapshotId =
-            arc.createSnapshot(sourceRoot.string(), label);
-        std::unordered_set<std::string> seenPathsInSnapshot;
-        seenPathsInSnapshot.reserve(65536);
-        std::unordered_set<ChunkHash, ChunkHashHasher> seenChunkHashes;
-        seenChunkHashes.reserve(100000);
-        const unsigned hw = std::thread::hardware_concurrency();
-        const std::size_t maxCompressInFlight = std::max<std::size_t>(
-            1, std::min<std::size_t>(8, hw > 1 ? (hw - 1) : 1)
-        );
-        std::size_t visitedEntries = 0;
-        auto lastBeat = std::chrono::steady_clock::now();
-        std::size_t lastBeatScanned = 0;
-        auto maybePrintProgress = [&](const fs::path& current, bool force = false) {
-            const auto now = std::chrono::steady_clock::now();
-            if (!force) {
-                if (stats.scanned != 0 && (stats.scanned % 1000 == 0) && stats.scanned != lastBeatScanned) {
-                } else if (now - lastBeat < std::chrono::seconds(2)) {
-                    return;
-                }
-            }
-            lastBeat = now;
-            lastBeatScanned = stats.scanned;
-            std::cout << "PROGRESS visited=" << visitedEntries
-                      << " scanned=" << stats.scanned
-                      << " added=" << stats.added
-                      << " reused=" << stats.reused
-                      << " chunks=" << stats.chunks
-                      << " bytes=" << stats.bytesRead
-                      << " warnings=" << stats.warnings
-                      << " path=" << current.string()
-                      << "\n" << std::flush;
-        };
-        std::cout << "Iniciando varredura...\n";
-        maybePrintProgress(sourceRoot, true);
-        std::error_code itEc;
-        fs::recursive_directory_iterator it(
-            sourceRoot,
-            fs::directory_options::skip_permission_denied,
-            itEc
-        );
-        if (itEc) {
-            throw std::runtime_error("Erro iniciando scan: " + itEc.message());
+
+        bool queuedFromTracker = false;
+        if (cbtEnabled && prevSnapshotOpt.has_value()) {
+            queuedFromTracker = tryQueueFilesFromChangeTracker(
+                sourceRoot,
+                selfExclusions,
+                prevMap,
+                arc,
+                snapshotId,
+                jobQueue,
+                stats,
+                lastCbtToken,
+                newCbtToken
+            );
         }
-        fs::recursive_directory_iterator end;
-        for (; it != end; it.increment(itEc)) {
-            if (itEc) {
-                ++stats.warnings;
-                itEc.clear();
-                continue;
-            }
-            ++visitedEntries;
-            std::error_code qec;
-            if (it->is_directory(qec)) {
-                if (qec) {
-                    ++stats.warnings;
+
+        if (!queuedFromTracker) {
+            std::error_code itEc;
+            fs::recursive_directory_iterator it(sourceRoot, fs::directory_options::skip_permission_denied, itEc);
+            fs::recursive_directory_iterator end;
+
+            for (; it != end; it.increment(itEc)) {
+                if (itEc) { stats.warnings++; itEc.clear(); continue; }
+
+                std::error_code qec;
+                if (it->is_directory(qec)) {
+                    if (qec) { stats.warnings++; continue; }
+                    const std::string lowerName = lowerAscii(it->path().filename().string());
+                    if (shouldSkipDirByName(lowerName)) { it.disable_recursion_pending(); continue; }
+                    fs::path relDir = fs::relative(it->path(), sourceRoot, qec);
+                    if (!qec && pathContainsTrashSegment(relDir)) it.disable_recursion_pending();
                     continue;
                 }
-                const fs::path dirPath = it->path();
-                if (shouldSkipDirByName(dirPath)) {
-                    it.disable_recursion_pending();
-                    maybePrintProgress(dirPath);
-                    continue;
-                }
-                std::error_code recEc;
-                fs::path relDir = fs::relative(dirPath, sourceRoot, recEc);
-                if (!recEc && pathContainsTrashSegment(relDir)) {
-                    it.disable_recursion_pending();
-                    maybePrintProgress(dirPath);
-                    continue;
-                }
-                maybePrintProgress(dirPath);
-                continue;
+
+                if (!it->is_regular_file(qec)) { if (qec) stats.warnings++; continue; }
+
+                queueFileForBackup(
+                    it->path(),
+                    sourceRoot,
+                    selfExclusions,
+                    seenPaths,
+                    prevMap,
+                    arc,
+                    snapshotId,
+                    jobQueue,
+                    stats
+                );
             }
-            if (!it->is_regular_file(qec)) {
-                if (qec) {
-                    ++stats.warnings;
-                }
-                continue;
+        }
+
+        jobQueue.finish();
+        for (auto& w : workers) if (w.joinable()) w.join();
+
+        dbQueue.finish();
+        if (dbThread.joinable()) dbThread.join();
+
+        if (queuedFromTracker && newCbtToken != 0) {
+            arc.updateSnapshotCbtToken(snapshotId, newCbtToken);
+        } else if (cbtEnabled) {
+            const auto baselineToken = tryCaptureChangeTrackerBaselineToken(sourceRoot);
+            if (baselineToken.has_value()) {
+                arc.updateSnapshotCbtToken(snapshotId, *baselineToken);
             }
-            const fs::path fullPath = it->path();
-            const fs::path fullAbs = normalizeAbsBestEffort(fullPath);
-            if (selfBackupExclusions.find(fullAbs.string()) != selfBackupExclusions.end()) {
-                maybePrintProgress(fullPath);
-                continue;
-            }
-
-            ++stats.scanned;
-            const std::string rel =
-                normalizeRelPath(fs::relative(fullPath, sourceRoot).string());
-
-            if (!isSafeRelativePath(rel)) continue;
-            if (!seenPathsInSnapshot.insert(rel).second) {
-                ++stats.warnings;
-                continue;
-            }
-
-            qec.clear();
-            const auto size1 = fs::file_size(fullPath, qec);
-            if (qec) {
-                ++stats.warnings;
-                continue;
-            }
-            const auto mtimeRaw1 = fs::last_write_time(fullPath, qec);
-            if (qec) {
-                ++stats.warnings;
-                continue;
-            }
-            const auto mtime1 = fileTimeToUnixSeconds(mtimeRaw1);
-
-            // Verificar se arquivo é igual ao snapshot anterior
-            auto prevIt = prevMap.find(rel);
-            if (prevIt != prevMap.end()) {
-                const auto& prev = prevIt->second;
-
-                if (prev.size == static_cast<sqlite3_int64>(size1) &&
-                    prev.mtime == static_cast<sqlite3_int64>(mtime1)) {
-
-                    // clone direto (sem ler disco)
-                    arc.cloneFileFromPrevious(snapshotId, rel, prev);
-                    ++stats.reused;
-                    continue;
-                }
-            }
-
-            // Novo ou modificado
-            const sqlite3_int64 fileId =
-                arc.insertFilePlaceholder(snapshotId,
-                                          rel,
-                                          static_cast<sqlite3_int64>(size1),
-                                          static_cast<sqlite3_int64>(mtime1));
-
-            std::ifstream in(fullPath, std::ios::binary);
-            if (!in) {
-                arc.deleteFileRecord(fileId);
-                ++stats.warnings;
-                continue;
-            }
-            const bool storeRaw = shouldStoreRawByExtension(fullPath);
-
-            std::vector<unsigned char> buffer(CHUNK_SIZE);
-
-            std::vector<StorageArchive::PendingFileChunk> pendingChunks;
-            pendingChunks.reserve(256);
-            struct PendingCompressedChunk {
-                ChunkHash hash{};
-                std::size_t rawSize{};
-                std::future<std::vector<unsigned char>> compFuture;
-            };
-            std::deque<PendingCompressedChunk> pendingCompressed;
-            auto flushOneCompressed = [&]() {
-                if (pendingCompressed.empty()) return;
-                PendingCompressedChunk job = std::move(pendingCompressed.front());
-                pendingCompressed.pop_front();
-                auto comp = job.compFuture.get();
-                const bool inserted = arc.insertChunkIfMissing(job.hash, job.rawSize, comp, "zstd");
-                if (inserted) {
-                    ++stats.uniqueChunksInserted;
-                }
-            };
-
-            int chunkIndex = 0;
-
-            while (in) {
-                in.read(reinterpret_cast<char*>(buffer.data()),
-                        static_cast<std::streamsize>(buffer.size()));
-
-                std::streamsize n = in.gcount();
-                if (n <= 0) break;
-
-                const ChunkHash chunkHash =
-                    blake3_digest32(buffer.data(), static_cast<std::size_t>(n));
-                stats.bytesRead += static_cast<std::size_t>(n);
-                ++stats.chunks;
-                maybePrintProgress(fullPath);
-
-                // Se chunk já apareceu nesta execução, não comprimir de novo
-                if (seenChunkHashes.find(chunkHash) == seenChunkHashes.end()) {
-                    if (storeRaw) {
-                        std::vector<unsigned char> rawChunk(
-                            buffer.begin(),
-                            buffer.begin() + static_cast<std::size_t>(n)
-                        );
-                        const bool inserted = arc.insertChunkIfMissing(
-                            chunkHash,
-                            static_cast<std::size_t>(n),
-                            rawChunk,
-                            "raw"
-                        );
-                        if (inserted) {
-                            ++stats.uniqueChunksInserted;
-                        }
-                    } else {
-                        std::vector<unsigned char> chunkCopy(
-                            buffer.begin(),
-                            buffer.begin() + static_cast<std::size_t>(n)
-                        );
-                        PendingCompressedChunk job;
-                        job.hash = chunkHash;
-                        job.rawSize = static_cast<std::size_t>(n);
-                        job.compFuture = std::async(
-                            std::launch::async,
-                            [data = std::move(chunkCopy)]() mutable {
-                                return Compactador::zstdCompress(data.data(), data.size(), 1);
-                            }
-                        );
-                        pendingCompressed.push_back(std::move(job));
-                        if (pendingCompressed.size() >= maxCompressInFlight) {
-                            flushOneCompressed();
-                        }
-                    }
-
-                    seenChunkHashes.insert(chunkHash);
-                }
-
-                pendingChunks.push_back({
-                    chunkIndex,
-                    chunkHash,
-                    static_cast<std::size_t>(n)
-                });
-
-                ++chunkIndex;
-            }
-            while (!pendingCompressed.empty()) {
-                flushOneCompressed();
-            }
-
-            in.close();
-
-            // Revalidação anti-race condition
-            qec.clear();
-            const auto size2 = fs::file_size(fullPath, qec);
-            if (qec) {
-                arc.deleteFileRecord(fileId);
-                ++stats.warnings;
-                continue;
-            }
-            const auto mtimeRaw2 = fs::last_write_time(fullPath, qec);
-            if (qec) {
-                arc.deleteFileRecord(fileId);
-                ++stats.warnings;
-                continue;
-            }
-            const auto mtime2 = fileTimeToUnixSeconds(mtimeRaw2);
-
-            if (size1 != size2 || mtime1 != mtime2) {
-                // Arquivo mudou durante leitura
-                arc.deleteFileRecord(fileId);
-                ++stats.warnings;
-                continue;
-            }
-
-            // Inserção bulk dos file_chunks
-            arc.addFileChunksBulk(fileId, pendingChunks);
-
-            ++stats.added;
-            maybePrintProgress(fullPath);
         }
 
         arc.commit();
-
-        maybePrintProgress(sourceRoot, true);
-        std::cout << "Backup finalizado. Arquivos processados: "
-                  << (stats.added + stats.reused) << "\n";
+        BackupStats finalStats = stats.toBackupStats();
+        return finalStats;
 
     } catch (...) {
         arc.rollback();
         throw;
     }
-
-    return stats;
 }
 
-BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot,
-                                           const fs::path& archivePath,
-                                           const std::string& label) {
+BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label) {
     const fs::path sourceAbs = fs::absolute(sourceRoot).lexically_normal();
-    if (sourceAbs != fs::path("/home")) {
-        throw std::runtime_error(
-            "Origem permitida neste build: /home (recebido: " + sourceAbs.string() + ")"
-        );
-    }
+    if (sourceAbs != fs::path("/home")) throw std::runtime_error("Origem permitida: /home");
 
     const fs::path archiveAbs = fs::absolute(archivePath).lexically_normal();
     std::error_code ec;
-    if (!archiveAbs.parent_path().empty()) {
-        fs::create_directories(archiveAbs.parent_path(), ec);
-        if (ec) {
-            throw std::runtime_error("Falha criando pasta do arquivo KPLY: " + ec.message());
-        }
-    }
+    if (!archiveAbs.parent_path().empty()) fs::create_directories(archiveAbs.parent_path(), ec);
+    if (ec) throw std::runtime_error("Falha criando pasta: " + ec.message());
 
     StorageArchive arc(archiveAbs);
     return runBackup(arc, sourceAbs, archiveAbs, label);
 }
-
 } // namespace keeply

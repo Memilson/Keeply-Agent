@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <system_error>
+#include <vector>
 
 namespace keeply {
 
@@ -22,7 +23,6 @@ void RestoreEngine::restoreFile(const fs::path& archivePath,
     }
 
     sqlite3_int64 fileId = found->first;
-    (void)found->second; // size (não usado no momento)
 
     fs::path target = fs::absolute(outRoot) / fs::path(rp);
 
@@ -35,25 +35,41 @@ void RestoreEngine::restoreFile(const fs::path& archivePath,
     }
 
     auto chunks = arc.loadFileChunks(fileId);
+    
+    // =========================================================================
+    // OTIMIZAÇÃO ENTERPRISE: ZERO-ALLOCATION LOOP
+    // Criamos o buffer de descompressão UMA VEZ fora do loop.
+    // Ele estica até o tamanho do maior chunk e é reaproveitado, zerando o uso do 'new/malloc' na CPU.
+    // =========================================================================
+    std::vector<unsigned char> decompressBuffer;
+    decompressBuffer.reserve(CHUNK_SIZE);
+
     for (const auto& c : chunks) {
         if (c.blob.size() != c.compSize) {
             throw std::runtime_error("Blob de chunk invalido/corrompido.");
         }
-        std::vector<unsigned char> raw;
+
         if (c.algo == "raw") {
             if (c.blob.size() != c.rawSize) {
                 throw std::runtime_error("Chunk raw corrompido (tamanho invalido).");
             }
-            raw = c.blob;
-        } else if (c.algo == "zstd") {
-            raw = Compactador::zstdDecompress(c.blob.data(), c.compSize, c.rawSize);
-        } else if (c.algo == "zlib") {
-            raw = Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize);
+            // Grava direto do blob
+            out.write(reinterpret_cast<const char*>(c.blob.data()),
+                      static_cast<std::streamsize>(c.rawSize));
         } else {
-            throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);
+            // Descomprime aproveitando o buffer pré-alocado
+            if (c.algo == "zstd") {
+                Compactador::zstdDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
+            } else if (c.algo == "zlib") {
+                Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
+            } else {
+                throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);
+            }
+            
+            // Grava o buffer reciclado no disco
+            out.write(reinterpret_cast<const char*>(decompressBuffer.data()),
+                      static_cast<std::streamsize>(decompressBuffer.size()));
         }
-        out.write(reinterpret_cast<const char*>(raw.data()),
-                  static_cast<std::streamsize>(raw.size()));
 
         if (!out) {
             throw std::runtime_error("Erro escrevendo arquivo restaurado.");

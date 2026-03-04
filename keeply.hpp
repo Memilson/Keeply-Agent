@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -171,6 +173,7 @@ public:
     sqlite3_int64 createSnapshot(const std::string& sourceRoot, const std::string& label);
 
     std::optional<sqlite3_int64> latestSnapshotId();
+    std::optional<std::uint64_t> latestSnapshotCbtToken();
     std::optional<sqlite3_int64> previousSnapshotId();
     sqlite3_int64 resolveSnapshotId(const std::string& userInput);
 
@@ -215,23 +218,31 @@ public:
 
     std::vector<StoredChunkRow> loadFileChunks(sqlite3_int64 fileId);
     std::vector<std::string> listSnapshotPaths(sqlite3_int64 snapshotId);
+    void updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint64_t token);
 
 private:
-    void prepareHotStatements();
-    void finalizeHotStatements();
     struct HotStmts {
         sqlite3_stmt* insertSnapshot = nullptr;
+        sqlite3_stmt* updateSnapshotCbtToken = nullptr;
         sqlite3_stmt* insertFilePlaceholder = nullptr;
-        sqlite3_stmt* updateFileHash = nullptr;
-        sqlite3_stmt* deleteFileRecord = nullptr;
         sqlite3_stmt* cloneFileInsert = nullptr;
         sqlite3_stmt* cloneFileChunks = nullptr;
         sqlite3_stmt* insertChunkIfMissing = nullptr;
+        sqlite3_stmt* updateChunkOffset = nullptr;
         sqlite3_stmt* addFileChunk = nullptr;
     };
     fs::path path_;
     DB db_;
-    HotStmts hot_{};
+    HotStmts hot_;
+    std::shared_ptr<void> backendOpaque_;
+    mutable std::unique_ptr<std::ifstream> packIn_;
+    void prepareHotStatements();
+    void finalizeHotStatements();
+    std::vector<unsigned char> readPackAt(sqlite3_int64 recordOffset,
+                                          const ChunkHash& expectedSha,
+                                          std::size_t expectedRawSize,
+                                          std::size_t expectedCompSize,
+                                          const std::string& expectedAlgo) const;
 };
 
 // Engines
