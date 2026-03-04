@@ -1,0 +1,3 @@
+/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-subbuild/CMakeFiles/blake3_src-populate.dir
+/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-subbuild/CMakeFiles/edit_cache.dir
+/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-subbuild/CMakeFiles/rebuild_cache.dir

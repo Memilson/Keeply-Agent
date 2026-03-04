@@ -41,28 +41,32 @@ class Compactador {
 public:
     static std::string sha256Hex(const void* data, std::size_t len);
 
-    static std::vector<unsigned char> zlibCompress(
+    static void zlibCompress(
         const unsigned char* data,
         std::size_t len,
-        int level = 1
+        int level,
+        std::vector<unsigned char>& out
     );
 
-    static std::vector<unsigned char> zlibDecompress(
+    static void zlibDecompress(
         const void* compData,
         std::size_t compLen,
-        std::size_t rawSize
+        std::size_t rawSize,
+        std::vector<unsigned char>& out
     );
 
-    static std::vector<unsigned char> zstdCompress(
+    static void zstdCompress(
         const unsigned char* data,
         std::size_t len,
-        int level = 1
+        int level,
+        std::vector<unsigned char>& out
     );
 
-    static std::vector<unsigned char> zstdDecompress(
+    static void zstdDecompress(
         const void* compData,
         std::size_t compLen,
-        std::size_t rawSize
+        std::size_t rawSize,
+        std::vector<unsigned char>& out
     );
 };
 

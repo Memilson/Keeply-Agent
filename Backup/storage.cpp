@@ -1,5 +1,4 @@
 #include "keeply.hpp"
-#include "change_tracker.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -9,19 +8,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <cstdint>
 #include <iostream>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <winioctl.h>
-#elif defined(__linux__)
-#include <fcntl.h>
-#include <sys/inotify.h>
-#include <unistd.h>
-#endif
 namespace keeply {
 namespace {
 static void finalizeStmt(sqlite3_stmt*& st) { if (st) { sqlite3_finalize(st); st=nullptr; } }
@@ -34,6 +23,7 @@ static void bindTextOrThrow(sqlite3* db, sqlite3_stmt* st, int idx, const std::s
 static void bindBlobOrThrow(sqlite3* db, sqlite3_stmt* st, int idx, const void* data, int len) { if (sqlite3_bind_blob(st, idx, data, len, SQLITE_TRANSIENT) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db)); }
 static void bindNullOrThrow(sqlite3* db, sqlite3_stmt* st, int idx) { if (sqlite3_bind_null(st, idx) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db)); }
 static std::string colText(sqlite3_stmt* st, int idx) { const unsigned char* p=sqlite3_column_text(st, idx); return p ? reinterpret_cast<const char*>(p) : ""; }
+static std::string lowerAscii(std::string s) { for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a'); return s; }
 static constexpr char kChunkPackFileMagic[8]={'K','P','C','H','U','N','K','1'};
 static constexpr char kChunkPackRecMagic[8]={'K','P','R','E','C','0','0','1'};
 static constexpr std::size_t kMaxChunkRawSize=static_cast<std::size_t>(CHUNK_SIZE);
@@ -231,10 +221,39 @@ std::optional<sqlite3_int64> StorageArchive::latestSnapshotId() {
     if (st.stepRow()) return sqlite3_column_int64(st.get(), 0);
     return std::nullopt;
 }
+std::optional<sqlite3_int64> StorageArchive::previousSnapshotId() {
+    Stmt st(db_.raw(), "SELECT id FROM snapshots ORDER BY id DESC LIMIT 1 OFFSET 1;");
+    if (st.stepRow()) return sqlite3_column_int64(st.get(), 0);
+    return std::nullopt;
+}
 std::optional<std::uint64_t> StorageArchive::latestSnapshotCbtToken() {
     Stmt st(db_.raw(), "SELECT cbt_token FROM snapshots ORDER BY id DESC LIMIT 1;");
     if (!st.stepRow()) return std::nullopt;
     return static_cast<std::uint64_t>(sqlite3_column_int64(st.get(), 0));
+}
+sqlite3_int64 StorageArchive::resolveSnapshotId(const std::string& userInput) {
+    const std::string input = lowerAscii(trim(userInput));
+    if (input.empty() || input == "latest" || input == "last") {
+        const auto latest = latestSnapshotId();
+        if (!latest) throw std::runtime_error("Nenhum snapshot encontrado.");
+        return *latest;
+    }
+    if (input == "previous" || input == "prev") {
+        const auto previous = previousSnapshotId();
+        if (!previous) throw std::runtime_error("Nao existe snapshot anterior.");
+        return *previous;
+    }
+    try {
+        const sqlite3_int64 snapshotId = static_cast<sqlite3_int64>(std::stoll(input));
+        Stmt st(db_.raw(), "SELECT 1 FROM snapshots WHERE id = ? LIMIT 1;");
+        st.bindInt64(1, snapshotId);
+        if (!st.stepRow()) throw std::runtime_error("Snapshot nao encontrado: " + userInput);
+        return snapshotId;
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error("Identificador de snapshot invalido: " + userInput);
+    } catch (const std::out_of_range&) {
+        throw std::runtime_error("Identificador de snapshot fora do intervalo: " + userInput);
+    }
 }
 std::map<std::string, FileInfo> StorageArchive::loadSnapshotFileMap(sqlite3_int64 snapshotId) {
     std::map<std::string, FileInfo> out;
@@ -242,6 +261,11 @@ std::map<std::string, FileInfo> StorageArchive::loadSnapshotFileMap(sqlite3_int6
     st.bindInt64(1, snapshotId);
     while (st.stepRow()) { FileInfo f; f.fileId=sqlite3_column_int64(st.get(), 0); f.size=sqlite3_column_int64(st.get(), 2); f.mtime=sqlite3_column_int64(st.get(), 3); f.fileHash=colText(st.get(), 4); out[colText(st.get(), 1)]=std::move(f); }
     return out;
+}
+std::map<std::string, FileInfo> StorageArchive::loadLatestSnapshotFileMap() {
+    const auto latest = latestSnapshotId();
+    if (!latest) return {};
+    return loadSnapshotFileMap(*latest);
 }
 sqlite3_int64 StorageArchive::insertFilePlaceholder(sqlite3_int64 snapshotId, const std::string& relPath, sqlite3_int64 size, sqlite3_int64 mtime) {
     sqlite3_stmt* st=hot_.insertFilePlaceholder;
@@ -252,6 +276,19 @@ sqlite3_int64 StorageArchive::insertFilePlaceholder(sqlite3_int64 snapshotId, co
     bindInt64OrThrow(db_.raw(), st, 4, mtime);
     stepDoneOrThrow(db_.raw(), st);
     return db_.lastInsertId();
+}
+void StorageArchive::updateFileHash(sqlite3_int64 fileId, const std::string& fileHash) {
+    Stmt st(db_.raw(), "UPDATE files SET file_hash = ? WHERE id = ?;");
+    st.bindText(1, fileHash);
+    st.bindInt64(2, fileId);
+    st.stepDone();
+    if (db_.changes() != 1) throw std::runtime_error("Falha atualizando hash do arquivo.");
+}
+void StorageArchive::deleteFileRecord(sqlite3_int64 fileId) {
+    Stmt st(db_.raw(), "DELETE FROM files WHERE id = ?;");
+    st.bindInt64(1, fileId);
+    st.stepDone();
+    if (db_.changes() != 1) throw std::runtime_error("Falha removendo registro do arquivo.");
 }
 sqlite3_int64 StorageArchive::cloneFileFromPrevious(sqlite3_int64 snapshotId, const std::string& relPath, const FileInfo& prev) {
     sqlite3_stmt* ins=hot_.cloneFileInsert;
@@ -369,239 +406,83 @@ void StorageArchive::updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint6
     stepDoneOrThrow(db_.raw(), st);
     if (sqlite3_changes(db_.raw()) != 1) throw std::runtime_error("Falha atualizando cbt_token do snapshot.");
 }
-
-#ifdef _WIN32
-class WindowsUSNTracker : public ChangeTracker {
-    HANDLE hVol = INVALID_HANDLE_VALUE;
-    std::filesystem::path driveLetter;
-    std::filesystem::path root;
-
-    std::string resolvePathFromFileId(DWORDLONG fileId) {
-        FILE_ID_DESCRIPTOR fileDesc{};
-        fileDesc.dwSize = sizeof(FILE_ID_DESCRIPTOR);
-        fileDesc.Type = FileIdType;
-        fileDesc.FileId.QuadPart = fileId;
-
-        HANDLE hFile = OpenFileById(
-            hVol,
-            &fileDesc,
-            0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr,
-            FILE_FLAG_BACKUP_SEMANTICS
-        );
-        if (hFile == INVALID_HANDLE_VALUE) return {};
-
-        char pathBuf[MAX_PATH]{};
-        const DWORD len = GetFinalPathNameByHandleA(hFile, pathBuf, MAX_PATH, FILE_NAME_NORMALIZED);
-        CloseHandle(hFile);
-
-        if (len == 0 || len >= MAX_PATH) return {};
-
-        std::string fullPath(pathBuf);
-        if (fullPath.rfind("\\\\?\\", 0) == 0) fullPath = fullPath.substr(4);
-        return fullPath;
+std::vector<SnapshotRow> StorageArchive::listSnapshots() {
+    std::vector<SnapshotRow> out;
+    Stmt st(
+        db_.raw(),
+        "SELECT s.id, s.created_at, s.source_root, COALESCE(s.label,''), "
+        "COUNT(f.id) "
+        "FROM snapshots s "
+        "LEFT JOIN files f ON f.snapshot_id = s.id "
+        "GROUP BY s.id, s.created_at, s.source_root, s.label "
+        "ORDER BY s.id ASC;"
+    );
+    while (st.stepRow()) {
+        SnapshotRow row;
+        row.id = sqlite3_column_int64(st.get(), 0);
+        row.createdAt = colText(st.get(), 1);
+        row.sourceRoot = colText(st.get(), 2);
+        row.label = colText(st.get(), 3);
+        row.fileCount = sqlite3_column_int64(st.get(), 4);
+        out.push_back(std::move(row));
     }
-
-public:
-    ~WindowsUSNTracker() override {
-        if (hVol != INVALID_HANDLE_VALUE) CloseHandle(hVol);
-    }
-
-    bool isAvailable() const override { return true; }
-    const char* backendName() const override { return "usn_journal"; }
-
-    void startTracking(const std::filesystem::path& rootPath) override {
-        root = std::filesystem::absolute(rootPath);
-        driveLetter = root.root_name();
-
-        const std::string volPath = "\\\\.\\" + driveLetter.string();
-        hVol = CreateFileA(
-            volPath.c_str(),
-            GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr,
-            OPEN_EXISTING,
-            0,
-            nullptr
-        );
-
-        if (hVol == INVALID_HANDLE_VALUE) {
-            throw std::runtime_error("Falha ao abrir o volume NTFS. Keeply precisa rodar como Administrador.");
-        }
-    }
-
-    std::vector<ChangedFile> getChanges(std::uint64_t lastToken, std::uint64_t& newToken) override {
-        std::vector<ChangedFile> changes;
-        std::unordered_set<std::string> seen;
-
-        USN_JOURNAL_DATA_V0 usnJournalData{};
-        DWORD bytesReturned = 0;
-        if (!DeviceIoControl(
-                hVol,
-                FSCTL_QUERY_USN_JOURNAL,
-                nullptr,
-                0,
-                &usnJournalData,
-                sizeof(usnJournalData),
-                &bytesReturned,
-                nullptr)) {
-            throw std::runtime_error("Falha ao consultar o USN Journal. O volume e NTFS?");
-        }
-
-        READ_USN_JOURNAL_DATA_V0 readData{};
-        readData.StartUsn = lastToken == 0 ? usnJournalData.NextUsn : static_cast<USN>(lastToken);
-        readData.ReasonMask =
-            USN_REASON_DATA_OVERWRITE |
-            USN_REASON_DATA_EXTEND |
-            USN_REASON_FILE_CREATE |
-            USN_REASON_FILE_DELETE;
-        readData.ReturnOnlyOnClose = FALSE;
-        readData.Timeout = 0;
-        readData.BytesToWaitFor = 0;
-        readData.UsnJournalID = usnJournalData.UsnJournalID;
-
-        char buffer[4096];
-        DWORD bytesRead = 0;
-        newToken = static_cast<std::uint64_t>(usnJournalData.NextUsn);
-
-        while (true) {
-            if (!DeviceIoControl(
-                    hVol,
-                    FSCTL_READ_USN_JOURNAL,
-                    &readData,
-                    sizeof(readData),
-                    buffer,
-                    sizeof(buffer),
-                    &bytesRead,
-                    nullptr)) {
-                break;
-            }
-
-            if (bytesRead <= sizeof(USN)) break;
-
-            USN* nextUsn = reinterpret_cast<USN*>(buffer);
-            readData.StartUsn = *nextUsn;
-            newToken = static_cast<std::uint64_t>(*nextUsn);
-
-            USN_RECORD* record = reinterpret_cast<USN_RECORD*>(reinterpret_cast<PUCHAR>(buffer) + sizeof(USN));
-            while (reinterpret_cast<PUCHAR>(record) < reinterpret_cast<PUCHAR>(buffer) + bytesRead) {
-                const bool isDeleted = (record->Reason & USN_REASON_FILE_DELETE) != 0;
-                const std::string fullPath = resolvePathFromFileId(record->FileReferenceNumber);
-
-                if (!fullPath.empty() && fullPath.find(root.string()) == 0) {
-                    std::string relPath = fullPath.substr(root.string().length());
-                    if (!relPath.empty() && relPath.front() == '\\') relPath.erase(relPath.begin());
-                    if (seen.insert(relPath).second) changes.push_back({relPath, isDeleted});
-                }
-
-                record = reinterpret_cast<USN_RECORD*>(reinterpret_cast<PUCHAR>(record) + record->RecordLength);
-            }
-        }
-
-        return changes;
-    }
-};
-
-std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
-    return std::make_unique<WindowsUSNTracker>();
+    return out;
 }
-#elif defined(__linux__)
-class LinuxInotifyTracker : public ChangeTracker {
-    int inotifyFd = -1;
-    std::filesystem::path root;
-    std::unordered_map<int, std::string> wdToPath;
+std::vector<ChangeEntry> StorageArchive::diffSnapshots(sqlite3_int64 olderSnapshotId, sqlite3_int64 newerSnapshotId) {
+    const auto olderMap = loadSnapshotFileMap(olderSnapshotId);
+    const auto newerMap = loadSnapshotFileMap(newerSnapshotId);
 
-    void addWatchRecursive(const std::filesystem::path& path) {
-        const int wd = inotify_add_watch(
-            inotifyFd,
-            path.c_str(),
-            IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO
-        );
-        if (wd != -1) wdToPath[wd] = path.string();
+    std::set<std::string> allPaths;
+    for (const auto& [path, _] : olderMap) allPaths.insert(path);
+    for (const auto& [path, _] : newerMap) allPaths.insert(path);
 
-        std::error_code ec;
-        for (auto& p : std::filesystem::directory_iterator(path, ec)) {
-            if (p.is_directory()) addWatchRecursive(p.path());
+    std::vector<ChangeEntry> out;
+    for (const auto& path : allPaths) {
+        const auto oldIt = olderMap.find(path);
+        const auto newIt = newerMap.find(path);
+
+        if (oldIt == olderMap.end()) {
+            ChangeEntry entry;
+            entry.path = path;
+            entry.status = "added";
+            entry.newSize = newIt->second.size;
+            entry.newMtime = newIt->second.mtime;
+            entry.newHash = newIt->second.fileHash;
+            out.push_back(std::move(entry));
+            continue;
         }
-    }
-
-public:
-    ~LinuxInotifyTracker() override {
-        if (inotifyFd != -1) close(inotifyFd);
-    }
-
-    bool isAvailable() const override { return true; }
-    const char* backendName() const override { return "inotify"; }
-
-    void startTracking(const std::filesystem::path& rootPath) override {
-        root = std::filesystem::absolute(rootPath);
-        inotifyFd = inotify_init1(IN_NONBLOCK);
-        if (inotifyFd == -1) throw std::runtime_error("Falha ao inicializar inotify.");
-
-        std::cout << "[Keeply] Indexando watches do inotify recursivamente...\n";
-        addWatchRecursive(root);
-    }
-
-    std::vector<ChangedFile> getChanges(std::uint64_t lastToken, std::uint64_t& newToken) override {
-        newToken = lastToken + 1;
-
-        std::vector<ChangedFile> changes;
-        std::unordered_set<std::string> seen;
-
-        alignas(struct inotify_event) char buffer[4096];
-        ssize_t len = 0;
-
-        while ((len = read(inotifyFd, buffer, sizeof(buffer))) > 0) {
-            char* ptr = buffer;
-            while (ptr < buffer + len) {
-                const auto* event = reinterpret_cast<const struct inotify_event*>(ptr);
-
-                if (event->len > 0) {
-                    auto it = wdToPath.find(event->wd);
-                    if (it != wdToPath.end()) {
-                        const std::string fullPath = it->second + "/" + event->name;
-                        const std::string relPath = fullPath.substr(root.string().length() + 1);
-                        const bool isDeleted = (event->mask & IN_DELETE) != 0;
-
-                        if (seen.insert(relPath).second) changes.push_back({relPath, isDeleted});
-
-                        if (event->mask & IN_CREATE) {
-                            std::error_code ec;
-                            if (std::filesystem::is_directory(fullPath, ec)) addWatchRecursive(fullPath);
-                        }
-                    }
-                }
-
-                ptr += sizeof(struct inotify_event) + event->len;
-            }
+        if (newIt == newerMap.end()) {
+            ChangeEntry entry;
+            entry.path = path;
+            entry.status = "removed";
+            entry.oldSize = oldIt->second.size;
+            entry.oldMtime = oldIt->second.mtime;
+            entry.oldHash = oldIt->second.fileHash;
+            out.push_back(std::move(entry));
+            continue;
         }
 
-        return changes;
+        if (oldIt->second.size != newIt->second.size ||
+            oldIt->second.mtime != newIt->second.mtime ||
+            oldIt->second.fileHash != newIt->second.fileHash) {
+            ChangeEntry entry;
+            entry.path = path;
+            entry.status = "modified";
+            entry.oldSize = oldIt->second.size;
+            entry.newSize = newIt->second.size;
+            entry.oldMtime = oldIt->second.mtime;
+            entry.newMtime = newIt->second.mtime;
+            entry.oldHash = oldIt->second.fileHash;
+            entry.newHash = newIt->second.fileHash;
+            out.push_back(std::move(entry));
+        }
     }
-};
-
-std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
-    return std::make_unique<LinuxInotifyTracker>();
+    return out;
 }
-#else
-class FallbackScanner : public ChangeTracker {
-public:
-    bool isAvailable() const override { return false; }
-    const char* backendName() const override { return "unsupported"; }
-
-    void startTracking(const std::filesystem::path&) override {
-        std::cout << "[Keeply] Aviso: SO nao suporta CBT nativo. Rastreamento incremental puro indisponivel.\n";
-    }
-
-    std::vector<ChangedFile> getChanges(std::uint64_t lastToken, std::uint64_t& newToken) override {
-        newToken = lastToken;
-        return {};
-    }
-};
-
-std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
-    return std::make_unique<FallbackScanner>();
+std::vector<ChangeEntry> StorageArchive::diffLatestVsPrevious() {
+    const auto newer = latestSnapshotId();
+    const auto older = previousSnapshotId();
+    if (!newer || !older) return {};
+    return diffSnapshots(*older, *newer);
 }
-#endif
 }

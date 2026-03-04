@@ -26,7 +26,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blake3_src)
 
 set(KEEPLY_CORE
-    ApiRest/api.cpp
+    HTTP/api.cpp
+    Backup/change_tracker.cpp
     Backup/compactar.cpp
     Backup/restore.cpp
     Backup/scan.cpp
@@ -37,8 +38,8 @@ set(KEEPLY_CORE
 )
 
 set(KEEPLY_API_WS
-    ApiRest/api-rest.cpp
-    WebSocket/ws.cpp
+    HTTP/api-rest.cpp
+    HTTP/ws.cpp
 )
 
 set(BLAKE3_SIMD_SOURCES)
@@ -70,8 +71,7 @@ add_executable(keeply
 
 set(KEEPLY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/ApiRest
-    ${CMAKE_CURRENT_SOURCE_DIR}/WebSocket
+    ${CMAKE_CURRENT_SOURCE_DIR}/HTTP
     ${blake3_src_SOURCE_DIR}/c
 )
 
@@ -92,32 +92,18 @@ target_compile_definitions(keeply PRIVATE
 
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 
-add_executable(keeply_api_ws_smoke
-    HTTP/api_ws_smoke_main.cpp
+add_executable(keeply_agent_ws
+    HTTP/agent_ws_main.cpp
     ${KEEPLY_CORE}
-    ${KEEPLY_API_WS}
+    HTTP/api-rest.cpp
+    HTTP/ws.cpp
 )
 
-target_include_directories(keeply_api_ws_smoke PRIVATE ${KEEPLY_INCLUDE_DIRS})
+target_include_directories(keeply_agent_ws PRIVATE ${KEEPLY_INCLUDE_DIRS})
 
-target_compile_definitions(keeply_api_ws_smoke PRIVATE
+target_compile_definitions(keeply_agent_ws PRIVATE
     BLAKE3_USE_NEON=0
     BLAKE3_NO_AVX512
 )
 
-target_link_libraries(keeply_api_ws_smoke PRIVATE ${KEEPLY_COMMON_LIBS})
-
-add_executable(keeply_rest_http
-    HTTP/rest_http_main.cpp
-    ${KEEPLY_CORE}
-    ApiRest/api-rest.cpp
-)
-
-target_include_directories(keeply_rest_http PRIVATE ${KEEPLY_INCLUDE_DIRS})
-
-target_compile_definitions(keeply_rest_http PRIVATE
-    BLAKE3_USE_NEON=0
-    BLAKE3_NO_AVX512
-)
-
-target_link_libraries(keeply_rest_http PRIVATE ${KEEPLY_COMMON_LIBS})
+target_link_libraries(keeply_agent_ws PRIVATE ${KEEPLY_COMMON_LIBS})
