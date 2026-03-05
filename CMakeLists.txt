@@ -29,6 +29,7 @@ set(KEEPLY_CORE
     HTTP/api.cpp
     Backup/change_tracker.cpp
     Backup/compactar.cpp
+    Backup/keeply_verify.cpp
     Backup/restore.cpp
     Backup/scan.cpp
     Backup/storage.cpp

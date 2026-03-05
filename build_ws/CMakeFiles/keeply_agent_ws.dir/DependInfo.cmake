@@ -16,6 +16,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_sse41.c" "CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o.d"
   "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/change_tracker.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/change_tracker.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/change_tracker.cpp.o.d"
   "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/compactar.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o.d"
+  "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/keeply_verify.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o.d"
   "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/restore.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o.d"
   "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/scan.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o.d"
   "/home/angelo/Documentos/GitHub/Keeply/Agente/Backup/storage.cpp" "CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o" "gcc" "CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o.d"

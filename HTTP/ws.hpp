@@ -40,7 +40,7 @@ struct WsClientConfig{
     std::string hostName="keeply-host";
     std::string osName="linux";
     std::string pairingCode;
-    fs::path identityDir="build/agent_identity";
+    fs::path identityDir="/tmp/keeply/agent_identity";
     bool allowInsecureTls=true;
     int pairingPollIntervalMs=3000;
 };
@@ -95,8 +95,10 @@ private:
     void sendFrame_(unsigned char opcode,const std::string& payload);
     std::string readHttpHeader_();
     bool readFrame_(unsigned char& opcode,std::string& payload);
+    std::string buildScanScopeJson_() const;
     std::string buildStateJson_() const;
     std::string buildSnapshotsJson_();
+    std::string buildFsListJson_(const std::string& requestId,const std::string& requestedPath) const;
     std::size_t writeRaw_(const void* data,std::size_t size);
     std::size_t readRaw_(void* data,std::size_t size);
     void configureTls_(const UrlParts& url);

@@ -125,10 +125,24 @@ CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/compactar.cpp -o CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.s
 
+CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
+CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/keeply_verify.cpp
+CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/keeply_verify.cpp
+
+CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/keeply_verify.cpp > CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.i
+
+CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/keeply_verify.cpp -o CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.s
+
 CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/restore.cpp
 CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/restore.cpp
 
 CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.i: cmake_force
@@ -142,7 +156,7 @@ CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.s: cmake_force
 CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/scan.cpp
 CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/scan.cpp
 
 CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.i: cmake_force
@@ -156,7 +170,7 @@ CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.s: cmake_force
 CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/storage.cpp
 CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/Backup/storage.cpp
 
 CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.i: cmake_force
@@ -170,7 +184,7 @@ CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.s: cmake_force
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o: _deps/blake3_src-src/c/blake3.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.i: cmake_force
@@ -184,7 +198,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3.c.s: cmake_force
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o: _deps/blake3_src-src/c/blake3_dispatch.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_dispatch.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.i: cmake_force
@@ -198,7 +212,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_dispatch.c.s: cmake
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o: _deps/blake3_src-src/c/blake3_portable.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_portable.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.i: cmake_force
@@ -212,7 +226,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_portable.c.s: cmake
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o: _deps/blake3_src-src/c/blake3_sse2.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -msse2 -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_sse2.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.i: cmake_force
@@ -226,7 +240,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse2.c.s: cmake_for
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o: _deps/blake3_src-src/c/blake3_sse41.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -msse4.1 -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_sse41.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.i: cmake_force
@@ -240,7 +254,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_sse41.c.s: cmake_fo
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o: _deps/blake3_src-src/c/blake3_avx2.c
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building C object CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -mavx2 -msse4.1 -MD -MT CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o -MF CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o.d -o CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/_deps/blake3_src-src/c/blake3_avx2.c
 
 CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.i: cmake_force
@@ -254,7 +268,7 @@ CMakeFiles/keeply_agent_ws.dir/_deps/blake3_src-src/c/blake3_avx2.c.s: cmake_for
 CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/HTTP/api-rest.cpp
 CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/HTTP/api-rest.cpp
 
 CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.i: cmake_force
@@ -268,7 +282,7 @@ CMakeFiles/keeply_agent_ws.dir/HTTP/api-rest.cpp.s: cmake_force
 CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o: CMakeFiles/keeply_agent_ws.dir/flags.make
 CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o: /home/angelo/Documentos/GitHub/Keeply/Agente/HTTP/ws.cpp
 CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o: CMakeFiles/keeply_agent_ws.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o -MF CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o.d -o CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.o -c /home/angelo/Documentos/GitHub/Keeply/Agente/HTTP/ws.cpp
 
 CMakeFiles/keeply_agent_ws.dir/HTTP/ws.cpp.i: cmake_force
@@ -285,6 +299,7 @@ keeply_agent_ws_OBJECTS = \
 "CMakeFiles/keeply_agent_ws.dir/HTTP/api.cpp.o" \
 "CMakeFiles/keeply_agent_ws.dir/Backup/change_tracker.cpp.o" \
 "CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o" \
+"CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o" \
 "CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o" \
 "CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o" \
 "CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o" \
@@ -304,6 +319,7 @@ keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/HTTP/agent_ws_main.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/HTTP/api.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/change_tracker.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o
+keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/Backup/storage.cpp.o
@@ -322,7 +338,7 @@ keeply_agent_ws: /usr/lib/x86_64-linux-gnu/libz.so
 keeply_agent_ws: /usr/lib/x86_64-linux-gnu/libsqlite3.so
 keeply_agent_ws: /usr/lib/x86_64-linux-gnu/libzstd.so.1
 keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Linking CXX executable keeply_agent_ws"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Linking CXX executable keeply_agent_ws"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/keeply_agent_ws.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

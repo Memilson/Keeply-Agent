@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -21,7 +22,7 @@ namespace fs = std::filesystem;
 
 // Defaults fixos (CLI basico)
 inline const fs::path DEFAULT_SOURCE_ROOT  = "/home";
-inline const fs::path DEFAULT_ARCHIVE_PATH = "/tmp/keeply/backup/keeply_root.db";
+inline const fs::path DEFAULT_ARCHIVE_PATH = "/tmp/keeply/keeply.kipy";
 inline const fs::path DEFAULT_RESTORE_ROOT = "/tmp/keeply/restore";
 
 inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
@@ -164,6 +165,15 @@ struct BackupStats {
     std::size_t warnings = 0;
 };
 
+struct BackupProgress {
+    BackupStats stats;
+    std::size_t filesQueued = 0;
+    std::size_t filesCompleted = 0;
+    bool discoveryComplete = false;
+    std::string phase = "idle";
+    std::string currentFile;
+};
+
 // Storage
 class StorageArchive {
 public:
@@ -254,7 +264,9 @@ class ScanEngine {
 public:
     static BackupStats backupFolderToKply(const fs::path& sourceRoot,
                                           const fs::path& archivePath,
-                                          const std::string& label);
+                                          const std::string& label,
+                                          const std::function<void(const BackupProgress&)>& progressCallback = {});
+    static std::vector<std::string> listAvailableSourceRoots();
 };
 
 class RestoreEngine {
@@ -269,11 +281,31 @@ public:
                                 const fs::path& outRoot);
 };
 
+struct VerifyResult {
+    bool ok = true;
+    std::vector<std::string> errors;
+    std::size_t chunksChecked = 0;
+    std::size_t chunksOk = 0;
+};
+
+struct ScanScopeState {
+    std::string id = "home";
+    std::string label = "Home";
+    std::string requestedPath;
+    std::string resolvedPath = DEFAULT_SOURCE_ROOT.string();
+};
+
+class VerifyEngine {
+public:
+    static VerifyResult verifyArchive(const fs::path& archivePath, bool verbose = false);
+};
+
 // API
 struct AppState {
     std::string source = DEFAULT_SOURCE_ROOT.string();
     std::string archive = DEFAULT_ARCHIVE_PATH.string();
     std::string restoreRoot = DEFAULT_RESTORE_ROOT.string();
+    ScanScopeState scanScope{};
     bool archiveSplitEnabled = false;
     std::uint64_t archiveSplitMaxBytes = 0; // 0 = desabilitado (placeholder para futura divisao)
 };
@@ -284,13 +316,15 @@ public:
 
     const AppState& state() const;
     void setSource(const std::string& source);
+    void setScanScope(const std::string& scopeId);
     void setArchive(const std::string& archive);
     void setRestoreRoot(const std::string& restoreRoot);
     void setArchiveSplitMaxBytes(std::uint64_t maxBytes); // TODO: ligar no storage write path
     void disableArchiveSplit();
     bool archiveExists() const;
 
-    BackupStats runBackup(const std::string& label);
+    BackupStats runBackup(const std::string& label,
+                          const std::function<void(const BackupProgress&)>& progressCallback = {});
     std::vector<SnapshotRow> listSnapshots();
     std::vector<ChangeEntry> diffSnapshots(const std::string& olderSnapshotInput,
                                            const std::string& newerSnapshotInput);

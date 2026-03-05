@@ -77,8 +77,8 @@ void printUsage(const char* argv0) {
         << "  " << argv0 << " files [snapshot]\n"
         << "  " << argv0 << " restore-file <arquivo_relativo> [snapshot]\n\n"
         << "Defaults:\n"
-        << "  - Scan origem: /home\n"
-        << "  - Backup DB   : /tmp/keeply/backup/keeply_root.db\n"
+        << "  - Scan origem: HOME do usuario\n"
+        << "  - Backup DB   : /tmp/keeply/keeply.kipy\n"
         << "  - Restore root: /tmp/keeply/restore\n";
 }
 int cmdConfig(KeeplyApi& api) {
@@ -460,8 +460,8 @@ int runMenu(KeeplyApi& api) {
 int main(int argc, char* argv[]) {
     try {
         KeeplyApi api;
-        api.setSource("/home");
-        api.setArchive("/tmp/keeply/backup/keeply_root.db");
+        api.setScanScope("home");
+        api.setArchive("/tmp/keeply/keeply.kipy");
         api.setRestoreRoot("/tmp/keeply/restore");
         if (argc < 2) {
             return runMenu(api);

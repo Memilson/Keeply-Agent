@@ -1,11 +1,16 @@
 #include "keeply.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <system_error>
+#include <vector>
 namespace keeply {
 namespace {
 fs::path normalizeAbsPathForConfig(const fs::path& p) {
@@ -16,14 +21,142 @@ fs::path normalizeAbsPathForConfig(const fs::path& p) {
     }
     return abs.lexically_normal();
 }
-void validateSourceRootIsHome(const fs::path& sourcePath) {
-    static const fs::path kAllowedSource = fs::path("/home");
+
+fs::path detectHomeDir() {
+    const char* envHome = std::getenv("HOME");
+    if (envHome && *envHome) return normalizeAbsPathForConfig(fs::path(envHome));
+    std::error_code ec;
+    const fs::path current = fs::current_path(ec);
+    if (!ec) return current.lexically_normal();
+    return DEFAULT_SOURCE_ROOT;
+}
+
+bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
+    const fs::path base = normalizeAbsPathForConfig(baseInput);
+    const fs::path candidate = normalizeAbsPathForConfig(candidateInput);
+    auto bit = base.begin();
+    auto cit = candidate.begin();
+    for (; bit != base.end(); ++bit, ++cit) {
+        if (cit == candidate.end() || *bit != *cit) return false;
+    }
+    return true;
+}
+
+void validateSourceRootAllowed(const fs::path& sourcePath) {
     const fs::path normalized = normalizeAbsPathForConfig(sourcePath);
-    if (normalized != kAllowedSource) {
+    const fs::path homeDir = detectHomeDir();
+    if (normalized == homeDir || isPathWithin(homeDir, normalized)) return;
+    throw std::runtime_error(
+        "Origem permitida neste build: pasta HOME do usuario (" + homeDir.string() +
+        ") ou subpastas (recebido: " + normalized.string() + ")"
+    );
+}
+
+std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::string& key) {
+    const fs::path configPath = homeDir / ".config" / "user-dirs.dirs";
+    std::ifstream input(configPath);
+    if (!input) return std::nullopt;
+    std::string line;
+    const std::string prefix = key + "=";
+    while (std::getline(input, line)) {
+        line = trim(line);
+        if (line.empty() || line.front() == '#') continue;
+        if (line.rfind(prefix, 0) != 0) continue;
+        std::string value = trim(line.substr(prefix.size()));
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+            value = value.substr(1, value.size() - 2);
+        }
+        const std::string homeToken = "$HOME";
+        const std::size_t homePos = value.find(homeToken);
+        if (homePos != std::string::npos) {
+            value.replace(homePos, homeToken.size(), homeDir.string());
+        }
+        return value;
+    }
+    return std::nullopt;
+}
+
+fs::path pickExistingPath(const std::vector<fs::path>& candidates) {
+    std::error_code ec;
+    for (const auto& candidate : candidates) {
+        ec.clear();
+        if (candidate.empty()) continue;
+        if (fs::exists(candidate, ec) && fs::is_directory(candidate, ec) && !ec) {
+            return normalizeAbsPathForConfig(candidate);
+        }
+    }
+    return fs::path();
+}
+
+fs::path resolveKnownScopePath(const std::string& scopeId) {
+    const fs::path homeDir = detectHomeDir();
+    if (scopeId == "home") return homeDir;
+
+    struct ScopeCandidate {
+        const char* id;
+        const char* xdgKey;
+        std::vector<const char*> names;
+    };
+    static const std::vector<ScopeCandidate> kCandidates = {
+        {"documents", "XDG_DOCUMENTS_DIR", {"Documents", "Documentos"}},
+        {"desktop", "XDG_DESKTOP_DIR", {"Desktop", "Area de Trabalho"}},
+        {"downloads", "XDG_DOWNLOAD_DIR", {"Downloads"}},
+        {"pictures", "XDG_PICTURES_DIR", {"Pictures", "Imagens"}},
+        {"music", "XDG_MUSIC_DIR", {"Music", "Musicas", "Música"}},
+        {"videos", "XDG_VIDEOS_DIR", {"Videos", "Vídeos"}}
+    };
+
+    for (const auto& scope : kCandidates) {
+        if (scopeId != scope.id) continue;
+        std::vector<fs::path> paths;
+        if (auto xdgDir = readXdgDirValue(homeDir, scope.xdgKey); xdgDir && !xdgDir->empty()) {
+            paths.emplace_back(*xdgDir);
+        }
+        for (const char* name : scope.names) {
+            paths.emplace_back(homeDir / name);
+        }
+        const fs::path resolved = pickExistingPath(paths);
+        if (!resolved.empty()) return resolved;
         throw std::runtime_error(
-            "Origem permitida neste build: /home (recebido: " + normalized.string() + ")"
+            "Nao foi possivel localizar a pasta do escopo '" + scopeId + "' dentro de " +
+            homeDir.string()
         );
     }
+
+    throw std::runtime_error("Escopo de scan nao suportado: " + scopeId);
+}
+
+ScanScopeState resolveScanScope(const std::string& rawScopeId) {
+    std::string scopeId = trim(rawScopeId);
+    std::transform(scopeId.begin(), scopeId.end(), scopeId.begin(), [](unsigned char c) {
+        return (char)std::tolower(c);
+    });
+    if (scopeId.empty()) scopeId = "home";
+
+    ScanScopeState scope;
+    scope.id = scopeId;
+    scope.requestedPath.clear();
+    if (scopeId == "home") scope.label = "Home";
+    else if (scopeId == "documents") scope.label = "Documents";
+    else if (scopeId == "desktop") scope.label = "Desktop";
+    else if (scopeId == "downloads") scope.label = "Downloads";
+    else if (scopeId == "pictures") scope.label = "Pictures";
+    else if (scopeId == "music") scope.label = "Music";
+    else if (scopeId == "videos") scope.label = "Videos";
+    else throw std::runtime_error("Escopo de scan nao suportado: " + scopeId);
+    scope.resolvedPath = resolveKnownScopePath(scopeId).string();
+    return scope;
+}
+
+ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
+    const fs::path normalized = normalizeAbsPathForConfig(sourcePath);
+    validateSourceRootAllowed(normalized);
+    ScanScopeState scope;
+    scope.id = "custom";
+    scope.label = "Custom";
+    scope.requestedPath = normalized.string();
+    scope.resolvedPath = normalized.string();
+    return scope;
 }
 }
 std::string trim(const std::string& s) {
@@ -76,14 +209,19 @@ void ensureDefaults() {
     ec.clear();
     fs::create_directories(DEFAULT_RESTORE_ROOT, ec);}
 KeeplyApi::KeeplyApi() {
+    state_.scanScope = resolveScanScope("home");
+    state_.source = state_.scanScope.resolvedPath;
     ensureDefaults();}
 const AppState& KeeplyApi::state() const {
     return state_;}
 void KeeplyApi::setSource(const std::string& source) {
     const std::string s = trim(source);
     if (s.empty()) throw std::runtime_error("Origem nao pode ser vazia.");
-    validateSourceRootIsHome(fs::path(s));
-    state_.source = normalizeAbsPathForConfig(fs::path(s)).string();}
+    state_.scanScope = resolveCustomScope(fs::path(s));
+    state_.source = state_.scanScope.resolvedPath;}
+void KeeplyApi::setScanScope(const std::string& scopeId) {
+    state_.scanScope = resolveScanScope(scopeId);
+    state_.source = state_.scanScope.resolvedPath;}
 void KeeplyApi::setArchive(const std::string& archive) {
     const std::string s = trim(archive);
     if (s.empty()) throw std::runtime_error("Arquivo KPLY nao pode ser vazio.");
@@ -117,10 +255,11 @@ void KeeplyApi::disableArchiveSplit() {
 }
 bool KeeplyApi::archiveExists() const {
     return fs::exists(state_.archive);}
-BackupStats KeeplyApi::runBackup(const std::string& label) {
+BackupStats KeeplyApi::runBackup(const std::string& label,
+                                 const std::function<void(const BackupProgress&)>& progressCallback) {
     // TODO: state_.archiveSplitEnabled / state_.archiveSplitMaxBytes ainda nao sao aplicados
     // no storage. Esta configuracao foi criada para futura implementacao de volumes.
-    return ScanEngine::backupFolderToKply(state_.source, state_.archive, label);}
+    return ScanEngine::backupFolderToKply(state_.source, state_.archive, label, progressCallback);}
 std::vector<SnapshotRow> KeeplyApi::listSnapshots() {
     StorageArchive arc(state_.archive);
     return arc.listSnapshots();}

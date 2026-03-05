@@ -284,14 +284,19 @@ RestResponse KeeplyRestApi::handleGetState(){
     std::lock_guard<std::mutex> lock(impl_->mu);
     const auto& s=impl_->api->state();
     std::ostringstream oss;
-    oss<<"{"<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"archive\":\""<<escapeJson(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson(s.restoreRoot)<<"\","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
+    oss<<"{"<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"archive\":\""<<escapeJson(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson(s.restoreRoot)<<"\","<<"\"scanScope\":{"<<"\"id\":\""<<escapeJson(s.scanScope.id)<<"\","<<"\"label\":\""<<escapeJson(s.scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson(s.scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson(s.scanScope.resolvedPath)<<"\"},"<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
     return jsonOk(oss.str());
 }
 
 RestResponse KeeplyRestApi::handlePostConfigSource(const RestRequest& req){
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->api->setSource(req.body);
-    if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"config.updated","field":"source"})");
+    if(impl_->ws){
+        const auto& s=impl_->api->state();
+        std::ostringstream oss;
+        oss<<"{"<<"\"type\":\"config.updated\","<<"\"field\":\"source\","<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"scanScope\":{"<<"\"id\":\""<<escapeJson(s.scanScope.id)<<"\","<<"\"label\":\""<<escapeJson(s.scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson(s.scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson(s.scanScope.resolvedPath)<<"\"}"<<"}";
+        impl_->ws->broadcastJson(oss.str());
+    }
     return jsonOk(R"({"ok":true})");
 }
 RestResponse KeeplyRestApi::handlePostConfigArchive(const RestRequest& req){

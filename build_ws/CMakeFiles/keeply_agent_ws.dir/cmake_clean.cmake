@@ -3,6 +3,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/keeply_agent_ws.dir/Backup/change_tracker.cpp.o.d"
   "CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o"
   "CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.o.d"
+  "CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o"
+  "CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o.d"
   "CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o"
   "CMakeFiles/keeply_agent_ws.dir/Backup/restore.cpp.o.d"
   "CMakeFiles/keeply_agent_ws.dir/Backup/scan.cpp.o"

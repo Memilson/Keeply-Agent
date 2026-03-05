@@ -373,6 +373,13 @@ std::vector<std::string> splitPipe(const std::string& value){
     return out;
 }
 
+struct FsListRow{
+    bool isDir=false;
+    std::string name;
+    std::string fullPath;
+    std::uintmax_t size=0;
+};
+
 std::string httpUrlFromWsUrl(const std::string& wsUrl,const std::string& path){
     ParsedUrl parsed=parseUrlCommon(wsUrl);
     if(parsed.scheme=="ws") parsed.scheme="http";
@@ -641,23 +648,119 @@ void KeeplyAgentWsClient::performHandshake_(const UrlParts& url){
 
 void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
     if(payload.empty()) return;
-    if(!payload.empty()&&payload.front()=='{'){std::cout<<"[ws] backend -> agente: "<<payload<<"\n";return;}
+    if(!payload.empty()&&payload.front()=='{'){
+        const std::string type=keeply::trim(extractJsonStringField(payload,"type"));
+        if(!type.empty()) std::cout<<"[ws] << type="<<type<<" | payload="<<payload<<"\n";
+        else std::cout<<"[ws] << payload="<<payload<<"\n";
+        return;
+    }
     try{
         if(payload=="ping"){sendJson_(R"({"type":"pong"})");return;}
         if(payload=="state"){sendJson_(buildStateJson_());return;}
         if(payload=="snapshots"){sendJson_(buildSnapshotsJson_());return;}
-        if(payload.rfind("config.source:",0)==0){api_->setSource(payload.substr(std::string("config.source:").size()));sendJson_(R"({"type":"config.updated","field":"source"})");return;}
+        if(payload=="fs.list"){sendJson_(buildFsListJson_("",""));return;}
+        if(payload.rfind("fs.list:",0)==0){
+            const std::string args=payload.substr(std::string("fs.list:").size());
+            const std::size_t sep=args.find('|');
+            std::string requestId;
+            std::string targetPath;
+            if(sep==std::string::npos){
+                targetPath=args;
+            }else{
+                requestId=args.substr(0,sep);
+                targetPath=args.substr(sep+1);
+            }
+            sendJson_(buildFsListJson_(requestId,targetPath));
+            return;
+        }
+        if(payload.rfind("scan.scope:",0)==0){
+            const std::string scopeId=payload.substr(std::string("scan.scope:").size());
+            api_->setScanScope(scopeId);
+            std::ostringstream oss;
+            oss<<"{"<<"\"type\":\"scan.scope.updated\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<"}";
+            sendJson_(oss.str());
+            return;
+        }
+        if(payload.rfind("config.source:",0)==0){
+            api_->setSource(payload.substr(std::string("config.source:").size()));
+            std::ostringstream oss;
+            oss<<"{"<<"\"type\":\"config.updated\","<<"\"field\":\"source\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<"}";
+            sendJson_(oss.str());
+            return;
+        }
         if(payload.rfind("config.archive:",0)==0){api_->setArchive(payload.substr(std::string("config.archive:").size()));sendJson_(R"({"type":"config.updated","field":"archive"})");return;}
         if(payload.rfind("config.restoreRoot:",0)==0){api_->setRestoreRoot(payload.substr(std::string("config.restoreRoot:").size()));sendJson_(R"({"type":"config.updated","field":"restoreRoot"})");return;}
         if(payload.rfind("backup",0)==0){
             std::string label;
+            BackupProgress latestProgress;
             if(payload.rfind("backup:",0)==0) label=payload.substr(std::string("backup:").size());
-            sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson_(label)+"\"}");
-            const BackupStats stats=api_->runBackup(label);
-            const std::size_t chunksReused=(stats.chunks>=stats.uniqueChunksInserted)?(stats.chunks-stats.uniqueChunksInserted):0;
-            std::ostringstream oss;
-            oss<<"{"<<"\"type\":\"backup.finished\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"filesScanned\":"<<stats.scanned<<","<<"\"filesAdded\":"<<stats.added<<","<<"\"filesUnchanged\":"<<stats.reused<<","<<"\"chunksNew\":"<<stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<stats.bytesRead<<","<<"\"warnings\":"<<stats.warnings<<"}";
-            sendJson_(oss.str());
+            std::cout<<"[backup] iniciado";
+            if(!label.empty()) std::cout<<" | label="<<label;
+            std::cout<<" | source="<<api_->state().source<<"\n";
+            sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+"}");
+            try{
+                const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress](const BackupProgress& progress){
+                    latestProgress=progress;
+                    std::ostringstream progressJson;
+                    progressJson
+                        <<"{"<<"\"type\":\"backup.progress\","
+                        <<"\"label\":\""<<escapeJson_(label)<<"\","
+                        <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                        <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                        <<"\"phase\":\""<<escapeJson_(progress.phase)<<"\","
+                        <<"\"discoveryComplete\":"<<(progress.discoveryComplete?"true":"false")<<","
+                        <<"\"currentFile\":\""<<escapeJson_(progress.currentFile)<<"\","
+                        <<"\"filesQueued\":"<<progress.filesQueued<<","
+                        <<"\"filesCompleted\":"<<progress.filesCompleted<<","
+                        <<"\"filesScanned\":"<<progress.stats.scanned<<","
+                        <<"\"filesAdded\":"<<progress.stats.added<<","
+                        <<"\"filesUnchanged\":"<<progress.stats.reused<<","
+                        <<"\"chunksNew\":"<<progress.stats.uniqueChunksInserted<<","
+                        <<"\"bytesRead\":"<<progress.stats.bytesRead<<","
+                        <<"\"warnings\":"<<progress.stats.warnings
+                        <<"}";
+                    sendJson_(progressJson.str());
+                });
+                const std::size_t chunksReused=(stats.chunks>=stats.uniqueChunksInserted)?(stats.chunks-stats.uniqueChunksInserted):0;
+                std::ostringstream oss;
+                oss<<"{"<<"\"type\":\"backup.finished\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"filesScanned\":"<<stats.scanned<<","<<"\"filesAdded\":"<<stats.added<<","<<"\"filesUnchanged\":"<<stats.reused<<","<<"\"chunksNew\":"<<stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<stats.bytesRead<<","<<"\"warnings\":"<<stats.warnings<<"}";
+                sendJson_(oss.str());
+                std::cout
+                    <<"[backup] concluido"
+                    <<" | scanned="<<stats.scanned
+                    <<" added="<<stats.added
+                    <<" unchanged="<<stats.reused
+                    <<" bytes="<<stats.bytesRead
+                    <<" warnings="<<stats.warnings
+                    <<"\n";
+                std::cout<<"[agent] backup finalizado. Agente segue online aguardando comandos.\n";
+            }catch(const std::exception& e){
+                std::ostringstream failedJson;
+                failedJson
+                    <<"{"<<"\"type\":\"backup.failed\","
+                    <<"\"label\":\""<<escapeJson_(label)<<"\","
+                    <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                    <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                    <<"\"phase\":\"failed\","
+                    <<"\"discoveryComplete\":"<<(latestProgress.discoveryComplete?"true":"false")<<","
+                    <<"\"currentFile\":\""<<escapeJson_(latestProgress.currentFile)<<"\","
+                    <<"\"filesQueued\":"<<latestProgress.filesQueued<<","
+                    <<"\"filesCompleted\":"<<latestProgress.filesCompleted<<","
+                    <<"\"filesScanned\":"<<latestProgress.stats.scanned<<","
+                    <<"\"filesAdded\":"<<latestProgress.stats.added<<","
+                    <<"\"filesUnchanged\":"<<latestProgress.stats.reused<<","
+                    <<"\"chunksNew\":"<<latestProgress.stats.uniqueChunksInserted<<","
+                    <<"\"bytesRead\":"<<latestProgress.stats.bytesRead<<","
+                    <<"\"warnings\":"<<latestProgress.stats.warnings<<","
+                    <<"\"message\":\""<<escapeJson_(e.what())<<"\""
+                    <<"}";
+                sendJson_(failedJson.str());
+                std::cout<<"[backup] falhou";
+                if(!label.empty()) std::cout<<" | label="<<label;
+                std::cout<<" | error="<<e.what()<<"\n";
+                std::cout<<"[agent] agente segue online aguardando comandos.\n";
+                throw;
+            }
             return;
         }
         if(payload.rfind("restore.file:",0)==0){
@@ -685,7 +788,7 @@ void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
 void KeeplyAgentWsClient::sendHello_(){
     const auto& s=api_->state();
     std::ostringstream oss;
-    oss<<"{"<<"\"type\":\"agent.hello\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"fingerprintSha256\":\""<<escapeJson_(identity_.fingerprintSha256)<<"\","<<"\"connectedAt\":\""<<escapeJson_(nowIsoLocal())<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\""<<"}";
+    oss<<"{"<<"\"type\":\"agent.hello\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"fingerprintSha256\":\""<<escapeJson_(identity_.fingerprintSha256)<<"\","<<"\"connectedAt\":\""<<escapeJson_(nowIsoLocal())<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<"}";
     sendJson_(oss.str());
 }
 
@@ -787,10 +890,17 @@ bool KeeplyAgentWsClient::readFrame_(unsigned char& opcode,std::string& payload)
     return true;
 }
 
+std::string KeeplyAgentWsClient::buildScanScopeJson_() const{
+    const auto& scanScope=api_->state().scanScope;
+    std::ostringstream oss;
+    oss<<"{"<<"\"id\":\""<<escapeJson_(scanScope.id)<<"\","<<"\"label\":\""<<escapeJson_(scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson_(scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson_(scanScope.resolvedPath)<<"\""<<"}";
+    return oss.str();
+}
+
 std::string KeeplyAgentWsClient::buildStateJson_() const{
     const auto& s=api_->state();
     std::ostringstream oss;
-    oss<<"{"<<"\"type\":\"state\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
+    oss<<"{"<<"\"type\":\"state\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
     return oss.str();
 }
 
@@ -802,6 +912,78 @@ std::string KeeplyAgentWsClient::buildSnapshotsJson_(){
         if(i) oss<<",";
         const auto& r=rows[i];
         oss<<"{"<<"\"id\":"<<r.id<<","<<"\"createdAt\":\""<<escapeJson_(r.createdAt)<<"\","<<"\"sourceRoot\":\""<<escapeJson_(r.sourceRoot)<<"\","<<"\"label\":\""<<escapeJson_(r.label)<<"\","<<"\"fileCount\":"<<r.fileCount<<"}";
+    }
+    oss<<"]}";
+    return oss.str();
+}
+
+std::string KeeplyAgentWsClient::buildFsListJson_(const std::string& requestId,const std::string& requestedPath) const{
+    const auto& s=api_->state();
+    std::string targetRaw=trim(requestedPath);
+    if(targetRaw.empty()) targetRaw=trim(s.source);
+    fs::path targetPath=targetRaw.empty()?fs::current_path():fs::path(targetRaw);
+    std::error_code ec;
+    if(!targetPath.is_absolute()) targetPath=fs::absolute(targetPath,ec);
+    if(ec){targetPath=fs::current_path();ec.clear();}
+    if(!fs::exists(targetPath,ec) || ec){
+        std::ostringstream err;
+        err<<"{"<<"\"type\":\"fs.list\","<<"\"requestId\":\""<<escapeJson_(trim(requestId))<<"\","<<"\"path\":\""<<escapeJson_(targetPath.string())<<"\","<<"\"error\":\"caminho-nao-encontrado\","<<"\"items\":[]}";
+        return err.str();
+    }
+    if(!fs::is_directory(targetPath,ec) || ec){
+        ec.clear();
+        const fs::path parent=targetPath.parent_path();
+        if(!parent.empty() && fs::is_directory(parent,ec) && !ec){
+            targetPath=parent;
+        }else{
+            ec.clear();
+        }
+    }
+
+    std::vector<FsListRow> rows;
+    rows.reserve(256);
+    bool truncated=false;
+    for(fs::directory_iterator it(targetPath,fs::directory_options::skip_permission_denied,ec),end; it!=end; it.increment(ec)){
+        if(ec){ec.clear();continue;}
+        const fs::path itemPath=it->path();
+        const std::string name=itemPath.filename().string();
+        if(name.empty()) continue;
+        FsListRow row;
+        row.name=name;
+        row.fullPath=itemPath.string();
+        row.isDir=it->is_directory(ec);
+        if(ec){row.isDir=false;ec.clear();}
+        if(!row.isDir){
+            row.size=it->file_size(ec);
+            if(ec){row.size=0;ec.clear();}
+        }
+        rows.push_back(std::move(row));
+        if(rows.size()>=300){truncated=true;break;}
+    }
+    std::sort(rows.begin(),rows.end(),[](const FsListRow& a,const FsListRow& b){
+        if(a.isDir!=b.isDir) return a.isDir>b.isDir;
+        return toLower(a.name)<toLower(b.name);
+    });
+
+    std::string parentPath;
+    if(targetPath.has_parent_path()) parentPath=targetPath.parent_path().string();
+    std::ostringstream oss;
+    oss<<"{"
+       <<"\"type\":\"fs.list\","
+       <<"\"requestId\":\""<<escapeJson_(trim(requestId))<<"\","
+       <<"\"path\":\""<<escapeJson_(targetPath.string())<<"\","
+       <<"\"parentPath\":\""<<escapeJson_(parentPath)<<"\","
+       <<"\"truncated\":"<<(truncated?"true":"false")<<","
+       <<"\"items\":[";
+    for(std::size_t i=0;i<rows.size();++i){
+        if(i) oss<<",";
+        const auto& row=rows[i];
+        oss<<"{"
+           <<"\"name\":\""<<escapeJson_(row.name)<<"\","
+           <<"\"path\":\""<<escapeJson_(row.fullPath)<<"\","
+           <<"\"kind\":\""<<(row.isDir?"dir":"file")<<"\","
+           <<"\"size\":"<<row.size
+           <<"}";
     }
     oss<<"]}";
     return oss.str();

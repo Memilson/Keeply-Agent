@@ -196,6 +196,33 @@ Backup/compactar.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.s
 .PHONY : Backup/compactar.cpp.s
 
+Backup/keeply_verify.o: Backup/keeply_verify.cpp.o
+.PHONY : Backup/keeply_verify.o
+
+# target to build an object file
+Backup/keeply_verify.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/keeply_verify.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.o
+.PHONY : Backup/keeply_verify.cpp.o
+
+Backup/keeply_verify.i: Backup/keeply_verify.cpp.i
+.PHONY : Backup/keeply_verify.i
+
+# target to preprocess a source file
+Backup/keeply_verify.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/keeply_verify.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.i
+.PHONY : Backup/keeply_verify.cpp.i
+
+Backup/keeply_verify.s: Backup/keeply_verify.cpp.s
+.PHONY : Backup/keeply_verify.s
+
+# target to generate assembly for a file
+Backup/keeply_verify.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/keeply_verify.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/Backup/keeply_verify.cpp.s
+.PHONY : Backup/keeply_verify.cpp.s
+
 Backup/restore.o: Backup/restore.cpp.o
 .PHONY : Backup/restore.o
 
@@ -578,6 +605,9 @@ help:
 	@echo "... Backup/compactar.o"
 	@echo "... Backup/compactar.i"
 	@echo "... Backup/compactar.s"
+	@echo "... Backup/keeply_verify.o"
+	@echo "... Backup/keeply_verify.i"
+	@echo "... Backup/keeply_verify.s"
 	@echo "... Backup/restore.o"
 	@echo "... Backup/restore.i"
 	@echo "... Backup/restore.s"

@@ -1,3 +1,15 @@
+// =============================================================================
+// restore.cpp  —  Keeply Restore Engine
+//
+// Correções aplicadas:
+//  [FIX-8]  restoreSnapshot abria StorageArchive (SQLite + pack file) uma vez
+//           POR ARQUIVO — 50.000 arquivos = 50.000 aberturas de banco.
+//           Agora abre UMA VEZ e passa a instância para restoreFileFromArc().
+//  [FIX-8b] restoreFile público mantido para restore de arquivo único,
+//           mas internamente delega para restoreFileFromArc(arc, ...) para
+//           evitar duplicação de código.
+// =============================================================================
+
 #include "keeply.hpp"
 
 #include <fstream>
@@ -6,87 +18,102 @@
 
 namespace keeply {
 
-void RestoreEngine::restoreFile(const fs::path& archivePath,
+// ---------------------------------------------------------------------------
+// Implementação interna — recebe StorageArchive já aberto
+// Chamado tanto por restoreFile (single) quanto por restoreSnapshot (batch).
+// ---------------------------------------------------------------------------
+static void restoreFileFromArc(StorageArchive& arc,
                                 sqlite3_int64 snapshotId,
                                 const std::string& relPath,
                                 const fs::path& outRoot) {
     const std::string rp = normalizeRelPath(relPath);
-    if (!isSafeRelativePath(rp)) {
-        throw std::runtime_error("Path relativo inseguro.");
-    }
-
-    StorageArchive arc(archivePath);
+    if (!isSafeRelativePath(rp))
+        throw std::runtime_error("Path relativo inseguro: " + rp);
 
     auto found = arc.findFileBySnapshotAndPath(snapshotId, rp);
-    if (!found) {
+    if (!found)
         throw std::runtime_error("Arquivo nao encontrado no snapshot: " + rp);
-    }
 
-    sqlite3_int64 fileId = found->first;
-
-    fs::path target = fs::absolute(outRoot) / fs::path(rp);
+    const sqlite3_int64 fileId = found->first;
+    const fs::path target = fs::absolute(outRoot) / fs::path(rp);
 
     std::error_code ec;
     fs::create_directories(target.parent_path(), ec);
+    if (ec) throw std::runtime_error("Falha criando diretório de destino: " + ec.message());
 
     std::ofstream out(target, std::ios::binary);
-    if (!out) {
+    if (!out)
         throw std::runtime_error("Falha ao abrir destino de restore: " + target.string());
-    }
 
     auto chunks = arc.loadFileChunks(fileId);
-    
-    // =========================================================================
-    // OTIMIZAÇÃO ENTERPRISE: ZERO-ALLOCATION LOOP
-    // Criamos o buffer de descompressão UMA VEZ fora do loop.
-    // Ele estica até o tamanho do maior chunk e é reaproveitado, zerando o uso do 'new/malloc' na CPU.
-    // =========================================================================
+
+    // Zero-allocation loop: buffer reaproveitado entre chunks do mesmo arquivo
     std::vector<unsigned char> decompressBuffer;
     decompressBuffer.reserve(CHUNK_SIZE);
 
     for (const auto& c : chunks) {
-        if (c.blob.size() != c.compSize) {
+        if (c.blob.size() != c.compSize)
             throw std::runtime_error("Blob de chunk invalido/corrompido.");
-        }
 
         if (c.algo == "raw") {
-            if (c.blob.size() != c.rawSize) {
+            if (c.blob.size() != c.rawSize)
                 throw std::runtime_error("Chunk raw corrompido (tamanho invalido).");
-            }
-            // Grava direto do blob
             out.write(reinterpret_cast<const char*>(c.blob.data()),
                       static_cast<std::streamsize>(c.rawSize));
         } else {
-            // Descomprime aproveitando o buffer pré-alocado
             if (c.algo == "zstd") {
-                Compactador::zstdDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
+                Compactador::zstdDecompress(c.blob.data(), c.compSize, c.rawSize,
+                                            decompressBuffer);
             } else if (c.algo == "zlib") {
-                Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
+                Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize,
+                                            decompressBuffer);
             } else {
-                throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);
+                throw std::runtime_error(
+                    "Algoritmo de compressao nao suportado: " + c.algo);
             }
-            
-            // Grava o buffer reciclado no disco
             out.write(reinterpret_cast<const char*>(decompressBuffer.data()),
                       static_cast<std::streamsize>(decompressBuffer.size()));
         }
 
-        if (!out) {
-            throw std::runtime_error("Erro escrevendo arquivo restaurado.");
-        }
+        if (!out)
+            throw std::runtime_error("Erro escrevendo arquivo restaurado: " +
+                                     target.string());
     }
 
     out.close();
 }
 
+// ---------------------------------------------------------------------------
+// API pública — restore de arquivo único
+// Abre o StorageArchive e delega para restoreFileFromArc.
+// ---------------------------------------------------------------------------
+void RestoreEngine::restoreFile(const fs::path& archivePath,
+                                sqlite3_int64 snapshotId,
+                                const std::string& relPath,
+                                const fs::path& outRoot) {
+    StorageArchive arc(archivePath);
+    restoreFileFromArc(arc, snapshotId, relPath, outRoot);
+}
+
+// ---------------------------------------------------------------------------
+// [FIX-8] API pública — restore de snapshot completo
+//
+// ANTES: abria StorageArchive dentro de restoreFile() → N abertas de DB
+//   for (p : paths) restoreFile(archivePath, ...) // abre/fecha N vezes
+//
+// DEPOIS: abre StorageArchive UMA VEZ e reutiliza para todos os arquivos.
+//   StorageArchive arc(archivePath);  // 1 abertura
+//   for (p : paths) restoreFileFromArc(arc, ...)  // sem overhead de I/O
+// ---------------------------------------------------------------------------
 void RestoreEngine::restoreSnapshot(const fs::path& archivePath,
                                     sqlite3_int64 snapshotId,
                                     const fs::path& outRoot) {
+    // [FIX-8] Uma única instância para todo o snapshot
     StorageArchive arc(archivePath);
 
-    auto paths = arc.listSnapshotPaths(snapshotId);
+    const auto paths = arc.listSnapshotPaths(snapshotId);
     for (const auto& p : paths) {
-        restoreFile(archivePath, snapshotId, p, outRoot);
+        restoreFileFromArc(arc, snapshotId, p, outRoot);
     }
 }
 

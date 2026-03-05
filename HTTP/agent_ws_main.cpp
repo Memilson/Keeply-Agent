@@ -48,7 +48,46 @@ static std::string argOrEmpty(int argc,char** argv,int i){
 static fs::path pickDataDir(){
     auto fromEnv=envOrEmpty("KEEPly_DATA_DIR");
     if(!fromEnv.empty()) return fs::path(fromEnv);
-    return fs::current_path()/ "build";
+    return fs::path("/tmp/keeply");
+}
+static void printCommands(){
+    std::cout
+        <<"Comandos remotos suportados:\n"
+        <<"  - ping\n"
+        <<"  - state\n"
+        <<"  - snapshots\n"
+        <<"  - scan.scope:<home|documents|desktop|downloads|pictures|music|videos>\n"
+        <<"  - config.source:<path>\n"
+        <<"  - config.archive:<path>\n"
+        <<"  - config.restoreRoot:<path>\n"
+        <<"  - backup[:label]\n"
+        <<"  - restore.file:snapshot|relPath|outRoot(opcional)\n"
+        <<"  - restore.snapshot:snapshot|outRoot(opcional)\n";
+}
+static void printStartupSummary(const keeply::WsClientConfig& config,
+                                const keeply::AgentIdentity& identity,
+                                const fs::path& dataDir,
+                                bool verbose){
+    std::cout
+        <<"============================================================\n"
+        <<" Keeply Agent Online\n"
+        <<"============================================================\n"
+        <<"  WebSocket : "<<config.url<<"\n"
+        <<"  Device ID : "<<config.agentId<<"\n"
+        <<"  Hostname  : "<<config.hostName<<"\n"
+        <<"  Device    : "<<config.deviceName<<"\n"
+        <<"  Data Dir  : "<<dataDir<<"\n";
+    if(!identity.pairingCode.empty()) std::cout<<"  Pairing   : "<<identity.pairingCode<<"\n";
+    if(verbose){
+        std::cout
+            <<"  OS        : "<<config.osName<<"\n"
+            <<"  Fingerprint SHA-256 : "<<identity.fingerprintSha256<<"\n"
+            <<"  Cert PEM  : "<<identity.certPemPath<<"\n"
+            <<"  Key PEM   : "<<identity.keyPemPath<<"\n";
+    }
+    std::cout<<"------------------------------------------------------------\n";
+    printCommands();
+    std::cout<<"============================================================\n";
 }
 
 int main(int argc,char** argv){
@@ -70,12 +109,13 @@ int main(int argc,char** argv){
 
         auto verbose=envTruthy("KEEPly_VERBOSE");
         auto dataDir=pickDataDir();
+        config.identityDir=dataDir/"agent_identity";
         std::error_code ec;
         fs::create_directories(dataDir,ec);
         if(ec) throw std::runtime_error("Falha ao criar dataDir: "+dataDir.string()+" | "+ec.message());
 
         auto api=std::make_shared<keeply::KeeplyApi>();
-        api->setArchive((dataDir/"keeply_agent_ws.db").string());
+        api->setArchive((dataDir/"keeply.kipy").string());
         api->setRestoreRoot((dataDir/"restore_agent_ws").string());
 
         keeply::AgentIdentity identity=keeply::KeeplyAgentBootstrap::ensureRegistered(config);
@@ -84,15 +124,7 @@ int main(int argc,char** argv){
         keeply::KeeplyAgentWsClient client(api,identity);
         client.connect(config);
 
-        std::cout<<"Keeply agent websocket conectado em "<<config.url<<" com deviceId="<<config.agentId<<"\n";
-        if(verbose){
-            if(!identity.pairingCode.empty()) std::cout<<"Codigo de ativacao: "<<identity.pairingCode<<"\n";
-            std::cout<<"Hostname: "<<config.hostName<<"\n";
-            std::cout<<"Fingerprint SHA-256: "<<identity.fingerprintSha256<<"\n";
-            std::cout<<"Cert PEM: "<<identity.certPemPath<<"\n";
-            std::cout<<"Key PEM : "<<identity.keyPemPath<<"\n";
-        }
-        std::cout<<"Comandos remotos suportados: ping, state, snapshots, config.source:<path>, config.archive:<path>, config.restoreRoot:<path>, backup[:label], restore.file:snapshot|relPath|outRoot(opcional), restore.snapshot:snapshot|outRoot(opcional)\n";
+        printStartupSummary(config,identity,dataDir,verbose);
 
         client.run();
         return 0;
