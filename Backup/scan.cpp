@@ -118,6 +118,7 @@ struct FileCommitDbTask {
     sqlite3_int64 size;
     sqlite3_int64 mtime;
     std::vector<StorageArchive::PendingFileChunk> chunks;
+    int retries = 0;
 };
 
 using DbOperation = std::variant<ChunkInsertDbTask, FileCommitDbTask>;
@@ -381,8 +382,18 @@ static bool tryQueueFilesFromChangeTracker(
         return false;
     }
 
-    tracker->startTracking(sourceRoot);
-    const std::vector<ChangedFile> changes = tracker->getChanges(lastToken, newToken);
+    std::vector<ChangedFile> changes;
+    try {
+        tracker->startTracking(sourceRoot);
+        changes = tracker->getChanges(lastToken, newToken);
+    } catch (const std::exception& ex) {
+        std::cout
+            << "CBT habilitado, mas o backend nativo "
+            << tracker->backendName()
+            << " falhou: " << ex.what()
+            << ". Usando full scan.\n";
+        return false;
+    }
 
     std::unordered_set<std::string> changedPaths;
     std::unordered_set<std::string> deletedPaths;
@@ -438,11 +449,15 @@ static std::optional<std::uint64_t> tryCaptureChangeTrackerBaselineToken(const f
     auto tracker = createPlatformChangeTracker();
     if (!tracker || !tracker->isAvailable()) return std::nullopt;
 
-    tracker->startTracking(sourceRoot);
-    std::uint64_t newToken = 0;
-    static_cast<void>(tracker->getChanges(0, newToken));
-    if (newToken == 0) return std::nullopt;
-    return newToken;
+    try {
+        tracker->startTracking(sourceRoot);
+        std::uint64_t newToken = 0;
+        static_cast<void>(tracker->getChanges(0, newToken));
+        if (newToken == 0) return std::nullopt;
+        return newToken;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
 }
 
 // =========================================================================
@@ -577,6 +592,22 @@ void databaseWriterWorker(
                 
             } else if (std::holds_alternative<FileCommitDbTask>(op)) {
                 auto& file = std::get<FileCommitDbTask>(op);
+                bool allChunksReady = true;
+                for (const auto& chunk : file.chunks) {
+                    if (!arc.hasChunk(chunk.chunkHash)) {
+                        allChunksReady = false;
+                        break;
+                    }
+                }
+                if (!allChunksReady) {
+                    if (file.retries >= 32) {
+                        throw std::runtime_error("Chunks pendentes demoraram demais para entrar no SQLite.");
+                    }
+                    file.retries++;
+                    dbQueue.push(std::move(file));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    continue;
+                }
                 const sqlite3_int64 fileId = arc.insertFilePlaceholder(snapshotId, file.relPath, file.size, file.mtime);
                 arc.addFileChunksBulk(fileId, file.chunks);
             }

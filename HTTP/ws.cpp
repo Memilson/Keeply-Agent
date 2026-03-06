@@ -1,4 +1,5 @@
 #include "ws.hpp"
+#include "multithread.hpp"
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -10,6 +11,7 @@
 #include <openssl/x509.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -17,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -31,6 +34,29 @@ namespace {
 
 struct ParsedUrl{std::string scheme;std::string host;int port=0;std::string target="/";};
 struct HttpResponse{int status=0;std::string body;};
+struct MultipartField{std::string name;std::string value;};
+struct UploadBundleResult{
+    HttpResponse manifestResponse;
+    std::size_t filesUploaded=0;
+    std::size_t blobPartCount=0;
+    std::string bundleId;
+};
+
+struct UploadProgressSnapshot{
+    std::size_t filesUploaded=0;
+    std::size_t filesTotal=0;
+    std::size_t blobPartIndex=0;
+    std::size_t blobPartCount=0;
+    std::string currentObject;
+    std::string bundleRole;
+};
+
+struct BackupStoragePolicy{
+    std::string mode="local_only";
+    bool keepLocal=true;
+    bool uploadCloud=false;
+    bool deleteLocalAfterUpload=false;
+};
 
 std::string toLower(std::string value){
     for(char& c:value) if(c>='A'&&c<='Z') c=(char)(c-'A'+'a');
@@ -147,7 +173,11 @@ std::size_t writeAllFd(int fd,const void* data,std::size_t size){
     const unsigned char* ptr=(const unsigned char*)data;
     std::size_t offset=0;
     while(offset<size){
-        const ssize_t n=::send(fd,ptr+(std::ptrdiff_t)offset,size-offset,0);
+        int flags=0;
+#ifdef MSG_NOSIGNAL
+        flags|=MSG_NOSIGNAL;
+#endif
+        const ssize_t n=::send(fd,ptr+(std::ptrdiff_t)offset,size-offset,flags);
         if(n<0){if(errno==EINTR) continue;throw std::runtime_error(std::string("send falhou: ")+std::strerror(errno));}
         offset+=(std::size_t)n;
     }
@@ -258,6 +288,94 @@ HttpResponse httpPostJson(const std::string& url,const std::string& body,const s
     }
 }
 
+HttpResponse httpPostMultipartFile(const std::string& url,
+                                   const std::vector<MultipartField>& fields,
+                                   const std::string& fileFieldName,
+                                   const keeply::fs::path& filePath,
+                                   const std::string& fileName,
+                                   const std::string& fileContentType,
+                                   const std::optional<keeply::fs::path>& certPemPath,
+                                   const std::optional<keeply::fs::path>& keyPemPath,
+                                   bool allowInsecureTls){
+    const ParsedUrl parsed=parseUrlCommon(url);
+    if(parsed.scheme!="http"&&parsed.scheme!="https") throw std::runtime_error("Upload HTTP suporta apenas http:// ou https://");
+    std::error_code fileEc;
+    const std::uintmax_t fileSize=keeply::fs::file_size(filePath,fileEc);
+    if(fileEc) throw std::runtime_error("Falha lendo tamanho do arquivo para upload: "+fileEc.message());
+
+    const std::string boundary="----KeeplyBoundary"+randomDigits(24);
+    std::vector<std::string> fieldParts;
+    fieldParts.reserve(fields.size());
+    std::uint64_t contentLength=0;
+    for(const auto& field:fields){
+        std::ostringstream part;
+        part<<"--"<<boundary<<"\r\n";
+        part<<"Content-Disposition: form-data; name=\""<<field.name<<"\"\r\n\r\n";
+        part<<field.value<<"\r\n";
+        fieldParts.push_back(part.str());
+        contentLength+=fieldParts.back().size();
+    }
+
+    std::ostringstream fileHeader;
+    fileHeader<<"--"<<boundary<<"\r\n";
+    fileHeader<<"Content-Disposition: form-data; name=\""<<fileFieldName<<"\"; filename=\""<<fileName<<"\"\r\n";
+    fileHeader<<"Content-Type: "<<fileContentType<<"\r\n\r\n";
+    const std::string fileHeaderStr=fileHeader.str();
+    const std::string fileFooterStr="\r\n--"+boundary+"--\r\n";
+    contentLength+=fileHeaderStr.size();
+    contentLength+=fileSize;
+    contentLength+=fileFooterStr.size();
+
+    const int fd=openTcpSocket(parsed.host,parsed.port);
+    HttpTls tls;
+    SSL* ssl=nullptr;
+    try{
+        if(parsed.scheme=="https"){tls=connectTls(fd,parsed,certPemPath,keyPemPath,allowInsecureTls);ssl=tls.ssl;}
+
+        std::ostringstream req;
+        req<<"POST "<<parsed.target<<" HTTP/1.1\r\n";
+        req<<"Host: "<<parsed.host<<":"<<parsed.port<<"\r\n";
+        req<<"Content-Type: multipart/form-data; boundary="<<boundary<<"\r\n";
+        req<<"Accept: application/json\r\n";
+        req<<"Connection: close\r\n";
+        req<<"Content-Length: "<<contentLength<<"\r\n\r\n";
+        const std::string headers=req.str();
+        if(ssl) writeAllSsl(ssl,headers.data(),headers.size()); else writeAllFd(fd,headers.data(),headers.size());
+        for(const std::string& part:fieldParts){
+            if(ssl) writeAllSsl(ssl,part.data(),part.size()); else writeAllFd(fd,part.data(),part.size());
+        }
+        if(ssl) writeAllSsl(ssl,fileHeaderStr.data(),fileHeaderStr.size()); else writeAllFd(fd,fileHeaderStr.data(),fileHeaderStr.size());
+
+        std::ifstream in(filePath,std::ios::binary);
+        if(!in) throw std::runtime_error("Falha abrindo arquivo para upload: "+filePath.string());
+        std::array<char,64*1024> buf{};
+        while(in){
+            in.read(buf.data(),(std::streamsize)buf.size());
+            const std::streamsize got=in.gcount();
+            if(got<=0) break;
+            if(ssl) writeAllSsl(ssl,buf.data(),(std::size_t)got); else writeAllFd(fd,buf.data(),(std::size_t)got);
+        }
+        if(!in.eof()&&in.fail()) throw std::runtime_error("Falha lendo arquivo durante upload.");
+
+        if(ssl) writeAllSsl(ssl,fileFooterStr.data(),fileFooterStr.size()); else writeAllFd(fd,fileFooterStr.data(),fileFooterStr.size());
+        std::string raw=readHttpResponseBody(fd,ssl);
+        ::close(fd);
+        const std::size_t headerEnd=raw.find("\r\n\r\n");
+        if(headerEnd==std::string::npos) throw std::runtime_error("Resposta HTTP invalida no upload.");
+        std::istringstream hs(raw.substr(0,headerEnd));
+        std::string statusLine;std::getline(hs,statusLine);
+        std::istringstream sl(statusLine);
+        std::string httpVersion;
+        HttpResponse resp;
+        sl>>httpVersion>>resp.status;
+        resp.body=raw.substr(headerEnd+4);
+        return resp;
+    }catch(...){
+        ::close(fd);
+        throw;
+    }
+}
+
 std::map<std::string,std::string> loadIdentityMeta(const keeply::fs::path& metaPath){
     std::map<std::string,std::string> out;
     std::ifstream in(metaPath);
@@ -275,6 +393,7 @@ void saveIdentityMeta(const keeply::AgentIdentity& identity){
     std::ofstream out(identity.metaPath,std::ios::trunc);
     if(!out) throw std::runtime_error("Falha ao persistir metadata da identidade do agente.");
     out<<"device_id="<<identity.deviceId<<"\n";
+    out<<"user_id="<<identity.userId<<"\n";
     out<<"fingerprint_sha256="<<identity.fingerprintSha256<<"\n";
     out<<"pairing_code="<<identity.pairingCode<<"\n";
     out<<"cert_pem="<<identity.certPemPath.string()<<"\n";
@@ -373,6 +492,41 @@ std::vector<std::string> splitPipe(const std::string& value){
     return out;
 }
 
+BackupStoragePolicy parseBackupStoragePolicy(const std::string& raw){
+    BackupStoragePolicy policy;
+    const std::string normalized=toLower(keeply::trim(raw));
+    if(normalized=="cloud_only"){
+        policy.mode="cloud_only";
+        policy.keepLocal=false;
+        policy.uploadCloud=true;
+        policy.deleteLocalAfterUpload=true;
+        return policy;
+    }
+    if(normalized=="local_then_cloud"){
+        policy.mode="local_then_cloud";
+        policy.keepLocal=true;
+        policy.uploadCloud=true;
+        policy.deleteLocalAfterUpload=false;
+        return policy;
+    }
+    policy.mode="local_only";
+    policy.keepLocal=true;
+    policy.uploadCloud=false;
+    policy.deleteLocalAfterUpload=false;
+    return policy;
+}
+
+void deleteLocalArchiveArtifacts(const keeply::fs::path& archivePath){
+    std::error_code ec;
+    keeply::fs::remove(archivePath,ec);
+    ec.clear();
+    keeply::fs::path packPath=archivePath;
+    packPath.replace_extension(".klyp");
+    keeply::fs::remove(packPath,ec);
+    ec.clear();
+    keeply::fs::remove(keeply::fs::path(packPath.string()+".idx"),ec);
+}
+
 struct FsListRow{
     bool isDir=false;
     std::string name;
@@ -391,13 +545,14 @@ std::string httpUrlFromWsUrl(const std::string& wsUrl,const std::string& path){
     return oss.str();
 }
 
-struct PairingStatusResponse{std::string status;std::string deviceId;std::string code;};
+struct PairingStatusResponse{std::string status;std::string deviceId;std::string code;std::string userId;};
 
 PairingStatusResponse parsePairingStatusResponse(const HttpResponse& response){
     PairingStatusResponse out;
     out.status=keeply::trim(extractJsonStringField(response.body,"status"));
     out.deviceId=keeply::trim(extractJsonStringField(response.body,"deviceId"));
     out.code=keeply::trim(extractJsonStringField(response.body,"code"));
+    out.userId=keeply::trim(extractJsonStringField(response.body,"userId"));
     return out;
 }
 
@@ -416,6 +571,131 @@ PairingStatusResponse pollPairingStatus(const keeply::WsClientConfig& config,con
     const HttpResponse response=httpPostJson(url,body,std::nullopt,std::nullopt,config.allowInsecureTls);
     if(response.status<200||response.status>=300) throw std::runtime_error("Falha ao consultar status do pareamento. HTTP "+std::to_string(response.status)+" | body="+response.body);
     return parsePairingStatusResponse(response);
+}
+
+UploadBundleResult uploadArchiveBackup(const keeply::WsClientConfig& config,
+                                       const keeply::AgentIdentity& identity,
+                                       const keeply::AppState& state,
+                                       const std::string& label,
+                                       const std::function<void(const UploadProgressSnapshot&)>& onProgress={}){
+    if(identity.userId.empty()) throw std::runtime_error("Agente sem userId persistido. Refaça o pareamento.");
+    const keeply::fs::path archivePath=keeply::fs::path(state.archive);
+    if(!keeply::fs::exists(archivePath)) throw std::runtime_error("Arquivo de backup local nao encontrado para upload.");
+
+    keeply::StorageArchive archive(archivePath);
+    const auto bundle=archive.exportCloudBundle("/tmp/keeply/cloud_bundle_export",16ull*1024ull*1024ull);
+    const std::string url=httpUrlFromWsUrl(config.url,"/api/agent/backups/upload");
+    UploadBundleResult result;
+    result.bundleId=bundle.bundleId;
+    const std::size_t filesTotal=bundle.files.size();
+    std::atomic<std::size_t> uploadedCount{0};
+    std::atomic<std::size_t> uploadedBlobCount{0};
+    try{
+        auto uploadOne=[&](const keeply::StorageArchive::CloudBundleFile& item,std::size_t attempt){
+            const std::string role=item.manifest?"manifest":(item.blobPart?"blob":"metadata");
+            std::size_t blobPartIndex=0;
+            if(item.blobPart){
+                const std::size_t marker=item.uploadName.find_last_of('-');
+                const std::size_t dot=item.uploadName.rfind('.');
+                if(marker!=std::string::npos&&dot!=std::string::npos&&dot>marker+1){
+                    blobPartIndex=(std::size_t)std::strtoull(item.uploadName.substr(marker+1,dot-marker-1).c_str(),nullptr,10);
+                }
+            }
+            if(onProgress){
+                onProgress(UploadProgressSnapshot{
+                    uploadedCount.load(),
+                    filesTotal,
+                    blobPartIndex,
+                    bundle.blobPartCount,
+                    item.uploadName,
+                    role
+                });
+            }
+            std::vector<MultipartField> fields;
+            fields.push_back({"userId",identity.userId});
+            fields.push_back({"agentId",identity.deviceId});
+            fields.push_back({"folderName",label});
+            fields.push_back({"mode","manual"});
+            fields.push_back({"sourcePath",state.source});
+            fields.push_back({"bundleId",bundle.bundleId});
+            fields.push_back({"bundleFileName",item.uploadName});
+            fields.push_back({"objectKey",item.objectKey});
+            fields.push_back({"bundleRole",role});
+            const HttpResponse response=httpPostMultipartFile(
+                url,
+                fields,
+                "file",
+                item.path,
+                item.uploadName,
+                item.contentType,
+                std::nullopt,
+                std::nullopt,
+                config.allowInsecureTls
+            );
+            if(response.status<200||response.status>=300){
+                throw std::runtime_error(
+                    "HTTP "+std::to_string(response.status)+
+                    " | tentativa="+std::to_string(attempt)+
+                    " | body="+response.body
+                );
+            }
+            const std::size_t completed=uploadedCount.fetch_add(1)+1;
+            if(item.blobPart) uploadedBlobCount.fetch_add(1);
+            if(item.manifest) result.manifestResponse=response;
+            if(onProgress){
+                onProgress(UploadProgressSnapshot{
+                    completed,
+                    filesTotal,
+                    blobPartIndex,
+                    bundle.blobPartCount,
+                    item.uploadName,
+                    role
+                });
+            }
+        };
+
+        const keeply::StorageArchive::CloudBundleFile* manifestFile=nullptr;
+        for(const auto& item:bundle.files){
+            if(item.manifest){manifestFile=&item; continue;}
+            if(item.blobPart) continue;
+            uploadOne(item,1);
+            if(!item.path.empty()){
+                std::error_code cleanupEc;
+                keeply::fs::remove(item.path,cleanupEc);
+            }
+        }
+
+        keeply::runParallelUploadQueue(
+            bundle.blobPartCount,
+            keeply::ParallelUploadOptions{2,3,std::chrono::milliseconds(750)},
+            [&](std::size_t partIndex,std::size_t attempt){
+                auto blobFile=archive.materializeCloudBundleBlob(bundle,partIndex);
+                try{
+                    uploadOne(blobFile,attempt);
+                }catch(...){
+                    std::error_code cleanupEc;
+                    if(!blobFile.path.empty()) keeply::fs::remove(blobFile.path,cleanupEc);
+                    throw;
+                }
+                std::error_code cleanupEc;
+                if(!blobFile.path.empty()) keeply::fs::remove(blobFile.path,cleanupEc);
+            }
+        );
+
+        if(manifestFile){
+            uploadOne(*manifestFile,1);
+        }
+    }catch(...){
+        std::error_code cleanupEc;
+        keeply::fs::remove_all(bundle.rootDir,cleanupEc);
+        throw;
+    }
+    std::error_code cleanupEc;
+    keeply::fs::remove_all(bundle.rootDir,cleanupEc);
+    result.filesUploaded=uploadedCount.load();
+    result.blobPartCount=uploadedBlobCount.load();
+    if(result.manifestResponse.status==0) throw std::runtime_error("Manifest do bundle cloud nao foi enviado.");
+    return result;
 }
 
 } // namespace
@@ -485,6 +765,7 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     identity.metaPath=config.identityDir/"identity.meta";
     const auto meta=loadIdentityMeta(identity.metaPath);
     auto itDeviceId=meta.find("device_id");if(itDeviceId!=meta.end()) identity.deviceId=trim(itDeviceId->second);
+    auto itUserId=meta.find("user_id");if(itUserId!=meta.end()) identity.userId=trim(itUserId->second);
     auto itFp=meta.find("fingerprint_sha256");if(itFp!=meta.end()) identity.fingerprintSha256=trim(itFp->second);
     auto itPairingCode=meta.find("pairing_code");if(itPairingCode!=meta.end()) identity.pairingCode=trim(itPairingCode->second);
     auto itCert=meta.find("cert_pem");
@@ -502,13 +783,13 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
         PairingStatusResponse started=startPairing(config,identity,identity.pairingCode);
         if(started.status=="code_conflict"){identity.pairingCode.clear();continue;}
         if(!started.code.empty()) identity.pairingCode=started.code;
-        if(started.status=="active"){identity.deviceId=started.deviceId;identity.pairingCode.clear();break;}
+        if(started.status=="active"){identity.deviceId=started.deviceId;identity.userId=started.userId;identity.pairingCode.clear();break;}
         saveIdentityMeta(identity);
         std::cout<<"Codigo de ativacao Keeply: "<<identity.pairingCode<<" | dispositivo: "<<config.deviceName<<" | host: "<<config.hostName<<"\n";
         for(;;){
             std::this_thread::sleep_for(std::chrono::milliseconds(std::max(1000,config.pairingPollIntervalMs)));
             PairingStatusResponse status=pollPairingStatus(config,identity,identity.pairingCode);
-            if(status.status=="active"){identity.deviceId=status.deviceId;identity.pairingCode.clear();break;}
+            if(status.status=="active"){identity.deviceId=status.deviceId;identity.userId=status.userId;identity.pairingCode.clear();break;}
             if(status.status=="expired"||status.status=="missing"){identity.pairingCode.clear();break;}
         }
         if(!identity.deviceId.empty()) break;
@@ -692,8 +973,18 @@ void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
         if(payload.rfind("config.restoreRoot:",0)==0){api_->setRestoreRoot(payload.substr(std::string("config.restoreRoot:").size()));sendJson_(R"({"type":"config.updated","field":"restoreRoot"})");return;}
         if(payload.rfind("backup",0)==0){
             std::string label;
+            BackupStoragePolicy storagePolicy;
             BackupProgress latestProgress;
-            if(payload.rfind("backup:",0)==0) label=payload.substr(std::string("backup:").size());
+            if(payload.rfind("backup:",0)==0){
+                const auto parts=splitPipe(payload.substr(std::string("backup:").size()));
+                if(!parts.empty()) label=parts[0];
+                for(std::size_t i=1;i<parts.size();++i){
+                    const std::string part=parts[i];
+                    if(part.rfind("storage=",0)==0){
+                        storagePolicy=parseBackupStoragePolicy(part.substr(std::string("storage=").size()));
+                    }
+                }
+            }
             std::cout<<"[backup] iniciado";
             if(!label.empty()) std::cout<<" | label="<<label;
             std::cout<<" | source="<<api_->state().source<<"\n";
@@ -725,6 +1016,80 @@ void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
                 std::ostringstream oss;
                 oss<<"{"<<"\"type\":\"backup.finished\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"filesScanned\":"<<stats.scanned<<","<<"\"filesAdded\":"<<stats.added<<","<<"\"filesUnchanged\":"<<stats.reused<<","<<"\"chunksNew\":"<<stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<stats.bytesRead<<","<<"\"warnings\":"<<stats.warnings<<"}";
                 sendJson_(oss.str());
+                if(storagePolicy.uploadCloud){
+                    try{
+                        sendJson_(std::string("{\"type\":\"backup.upload.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+",\"storageMode\":\""+escapeJson_(storagePolicy.mode)+"\"}");
+                        const UploadBundleResult uploadResp=uploadArchiveBackup(
+                            config_,
+                            identity_,
+                            api_->state(),
+                            label,
+                            [this,label,&storagePolicy](const UploadProgressSnapshot& progress){
+                                std::ostringstream uploadProgressJson;
+                                uploadProgressJson
+                                    <<"{"<<"\"type\":\"backup.upload.progress\","
+                                    <<"\"label\":\""<<escapeJson_(label)<<"\","
+                                    <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                                    <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                                    <<"\"storageMode\":\""<<escapeJson_(storagePolicy.mode)<<"\","
+                                    <<"\"phase\":\"uploading\","
+                                    <<"\"currentObject\":\""<<escapeJson_(progress.currentObject)<<"\","
+                                    <<"\"bundleRole\":\""<<escapeJson_(progress.bundleRole)<<"\","
+                                    <<"\"filesUploaded\":"<<progress.filesUploaded<<","
+                                    <<"\"filesTotal\":"<<progress.filesTotal<<","
+                                    <<"\"blobPartIndex\":"<<progress.blobPartIndex<<","
+                                    <<"\"blobPartCount\":"<<progress.blobPartCount
+                                    <<"}";
+                                sendJson_(uploadProgressJson.str());
+                            }
+                        );
+                        const std::string storageId=trim(extractJsonStringField(uploadResp.manifestResponse.body,"storageId"));
+                        const std::string storageScope=trim(extractJsonStringField(uploadResp.manifestResponse.body,"storageScope"));
+                        const std::string uri=trim(extractJsonStringField(uploadResp.manifestResponse.body,"uri"));
+                        const std::string bucket=trim(extractJsonStringField(uploadResp.manifestResponse.body,"bucket"));
+                        if(storagePolicy.deleteLocalAfterUpload){
+                            deleteLocalArchiveArtifacts(keeply::fs::path(api_->state().archive));
+                        }
+                        std::ostringstream uploadedJson;
+                        uploadedJson
+                            <<"{"<<"\"type\":\"backup.uploaded\","
+                            <<"\"label\":\""<<escapeJson_(label)<<"\","
+                            <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                            <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                            <<"\"storageMode\":\""<<escapeJson_(storagePolicy.mode)<<"\","
+                            <<"\"storageId\":\""<<escapeJson_(storageId)<<"\","
+                            <<"\"storageScope\":\""<<escapeJson_(storageScope)<<"\","
+                            <<"\"bucket\":\""<<escapeJson_(bucket)<<"\","
+                            <<"\"uri\":\""<<escapeJson_(uri)<<"\","
+                            <<"\"bundleId\":\""<<escapeJson_(uploadResp.bundleId)<<"\","
+                            <<"\"filesUploaded\":"<<uploadResp.filesUploaded<<","
+                            <<"\"blobPartCount\":"<<uploadResp.blobPartCount
+                            <<"}";
+                        sendJson_(uploadedJson.str());
+                    }catch(const std::exception& uploadEx){
+                        std::ostringstream uploadFailedJson;
+                        uploadFailedJson
+                            <<"{"<<"\"type\":\"backup.upload.failed\","
+                            <<"\"label\":\""<<escapeJson_(label)<<"\","
+                            <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                            <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                            <<"\"storageMode\":\""<<escapeJson_(storagePolicy.mode)<<"\","
+                            <<"\"message\":\""<<escapeJson_(uploadEx.what())<<"\""
+                            <<"}";
+                        sendJson_(uploadFailedJson.str());
+                    }
+                }else{
+                    std::ostringstream localOnlyJson;
+                    localOnlyJson
+                        <<"{"<<"\"type\":\"backup.storage.applied\","
+                        <<"\"label\":\""<<escapeJson_(label)<<"\","
+                        <<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","
+                        <<"\"scanScope\":"<<buildScanScopeJson_()<<","
+                        <<"\"storageMode\":\""<<escapeJson_(storagePolicy.mode)<<"\","
+                        <<"\"message\":\"Backup mantido somente no destino local atribuido.\""
+                        <<"}";
+                    sendJson_(localOnlyJson.str());
+                }
                 std::cout
                     <<"[backup] concluido"
                     <<" | scanned="<<stats.scanned
@@ -940,9 +1305,12 @@ std::string KeeplyAgentWsClient::buildFsListJson_(const std::string& requestId,c
         }
     }
 
+    static constexpr std::size_t kFsListMaxItems=80;
+    static constexpr std::size_t kFsListMaxEstimatedJsonBytes=24*1024;
     std::vector<FsListRow> rows;
-    rows.reserve(256);
+    rows.reserve(kFsListMaxItems);
     bool truncated=false;
+    std::size_t estimatedJsonBytes=512;
     for(fs::directory_iterator it(targetPath,fs::directory_options::skip_permission_denied,ec),end; it!=end; it.increment(ec)){
         if(ec){ec.clear();continue;}
         const fs::path itemPath=it->path();
@@ -953,12 +1321,16 @@ std::string KeeplyAgentWsClient::buildFsListJson_(const std::string& requestId,c
         row.fullPath=itemPath.string();
         row.isDir=it->is_directory(ec);
         if(ec){row.isDir=false;ec.clear();}
-        if(!row.isDir){
-            row.size=it->file_size(ec);
-            if(ec){row.size=0;ec.clear();}
+        if(!row.isDir) continue;
+        row.size=0;
+        const std::size_t rowEstimate=row.name.size()+row.fullPath.size()+96u;
+        if(!rows.empty() && estimatedJsonBytes+rowEstimate>kFsListMaxEstimatedJsonBytes){
+            truncated=true;
+            break;
         }
         rows.push_back(std::move(row));
-        if(rows.size()>=300){truncated=true;break;}
+        estimatedJsonBytes+=rowEstimate;
+        if(rows.size()>=kFsListMaxItems){truncated=true;break;}
     }
     std::sort(rows.begin(),rows.end(),[](const FsListRow& a,const FsListRow& b){
         if(a.isDir!=b.isDir) return a.isDir>b.isDir;

@@ -47,6 +47,7 @@ struct WsClientConfig{
 
 struct AgentIdentity{
     std::string deviceId;
+    std::string userId;
     std::string fingerprintSha256;
     std::string pairingCode;
     fs::path certPemPath;

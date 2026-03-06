@@ -40,6 +40,7 @@ set(KEEPLY_CORE
 
 set(KEEPLY_API_WS
     HTTP/api-rest.cpp
+    HTTP/multithread.cpp
     HTTP/ws.cpp
 )
 
@@ -96,8 +97,7 @@ target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 add_executable(keeply_agent_ws
     HTTP/agent_ws_main.cpp
     ${KEEPLY_CORE}
-    HTTP/api-rest.cpp
-    HTTP/ws.cpp
+    ${KEEPLY_API_WS}
 )
 
 target_include_directories(keeply_agent_ws PRIVATE ${KEEPLY_INCLUDE_DIRS})
@@ -108,3 +108,9 @@ target_compile_definitions(keeply_agent_ws PRIVATE
 )
 
 target_link_libraries(keeply_agent_ws PRIVATE ${KEEPLY_COMMON_LIBS})
+
+add_executable(keeply_daemon
+    Backup/daemon.cpp
+)
+
+target_link_libraries(keeply_daemon PRIVATE SQLite::SQLite3)

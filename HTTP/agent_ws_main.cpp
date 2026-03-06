@@ -5,7 +5,9 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #if defined(__linux__) || defined(__APPLE__)
+#include <csignal>
 #include <unistd.h>
 #endif
 
@@ -92,6 +94,9 @@ static void printStartupSummary(const keeply::WsClientConfig& config,
 
 int main(int argc,char** argv){
     try{
+#if defined(__linux__) || defined(__APPLE__)
+        std::signal(SIGPIPE,SIG_IGN);
+#endif
         keeply::WsClientConfig config;
         auto url=argOrEmpty(argc,argv,1);
         if(url.empty()) url=envOrEmpty("KEEPly_WS_URL");
@@ -121,12 +126,19 @@ int main(int argc,char** argv){
         keeply::AgentIdentity identity=keeply::KeeplyAgentBootstrap::ensureRegistered(config);
         config.agentId=identity.deviceId;
 
-        keeply::KeeplyAgentWsClient client(api,identity);
-        client.connect(config);
-
         printStartupSummary(config,identity,dataDir,verbose);
 
-        client.run();
+        for(;;){
+            try{
+                keeply::KeeplyAgentWsClient client(api,identity);
+                client.connect(config);
+                client.run();
+                std::cerr<<"Conexao websocket encerrada. Tentando reconectar em 2s...\n";
+            }catch(const std::exception& loopEx){
+                std::cerr<<"Loop websocket falhou: "<<loopEx.what()<<"\n";
+            }
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
         return 0;
     }catch(const std::exception& e){
         std::cerr<<"Falha no agente websocket: "<<e.what()<<"\n";

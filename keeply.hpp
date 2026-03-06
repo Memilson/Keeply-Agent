@@ -177,6 +177,25 @@ struct BackupProgress {
 // Storage
 class StorageArchive {
 public:
+    struct CloudBundleFile {
+        fs::path path;
+        std::string uploadName;
+        std::string objectKey;
+        std::string contentType = "application/octet-stream";
+        std::uintmax_t size = 0;
+        bool manifest = false;
+        bool blobPart = false;
+    };
+
+    struct CloudBundleExport {
+        std::string bundleId;
+        fs::path rootDir;
+        fs::path packPath;
+        std::uint64_t blobMaxBytes = 0;
+        std::size_t blobPartCount = 0;
+        std::vector<CloudBundleFile> files;
+    };
+
     explicit StorageArchive(const fs::path& path);
     ~StorageArchive();
 
@@ -210,6 +229,7 @@ public:
                               std::size_t rawSize,
                               const std::vector<unsigned char>& comp,
                               const std::string& compAlgo);
+    bool hasChunk(const ChunkHash& sha);
 
     struct PendingFileChunk {
         int chunkIdx{};
@@ -233,6 +253,10 @@ public:
     std::vector<StoredChunkRow> loadFileChunks(sqlite3_int64 fileId);
     std::vector<std::string> listSnapshotPaths(sqlite3_int64 snapshotId);
     void updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint64_t token);
+    CloudBundleExport exportCloudBundle(const fs::path& tempRoot,
+                                        std::uint64_t blobMaxBytes = 16ull * 1024ull * 1024ull) const;
+    CloudBundleFile materializeCloudBundleBlob(const CloudBundleExport& bundle,
+                                               std::size_t partIndex) const;
 
 private:
     struct HotStmts {

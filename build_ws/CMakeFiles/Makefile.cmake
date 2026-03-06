@@ -58,4 +58,5 @@ set(CMAKE_MAKEFILE_PRODUCTS
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/keeply.dir/DependInfo.cmake"
   "CMakeFiles/keeply_agent_ws.dir/DependInfo.cmake"
+  "CMakeFiles/keeply_daemon.dir/DependInfo.cmake"
   )

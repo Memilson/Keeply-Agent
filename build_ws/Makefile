@@ -142,6 +142,19 @@ keeply_agent_ws/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/build
 .PHONY : keeply_agent_ws/fast
 
+#=============================================================================
+# Target rules for targets named keeply_daemon
+
+# Build rule for target.
+keeply_daemon: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 keeply_daemon
+.PHONY : keeply_daemon
+
+# fast build rule for target.
+keeply_daemon/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/build
+.PHONY : keeply_daemon/fast
+
 Backup/change_tracker.o: Backup/change_tracker.cpp.o
 .PHONY : Backup/change_tracker.o
 
@@ -195,6 +208,30 @@ Backup/compactar.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply.dir/build.make CMakeFiles/keeply.dir/Backup/compactar.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/Backup/compactar.cpp.s
 .PHONY : Backup/compactar.cpp.s
+
+Backup/daemon.o: Backup/daemon.cpp.o
+.PHONY : Backup/daemon.o
+
+# target to build an object file
+Backup/daemon.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/Backup/daemon.cpp.o
+.PHONY : Backup/daemon.cpp.o
+
+Backup/daemon.i: Backup/daemon.cpp.i
+.PHONY : Backup/daemon.i
+
+# target to preprocess a source file
+Backup/daemon.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/Backup/daemon.cpp.i
+.PHONY : Backup/daemon.cpp.i
+
+Backup/daemon.s: Backup/daemon.cpp.s
+.PHONY : Backup/daemon.s
+
+# target to generate assembly for a file
+Backup/daemon.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/Backup/daemon.cpp.s
+.PHONY : Backup/daemon.cpp.s
 
 Backup/keeply_verify.o: Backup/keeply_verify.cpp.o
 .PHONY : Backup/keeply_verify.o
@@ -599,12 +636,16 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... keeply"
 	@echo "... keeply_agent_ws"
+	@echo "... keeply_daemon"
 	@echo "... Backup/change_tracker.o"
 	@echo "... Backup/change_tracker.i"
 	@echo "... Backup/change_tracker.s"
 	@echo "... Backup/compactar.o"
 	@echo "... Backup/compactar.i"
 	@echo "... Backup/compactar.s"
+	@echo "... Backup/daemon.o"
+	@echo "... Backup/daemon.i"
+	@echo "... Backup/daemon.s"
 	@echo "... Backup/keeply_verify.o"
 	@echo "... Backup/keeply_verify.i"
 	@echo "... Backup/keeply_verify.s"

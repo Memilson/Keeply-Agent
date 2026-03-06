@@ -65,6 +65,7 @@ CMAKE_BINARY_DIR = /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws
 # The main recursive "all" target.
 all: CMakeFiles/keeply.dir/all
 all: CMakeFiles/keeply_agent_ws.dir/all
+all: CMakeFiles/keeply_daemon.dir/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
@@ -74,6 +75,7 @@ preinstall:
 # The main recursive "clean" target.
 clean: CMakeFiles/keeply.dir/clean
 clean: CMakeFiles/keeply_agent_ws.dir/clean
+clean: CMakeFiles/keeply_daemon.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -127,6 +129,32 @@ keeply_agent_ws: CMakeFiles/keeply_agent_ws.dir/rule
 CMakeFiles/keeply_agent_ws.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_agent_ws.dir/build.make CMakeFiles/keeply_agent_ws.dir/clean
 .PHONY : CMakeFiles/keeply_agent_ws.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/keeply_daemon.dir
+
+# All Build rule for target.
+CMakeFiles/keeply_daemon.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles --progress-num=33,34 "Built target keeply_daemon"
+.PHONY : CMakeFiles/keeply_daemon.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/keeply_daemon.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles 2
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/keeply_daemon.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles 0
+.PHONY : CMakeFiles/keeply_daemon.dir/rule
+
+# Convenience name for target.
+keeply_daemon: CMakeFiles/keeply_daemon.dir/rule
+.PHONY : keeply_daemon
+
+# clean rule for target.
+CMakeFiles/keeply_daemon.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/keeply_daemon.dir/build.make CMakeFiles/keeply_daemon.dir/clean
+.PHONY : CMakeFiles/keeply_daemon.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.
