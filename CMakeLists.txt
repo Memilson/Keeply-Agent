@@ -30,8 +30,10 @@ set(KEEPLY_CORE
     Backup/change_tracker.cpp
     Backup/compactar.cpp
     Backup/keeply_verify.cpp
+    Backup/local.cpp
     Backup/restore.cpp
     Backup/scan.cpp
+    Backup/s3.cpp
     Backup/storage.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
