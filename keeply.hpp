@@ -27,6 +27,7 @@ inline const fs::path DEFAULT_RESTORE_ROOT = "/tmp/keeply/restore";
 
 inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
+using Blob = std::vector<unsigned char>;
 
 // Utils
 std::string trim(const std::string& s);
@@ -40,7 +41,7 @@ void ensureDefaults();
 // Compactacao / hash
 class Compactador {
 public:
-    static std::string sha256Hex(const void* data, std::size_t len);
+    static std::string blake3Hex(const void* data, std::size_t len);
 
     static void zlibCompress(
         const unsigned char* data,
@@ -84,6 +85,8 @@ public:
 
     Stmt(const Stmt&) = delete;
     Stmt& operator=(const Stmt&) = delete;
+    Stmt(Stmt&&) = delete;
+    Stmt& operator=(Stmt&&) = delete;
 
     sqlite3_stmt* get();
 
@@ -108,6 +111,8 @@ public:
 
     DB(const DB&) = delete;
     DB& operator=(const DB&) = delete;
+    DB(DB&&) = delete;
+    DB& operator=(DB&&) = delete;
 
     sqlite3* raw();
     void exec(const std::string& sql);
@@ -125,7 +130,7 @@ struct FileInfo {
     sqlite3_int64 fileId{};
     sqlite3_int64 size{};
     sqlite3_int64 mtime{};
-    std::string fileHash;
+    Blob fileHash;
 };
 
 struct SnapshotRow {
@@ -143,8 +148,8 @@ struct ChangeEntry {
     sqlite3_int64 newSize{};
     sqlite3_int64 oldMtime{};
     sqlite3_int64 newMtime{};
-    std::string oldHash;
-    std::string newHash;
+    Blob oldHash;
+    Blob newHash;
 };
 
 struct StoredChunkRow {
@@ -218,7 +223,7 @@ public:
                                         sqlite3_int64 size,
                                         sqlite3_int64 mtime);
 
-    void updateFileHash(sqlite3_int64 fileId, const std::string& fileHash);
+    void updateFileHash(sqlite3_int64 fileId, const Blob& fileHash);
     void deleteFileRecord(sqlite3_int64 fileId);
 
     sqlite3_int64 cloneFileFromPrevious(sqlite3_int64 snapshotId,

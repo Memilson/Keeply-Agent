@@ -1,6 +1,33 @@
+# Build directories
+/build/
+/build_ws/
+/build_validate/
 
-/build
-/build_ws
-/build_validate
-/build_ws
-/build_ws
+# CMake / Make generated files
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+**/compile_commands.json
+**/*.dir/
+
+# Binaries / objects
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

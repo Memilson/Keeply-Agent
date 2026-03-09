@@ -27,13 +27,13 @@ FetchContent_MakeAvailable(blake3_src)
 
 set(KEEPLY_CORE
     HTTP/api.cpp
-    Backup/change_tracker.cpp
+    Backup/cbt.cpp
     Backup/compactar.cpp
     Backup/keeply_verify.cpp
-    Backup/local.cpp
+    Backup/Storages/local.cpp
     Backup/restore.cpp
     Backup/scan.cpp
-    Backup/s3.cpp
+    Backup/Storages/s3.cpp
     Backup/storage.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
@@ -111,8 +111,24 @@ target_compile_definitions(keeply_agent_ws PRIVATE
 
 target_link_libraries(keeply_agent_ws PRIVATE ${KEEPLY_COMMON_LIBS})
 
-add_executable(keeply_daemon
-    Backup/daemon.cpp
-)
+if(WIN32)
+    set(KEEPLY_DAEMON_SOURCE Backup/Windows/daemon.cpp)
+elseif(UNIX)
+    set(KEEPLY_DAEMON_SOURCE Backup/Linux/daemon.cpp)
+endif()
 
-target_link_libraries(keeply_daemon PRIVATE SQLite::SQLite3)
+if(KEEPLY_DAEMON_SOURCE)
+    add_executable(keeply_daemon
+        ${KEEPLY_DAEMON_SOURCE}
+        Backup/cbt.cpp
+    )
+
+    target_include_directories(keeply_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+    target_compile_definitions(keeply_daemon PRIVATE
+        BLAKE3_USE_NEON=0
+        BLAKE3_NO_AVX512
+    )
+
+    target_link_libraries(keeply_daemon PRIVATE SQLite::SQLite3)
+endif()

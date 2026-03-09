@@ -1,5 +1,6 @@
 #include "keeply.hpp"
 
+#include <blake3.h>
 #include <zlib.h>
 #include <stdexcept>
 
@@ -21,6 +22,15 @@ std::size_t ZSTD_decompress(void* dst,
                             std::size_t compressedSize);
 unsigned ZSTD_isError(std::size_t code);
 const char* ZSTD_getErrorName(std::size_t code);
+}
+
+std::string Compactador::blake3Hex(const void* data, std::size_t len) {
+    unsigned char digest[32]{};
+    blake3_hasher hasher;
+    blake3_hasher_init(&hasher);
+    blake3_hasher_update(&hasher, data, len);
+    blake3_hasher_finalize(&hasher, digest, sizeof(digest));
+    return hexOfBytes(digest, sizeof(digest));
 }
 
 void Compactador::zlibCompress(

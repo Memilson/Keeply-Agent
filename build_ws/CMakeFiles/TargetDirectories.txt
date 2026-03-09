@@ -1,5 +1,0 @@
-/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles/keeply.dir
-/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles/keeply_agent_ws.dir
-/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles/keeply_daemon.dir
-/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles/edit_cache.dir
-/home/angelo/Documentos/GitHub/Keeply/Agente/build_ws/CMakeFiles/rebuild_cache.dir
