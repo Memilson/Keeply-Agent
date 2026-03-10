@@ -4,11 +4,14 @@
 #include <zlib.h>
 #include <stdexcept>
 
-// OpenSSL e SHA256 completamente erradicados. 
-// O BLAKE3 é gerenciado nativamente no motor de varredura (scan.cpp).
+#if defined(__has_include)
+#  if __has_include(<zstd.h>)
+#    include <zstd.h>
+#    define KEEPLY_HAVE_ZSTD_HEADER 1
+#  endif
+#endif
 
-namespace keeply {
-
+#ifndef KEEPLY_HAVE_ZSTD_HEADER
 extern "C" {
 std::size_t ZSTD_compressBound(std::size_t srcSize);
 std::size_t ZSTD_compress(void* dst,
@@ -23,6 +26,9 @@ std::size_t ZSTD_decompress(void* dst,
 unsigned ZSTD_isError(std::size_t code);
 const char* ZSTD_getErrorName(std::size_t code);
 }
+#endif
+
+namespace keeply {
 
 std::string Compactador::blake3Hex(const void* data, std::size_t len) {
     unsigned char digest[32]{};

@@ -1,5 +1,5 @@
-#include "../keeply.hpp"
-#include "../storage_backend.hpp"
+#include "../../keeply.hpp"
+#include "StorageObjectFactory.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -75,15 +75,7 @@ std::vector<StorageArchive::CloudBundleFile> buildPlannedBlobFiles(
         const std::uintmax_t offset = static_cast<std::uintmax_t>(partIndex) * blobMaxBytes;
         const std::uintmax_t remaining = packSize > offset ? (packSize - offset) : 0;
         const std::uintmax_t partSize = std::min<std::uintmax_t>(blobMaxBytes, remaining);
-        std::ostringstream name;
-        name << bundleId << "-blob-" << std::setw(5) << std::setfill('0') << (partIndex + 1) << ".bin";
-        StorageArchive::CloudBundleFile file;
-        file.uploadName = name.str();
-        file.objectKey = bundleId + "/" + file.uploadName;
-        file.contentType = "application/octet-stream";
-        file.size = partSize;
-        file.blobPart = true;
-        files.push_back(std::move(file));
+        files.push_back(StorageObjectFactory::makeBlobFile(bundleId, partIndex, partSize));
     }
     return files;
 }
@@ -129,8 +121,9 @@ StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::pa
     }
 
     const fs::path archivePath = path_;
-    const fs::path packPath = chunkPackPathFromArchive(path_);
-    const fs::path idxPath = chunkIndexPathFromArchive(path_);
+    const auto archiveFiles = StorageObjectFactory::describeArchive(path_);
+    const fs::path packPath = archiveFiles.packPath;
+    const fs::path idxPath = archiveFiles.indexPath;
     if (!fs::exists(archivePath)) throw std::runtime_error("Arquivo .kipy nao encontrado para exportacao cloud.");
     if (!fs::exists(packPath)) throw std::runtime_error("Arquivo .klyp nao encontrado para exportacao cloud.");
 
@@ -148,20 +141,12 @@ StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::pa
     out.packPath = packPath;
     out.blobMaxBytes = effectiveBlobSize;
 
-    CloudBundleFile dbFile;
-    dbFile.path = bundleDir / (bundleId + "-meta.kipy");
-    dbFile.uploadName = dbFile.path.filename().string();
-    dbFile.objectKey = bundleId + "/" + dbFile.uploadName;
-    dbFile.contentType = "application/octet-stream";
+    CloudBundleFile dbFile = StorageObjectFactory::makeMetaFile(bundleDir, bundleId);
     dbFile.size = copyFileToBundle(archivePath, dbFile.path);
     out.files.push_back(dbFile);
 
     if (fs::exists(idxPath)) {
-        CloudBundleFile idxFile;
-        idxFile.path = bundleDir / (bundleId + "-pack.klyp.idx");
-        idxFile.uploadName = idxFile.path.filename().string();
-        idxFile.objectKey = bundleId + "/" + idxFile.uploadName;
-        idxFile.contentType = "application/octet-stream";
+        CloudBundleFile idxFile = StorageObjectFactory::makeIndexFile(bundleDir, bundleId);
         idxFile.size = copyFileToBundle(idxPath, idxFile.path);
         out.files.push_back(idxFile);
     }
@@ -170,12 +155,7 @@ StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::pa
     out.blobPartCount = blobFiles.size();
     out.files.insert(out.files.end(), blobFiles.begin(), blobFiles.end());
 
-    CloudBundleFile manifestFile;
-    manifestFile.path = bundleDir / (bundleId + "-manifest.json");
-    manifestFile.uploadName = manifestFile.path.filename().string();
-    manifestFile.objectKey = bundleId + "/" + manifestFile.uploadName;
-    manifestFile.contentType = "application/json";
-    manifestFile.manifest = true;
+    CloudBundleFile manifestFile = StorageObjectFactory::makeManifestFile(bundleDir, bundleId);
     writeBundleManifest(manifestFile.path, bundleId, archivePath, out.files, effectiveBlobSize);
     manifestFile.size = fs::file_size(manifestFile.path, ec);
     if (ec) manifestFile.size = 0;

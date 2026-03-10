@@ -30,11 +30,9 @@ set(KEEPLY_CORE
     Backup/cbt.cpp
     Backup/compactar.cpp
     Backup/keeply_verify.cpp
-    Backup/Storages/local.cpp
     Backup/restore.cpp
     Backup/scan.cpp
-    Backup/Storages/s3.cpp
-    Backup/storage.cpp
+    Backup/Storages/storage.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
     ${blake3_src_SOURCE_DIR}/c/blake3_portable.c
@@ -45,6 +43,13 @@ set(KEEPLY_API_WS
     HTTP/multithread.cpp
     HTTP/ws.cpp
 )
+
+set(KEEPLY_AGENT_EXTRA_SOURCES)
+if(UNIX AND NOT WIN32)
+    list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
+        Backup/Linux/inotify_service.cpp
+    )
+endif()
 
 set(BLAKE3_SIMD_SOURCES)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$"
@@ -96,39 +101,18 @@ target_compile_definitions(keeply PRIVATE
 
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 
-add_executable(keeply_agent_ws
+add_executable(keeply_agent
     HTTP/agent_ws_main.cpp
     ${KEEPLY_CORE}
     ${KEEPLY_API_WS}
+    ${KEEPLY_AGENT_EXTRA_SOURCES}
 )
 
-target_include_directories(keeply_agent_ws PRIVATE ${KEEPLY_INCLUDE_DIRS})
+target_include_directories(keeply_agent PRIVATE ${KEEPLY_INCLUDE_DIRS})
 
-target_compile_definitions(keeply_agent_ws PRIVATE
+target_compile_definitions(keeply_agent PRIVATE
     BLAKE3_USE_NEON=0
     BLAKE3_NO_AVX512
 )
 
-target_link_libraries(keeply_agent_ws PRIVATE ${KEEPLY_COMMON_LIBS})
-
-if(WIN32)
-    set(KEEPLY_DAEMON_SOURCE Backup/Windows/daemon.cpp)
-elseif(UNIX)
-    set(KEEPLY_DAEMON_SOURCE Backup/Linux/daemon.cpp)
-endif()
-
-if(KEEPLY_DAEMON_SOURCE)
-    add_executable(keeply_daemon
-        ${KEEPLY_DAEMON_SOURCE}
-        Backup/cbt.cpp
-    )
-
-    target_include_directories(keeply_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
-
-    target_compile_definitions(keeply_daemon PRIVATE
-        BLAKE3_USE_NEON=0
-        BLAKE3_NO_AVX512
-    )
-
-    target_link_libraries(keeply_daemon PRIVATE SQLite::SQLite3)
-endif()
+target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})

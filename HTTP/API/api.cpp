@@ -13,18 +13,9 @@
 #include <vector>
 namespace keeply {
 namespace {
-fs::path normalizeAbsPathForConfig(const fs::path& p) {
-    std::error_code ec;
-    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
-    if (ec) {
-        throw std::runtime_error("Caminho invalido: " + p.string() + " | " + ec.message());
-    }
-    return abs.lexically_normal();
-}
-
 fs::path detectHomeDir() {
     const char* envHome = std::getenv("HOME");
-    if (envHome && *envHome) return normalizeAbsPathForConfig(fs::path(envHome));
+    if (envHome && *envHome) return normalizeAbsolutePath(fs::path(envHome));
     std::error_code ec;
     const fs::path current = fs::current_path(ec);
     if (!ec) return current.lexically_normal();
@@ -32,8 +23,8 @@ fs::path detectHomeDir() {
 }
 
 bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
-    const fs::path base = normalizeAbsPathForConfig(baseInput);
-    const fs::path candidate = normalizeAbsPathForConfig(candidateInput);
+    const fs::path base = normalizeAbsolutePath(baseInput);
+    const fs::path candidate = normalizeAbsolutePath(candidateInput);
     auto bit = base.begin();
     auto cit = candidate.begin();
     for (; bit != base.end(); ++bit, ++cit) {
@@ -43,12 +34,13 @@ bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
 }
 
 void validateSourceRootAllowed(const fs::path& sourcePath) {
-    const fs::path normalized = normalizeAbsPathForConfig(sourcePath);
+    const fs::path normalized = normalizeAbsolutePath(sourcePath);
+    if (normalized == fs::path("/")) return;
     const fs::path homeDir = detectHomeDir();
     if (normalized == homeDir || isPathWithin(homeDir, normalized)) return;
     throw std::runtime_error(
-        "Origem permitida neste build: pasta HOME do usuario (" + homeDir.string() +
-        ") ou subpastas (recebido: " + normalized.string() + ")"
+        "Origem permitida neste build: '/' com exclusoes de sistema, pasta HOME do usuario (" +
+        homeDir.string() + ") ou subpastas (recebido: " + normalized.string() + ")"
     );
 }
 
@@ -82,7 +74,7 @@ fs::path pickExistingPath(const std::vector<fs::path>& candidates) {
         ec.clear();
         if (candidate.empty()) continue;
         if (fs::exists(candidate, ec) && fs::is_directory(candidate, ec) && !ec) {
-            return normalizeAbsPathForConfig(candidate);
+            return normalizeAbsolutePath(candidate);
         }
     }
     return fs::path();
@@ -149,7 +141,7 @@ ScanScopeState resolveScanScope(const std::string& rawScopeId) {
 }
 
 ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
-    const fs::path normalized = normalizeAbsPathForConfig(sourcePath);
+    const fs::path normalized = normalizeAbsolutePath(sourcePath);
     validateSourceRootAllowed(normalized);
     ScanScopeState scope;
     scope.id = "custom";
@@ -158,6 +150,41 @@ ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
     scope.resolvedPath = normalized.string();
     return scope;
 }
+}
+namespace {
+std::vector<fs::path> systemExcludedRoots() {
+    return {
+        fs::path("/proc"),
+        fs::path("/sys"),
+        fs::path("/dev"),
+        fs::path("/run"),
+        fs::path("/tmp"),
+        fs::path("/mnt"),
+        fs::path("/media"),
+        fs::path("/lost+found"),
+        fs::path("/var/run"),
+        fs::path("/var/tmp")
+    };
+}
+}
+fs::path normalizeAbsolutePath(const fs::path& p) {
+    std::error_code ec;
+    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
+    if (ec) {
+        throw std::runtime_error("Caminho invalido: " + p.string() + " | " + ec.message());
+    }
+    return abs.lexically_normal();
+}
+bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
+    return normalizeAbsolutePath(sourceRoot) == fs::path("/");
+}
+bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
+    if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
+    const fs::path candidate = normalizeAbsolutePath(candidatePath);
+    for (const auto& excludedRoot : systemExcludedRoots()) {
+        if (candidate == excludedRoot || isPathWithin(excludedRoot, candidate)) return true;
+    }
+    return false;
 }
 std::string trim(const std::string& s) {
     const auto b = s.find_first_not_of(" \t\r\n");

@@ -70,6 +70,7 @@ void printUsage(const char* argv0) {
         << "  " << argv0 << " menu\n"
         << "  " << argv0 << " config\n"
         << "  " << argv0 << " backup\n"
+        << "  " << argv0 << " backup-source <diretorio> [arquivo_backup]\n"
         << "  " << argv0 << " timeline\n"
         << "  " << argv0 << " reset [--force]\n"
         << "  " << argv0 << " restore-ui\n"
@@ -77,7 +78,7 @@ void printUsage(const char* argv0) {
         << "  " << argv0 << " files [snapshot]\n"
         << "  " << argv0 << " restore-file <arquivo_relativo> [snapshot]\n\n"
         << "Defaults:\n"
-        << "  - Scan origem: HOME do usuario\n"
+        << "  - Scan origem: HOME do usuario (ou '/' com exclusoes de sistema)\n"
         << "  - Backup DB   : /tmp/keeply/keeply.kipy\n"
         << "  - Restore root: /tmp/keeply/restore\n";
 }
@@ -100,6 +101,11 @@ int cmdBackup(KeeplyApi& api) {
         << " warnings=" << stats.warnings
         << "\n";
     return 0;
+}
+int cmdBackupSource(KeeplyApi& api, const std::string& source, const std::optional<std::string>& archivePath) {
+    api.setSource(source);
+    if (archivePath && !archivePath->empty()) api.setArchive(*archivePath);
+    return cmdBackup(api);
 }
 int cmdTimeline(KeeplyApi& api) {
     const auto snapshots = loadTimelineSnapshots(api);
@@ -474,6 +480,11 @@ int main(int argc, char* argv[]) {
         if (cmd == "menu") return runMenu(api);
         if (cmd == "config") return cmdConfig(api);
         if (cmd == "backup") return cmdBackup(api);
+        if (cmd == "backup-source") {
+            if (argc < 3) throw std::runtime_error("Uso: backup-source <diretorio> [arquivo_backup]");
+            const std::optional<std::string> archive = (argc >= 4) ? std::optional<std::string>(argv[3]) : std::nullopt;
+            return cmdBackupSource(api, argv[2], archive);
+        }
         if (cmd == "timeline" || cmd == "list") return cmdTimeline(api);
         if (cmd == "restore-ui") return cmdRestoreUi(api);
         if (cmd == "restore-browse") {

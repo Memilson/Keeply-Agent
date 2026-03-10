@@ -185,7 +185,7 @@ void EventStore::ensureRoot(const fs::path& rootPath) {
         if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando root do daemon.");
     }
     {
-        SqlStmt st(db_->raw(), "SELECT id, COALESCE(MAX(e.seq), 0) + 1 FROM cbt_event_roots r LEFT JOIN cbt_events e ON e.root_id = r.id WHERE r.root_path=? GROUP BY r.id;");
+        SqlStmt st(db_->raw(), "SELECT r.id, COALESCE(MAX(e.seq), 0) + 1 FROM cbt_event_roots r LEFT JOIN cbt_events e ON e.root_id = r.id WHERE r.root_path=? GROUP BY r.id;");
         sqlite3_bind_text(st.get(), 1, root.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(st.get()) != SQLITE_ROW) throw std::runtime_error("Root do daemon nao encontrado.");
         rootId_ = sqlite3_column_int64(st.get(), 0);
@@ -225,7 +225,7 @@ std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, 
         rootId = sqlite3_column_int64(st.get(), 0);
         newToken = static_cast<std::uint64_t>(sqlite3_column_int64(st.get(), 1));
     }
-    if (lastToken == 0 || newToken <= lastToken) return {};
+    if (newToken <= lastToken) return {};
     SqlStmt st(db_->raw(), "SELECT e.rel_path, e.event_type FROM cbt_events e JOIN (SELECT rel_path, MAX(seq) AS max_seq FROM cbt_events WHERE root_id=? AND seq>? AND is_dir=0 GROUP BY rel_path) x ON x.rel_path = e.rel_path AND x.max_seq = e.seq WHERE e.root_id=? ORDER BY e.seq ASC;");
     sqlite3_bind_int64(st.get(), 1, rootId);
     sqlite3_bind_int64(st.get(), 2, static_cast<sqlite3_int64>(lastToken));
@@ -398,6 +398,11 @@ std::unordered_map<std::string, LinuxTrackedFile> scanCurrentLinuxFiles(const fs
             continue;
         }
         std::error_code typeEc;
+        if (it->is_directory(typeEc) && !typeEc && isExcludedBySystemPolicy(rootPath, it->path())) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        typeEc.clear();
         if (!it->is_regular_file(typeEc)) continue;
         std::error_code relEc;
         fs::path relPath = fs::relative(it->path(), rootPath, relEc);

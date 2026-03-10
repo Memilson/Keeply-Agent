@@ -8,9 +8,11 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -29,6 +31,46 @@ inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
 using Blob = std::vector<unsigned char>;
 
+struct ChunkHashHasher {
+    std::size_t operator()(const ChunkHash& h) const noexcept {
+        std::size_t out = 1469598103934665603ull;
+        for (unsigned char b : h) {
+            out ^= static_cast<std::size_t>(b);
+            out *= 1099511628211ull;
+        }
+        return out;
+    }
+};
+
+class ShardedChunkSet {
+    static constexpr std::size_t NUM_SHARDS = 64;
+
+    struct alignas(64) Shard {
+        std::mutex mtx;
+        std::unordered_set<ChunkHash, ChunkHashHasher> set;
+    };
+
+public:
+    bool insertIfNew(const ChunkHash& hash) {
+        const std::size_t hashVal = ChunkHashHasher{}(hash);
+        const std::size_t shardIdx = hashVal & (NUM_SHARDS - 1);
+        auto& shard = shards_[shardIdx];
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        return shard.set.insert(hash).second;
+    }
+
+    void reserve(std::size_t totalCapacity) {
+        const std::size_t capacityPerShard =
+            (totalCapacity + NUM_SHARDS - 1) / NUM_SHARDS;
+        for (auto& shard : shards_) {
+            shard.set.reserve(capacityPerShard);
+        }
+    }
+
+private:
+    std::array<Shard, NUM_SHARDS> shards_;
+};
+
 // Utils
 std::string trim(const std::string& s);
 std::string nowIsoLocal();
@@ -36,6 +78,9 @@ long long fileTimeToUnixSeconds(const fs::file_time_type& ftp);
 std::string hexOfBytes(const unsigned char* bytes, std::size_t n);
 std::string normalizeRelPath(std::string s);
 bool isSafeRelativePath(const std::string& p);
+fs::path normalizeAbsolutePath(const fs::path& p);
+bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot);
+bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath);
 void ensureDefaults();
 
 // Compactacao / hash
@@ -160,6 +205,12 @@ struct StoredChunkRow {
     std::vector<unsigned char> blob;
 };
 
+struct RestorableFileRef {
+    sqlite3_int64 fileId{};
+    sqlite3_int64 size{};
+    sqlite3_int64 mtime{};
+};
+
 struct BackupStats {
     std::size_t scanned = 0;
     std::size_t added = 0;
@@ -205,7 +256,9 @@ public:
     ~StorageArchive();
 
     void begin();
+    void beginRead();
     void commit();
+    void endRead();
     void rollback();
 
     sqlite3_int64 createSnapshot(const std::string& sourceRoot, const std::string& label);
@@ -252,8 +305,8 @@ public:
     std::vector<ChangeEntry> diffSnapshots(sqlite3_int64 olderSnapshotId, sqlite3_int64 newerSnapshotId);
     std::vector<ChangeEntry> diffLatestVsPrevious();
 
-    std::optional<std::pair<sqlite3_int64, sqlite3_int64>> findFileBySnapshotAndPath(
-        sqlite3_int64 snapshotId, const std::string& relPath);
+    std::optional<RestorableFileRef> findFileBySnapshotAndPath(sqlite3_int64 snapshotId,
+                                                               const std::string& relPath);
 
     std::vector<StoredChunkRow> loadFileChunks(sqlite3_int64 fileId);
     std::vector<std::string> listSnapshotPaths(sqlite3_int64 snapshotId);
@@ -279,6 +332,8 @@ private:
     HotStmts hot_;
     std::shared_ptr<void> backendOpaque_;
     mutable std::unique_ptr<std::ifstream> packIn_;
+    bool readTxnActive_ = false;
+    bool writeTxnActive_ = false;
     void prepareHotStatements();
     void finalizeHotStatements();
     std::vector<unsigned char> readPackAt(sqlite3_int64 recordOffset,

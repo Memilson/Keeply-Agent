@@ -20,9 +20,4 @@ public:
     virtual void rollbackSession() = 0;
 };
 
-fs::path chunkPackPathFromArchive(const fs::path& dbPath);
-fs::path chunkIndexPathFromArchive(const fs::path& dbPath);
-std::shared_ptr<StorageBackend> asBackend(const std::shared_ptr<void>& opaque);
-std::shared_ptr<void> makeLocalStorageBackendOpaque(const fs::path& dbPath);
-
 } // namespace keeply
