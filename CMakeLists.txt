@@ -20,13 +20,13 @@ include(FetchContent)
 FetchContent_Declare(
     blake3_src
     GIT_REPOSITORY https://github.com/BLAKE3-team/BLAKE3.git
-    GIT_TAG fb1411ebdbec5327cb838646e71cfd37beda8c12
+    GIT_TAG 6eebbbd67935cc6b8fe24da164ae968a2e3973cb
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(blake3_src)
 
 set(KEEPLY_CORE
-    HTTP/api.cpp
+    HTTP/API/api.cpp
     Backup/cbt.cpp
     Backup/compactar.cpp
     Backup/keeply_verify.cpp
@@ -39,9 +39,11 @@ set(KEEPLY_CORE
 )
 
 set(KEEPLY_API_WS
-    HTTP/api-rest.cpp
+    HTTP/API/api-rest.cpp
     HTTP/multithread.cpp
-    HTTP/ws.cpp
+    HTTP/WebSocket/ws.cpp
+    HTTP/WebSocket/ws_cloud.cpp
+    HTTP/WebSocket/ws_bootstrap.cpp
 )
 
 set(KEEPLY_AGENT_EXTRA_SOURCES)
@@ -81,6 +83,8 @@ add_executable(keeply
 set(KEEPLY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/HTTP
+    ${CMAKE_CURRENT_SOURCE_DIR}/HTTP/API
+    ${CMAKE_CURRENT_SOURCE_DIR}/HTTP/WebSocket
     ${blake3_src_SOURCE_DIR}/c
 )
 
@@ -102,7 +106,7 @@ target_compile_definitions(keeply PRIVATE
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 
 add_executable(keeply_agent
-    HTTP/agent_ws_main.cpp
+    HTTP/WebSocket/agent_ws_main.cpp
     ${KEEPLY_CORE}
     ${KEEPLY_API_WS}
     ${KEEPLY_AGENT_EXTRA_SOURCES}

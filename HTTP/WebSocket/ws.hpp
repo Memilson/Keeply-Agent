@@ -99,6 +99,7 @@ private:
     std::string buildScanScopeJson_() const;
     std::string buildStateJson_() const;
     std::string buildSnapshotsJson_();
+    std::string buildFsDisksJson_(const std::string& requestId) const;
     std::string buildFsListJson_(const std::string& requestId,const std::string& requestedPath) const;
     std::size_t writeRaw_(const void* data,std::size_t size);
     std::size_t readRaw_(void* data,std::size_t size);
