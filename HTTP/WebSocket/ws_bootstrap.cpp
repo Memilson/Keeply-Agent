@@ -7,7 +7,12 @@
 
 #include <cstdio>
 #include <iostream>
+#include <system_error>
 #include <thread>
+
+#if defined(__linux__) || defined(__APPLE__)
+#include <sys/stat.h>
+#endif
 
 namespace keeply {
 
@@ -21,6 +26,18 @@ struct PairingStatusResponse {
     std::string code;
     std::string userId;
 };
+
+void tightenIdentityPathPermissions(const fs::path& path, bool executable) {
+#if defined(__linux__) || defined(__APPLE__)
+    const mode_t mode = executable ? static_cast<mode_t>(0700) : static_cast<mode_t>(0600);
+    if (::chmod(path.c_str(), mode) != 0) {
+        throw std::runtime_error("Falha ao ajustar permissoes de " + path.string());
+    }
+#else
+    (void)path;
+    (void)executable;
+#endif
+}
 
 std::string fingerprintFromX509(X509* cert) {
     int derLen = i2d_X509(cert, nullptr);
@@ -49,6 +66,10 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     identity.certPemPath = config.identityDir / "agent-cert.pem";
     identity.keyPemPath = config.identityDir / "agent-key.pem";
     identity.metaPath = config.identityDir / "identity.meta";
+    std::error_code dirEc;
+    fs::create_directories(config.identityDir, dirEc);
+    if (dirEc) throw std::runtime_error("Falha ao criar diretorio de identidade: " + dirEc.message());
+    tightenIdentityPathPermissions(config.identityDir, true);
     EVP_PKEY_CTX* pkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
     if (!pkeyCtx) throw std::runtime_error("Falha ao criar contexto da chave.");
     EVP_PKEY* pkey = nullptr;
@@ -79,6 +100,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
             throw std::runtime_error("Falha ao salvar chave PEM do agente.");
         }
         std::fclose(keyFp);
+        tightenIdentityPathPermissions(identity.keyPemPath, false);
         FILE* certFp = std::fopen(identity.certPemPath.c_str(), "wb");
         if (!certFp) throw std::runtime_error("Falha ao criar cert PEM do agente.");
         if (PEM_write_X509(certFp, cert) != 1) {
@@ -86,6 +108,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
             throw std::runtime_error("Falha ao salvar cert PEM do agente.");
         }
         std::fclose(certFp);
+        tightenIdentityPathPermissions(identity.certPemPath, false);
         identity.fingerprintSha256 = fingerprintFromX509(cert);
         X509_free(cert);
         EVP_PKEY_free(pkey);
@@ -142,6 +165,7 @@ PairingStatusResponse pollPairingStatus(const WsClientConfig& config, const Agen
 AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& config) {
     if (trim(config.url).empty()) throw std::runtime_error("URL do backend websocket nao pode ser vazia.");
     fs::create_directories(config.identityDir);
+    tightenIdentityPathPermissions(config.identityDir, true);
     AgentIdentity identity;
     identity.metaPath = config.identityDir / "identity.meta";
     const auto meta = ws_internal::loadIdentityMeta(identity.metaPath);
@@ -166,6 +190,9 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     } else if (identity.fingerprintSha256.empty()) {
         identity.fingerprintSha256 = fingerprintFromPemFile(identity.certPemPath);
     }
+    if (fs::exists(identity.certPemPath)) tightenIdentityPathPermissions(identity.certPemPath, false);
+    if (fs::exists(identity.keyPemPath)) tightenIdentityPathPermissions(identity.keyPemPath, false);
+    if (fs::exists(identity.metaPath)) tightenIdentityPathPermissions(identity.metaPath, false);
     for (;;) {
         if (identity.pairingCode.empty()) identity.pairingCode = trim(config.pairingCode);
         if (identity.pairingCode.empty()) identity.pairingCode = ws_internal::randomDigits(8);
@@ -202,6 +229,7 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
         if (!identity.deviceId.empty()) break;
     }
     ws_internal::saveIdentityMeta(identity);
+    tightenIdentityPathPermissions(identity.metaPath, false);
     return identity;
 }
 

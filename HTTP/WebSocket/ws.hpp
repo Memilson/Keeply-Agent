@@ -9,6 +9,10 @@
 
 namespace keeply {
 
+namespace ws_internal {
+struct BackupStoragePolicy;
+}
+
 namespace fs = std::filesystem;
 
 class IWsClientSession{
@@ -41,7 +45,7 @@ struct WsClientConfig{
     std::string osName="linux";
     std::string pairingCode;
     fs::path identityDir="/tmp/keeply/agent_identity";
-    bool allowInsecureTls=true;
+    bool allowInsecureTls=false;
     int pairingPollIntervalMs=3000;
 };
 
@@ -53,6 +57,19 @@ struct AgentIdentity{
     fs::path certPemPath;
     fs::path keyPemPath;
     fs::path metaPath;
+};
+
+struct WsCommand{
+    std::string type;
+    std::string requestId;
+    std::string path;
+    std::string scopeId;
+    std::string label;
+    std::string storage;
+    std::string snapshot;
+    std::string relPath;
+    std::string outRoot;
+    std::string raw;
 };
 
 class KeeplyAgentBootstrap final{
@@ -77,11 +94,12 @@ private:
     AgentIdentity identity_;
     WsClientConfig config_;
     mutable std::mutex mu_;
+    mutable std::mutex ioMu_;
     int sockfd_=-1;
     bool connected_=false;
     bool closeSent_=false;
     std::string recvBuffer_;
-    std::unique_ptr<TlsState> tls_;
+    std::shared_ptr<TlsState> tls_;
     static UrlParts parseUrl_(const std::string& url);
     static std::string escapeJson_(const std::string& value);
     static std::string urlEncode_(const std::string& value);
@@ -89,6 +107,15 @@ private:
     void connectSocket_(const UrlParts& url);
     void performHandshake_(const UrlParts& url);
     void handleServerMessage_(const std::string& payload);
+    void executeCommand_(const WsCommand& cmd);
+    void runBackupCommand_(const std::string& label,const std::string& storage);
+    void runBackupUpload_(const std::string& label,const ws_internal::BackupStoragePolicy& storagePolicy);
+    void runRestoreFileCommand_(const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw);
+    void runRestoreSnapshotCommand_(const std::string& snapshot,const std::string& outRootRaw);
+    void sendBackupProgress_(const std::string& label,const BackupProgress& progress);
+    void sendBackupFinished_(const std::string& label,const BackupStats& stats);
+    void sendBackupFailed_(const std::string& label,const BackupProgress& latestProgress,const std::string& message);
+    void sendBackupLocalOnly_(const std::string& label,const std::string& storageMode);
     void sendHello_();
     void sendJson_(const std::string& payload);
     void sendPong_(const std::string& payload);

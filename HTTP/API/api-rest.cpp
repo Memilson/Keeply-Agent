@@ -96,6 +96,7 @@ static std::string reasonPhrase(int status){
         case 201: return "Created";
         case 202: return "Accepted";
         case 400: return "Bad Request";
+        case 405: return "Method Not Allowed";
         case 404: return "Not Found";
         case 413: return "Payload Too Large";
         case 500: return "Internal Server Error";
@@ -223,6 +224,9 @@ static std::string pathBetween(const std::string& path,const std::string& prefix
     if(!startsWith(path,prefix)||!endsWith(path,suffix)||path.size()<=prefix.size()+suffix.size()) return "";
     return path.substr(prefix.size(),path.size()-prefix.size()-suffix.size());
 }
+static bool containsText(const std::string& text,const std::string& pattern){
+    return text.find(pattern)!=std::string::npos;
+}
 }
 
 namespace keeply {
@@ -251,7 +255,7 @@ public:
     std::string newJobId(){ return std::to_string(seq.fetch_add(1,std::memory_order_relaxed)); }
 };
 
-KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsNotifier> wsNotifier):api_(std::move(api)),ws_(std::move(wsNotifier)),impl_(std::make_unique<Impl>()){
+KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsNotifier> wsNotifier):api_(std::move(api)),ws_(std::move(wsNotifier)),impl_(std::make_shared<Impl>()){
     if(!api_) throw std::runtime_error("KeeplyRestApi requer KeeplyApi.");
     impl_->api=api_;
     impl_->ws=ws_;
@@ -273,8 +277,32 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
         if(req.method=="GET"&&startsWith(req.path,"/api/v1/snapshots/")&&endsWith(req.path,"/paths")) return handleGetSnapshotPaths(req);
         if(req.method=="POST"&&req.path=="/api/v1/restore/file") return handlePostRestoreFile(req);
         if(req.method=="POST"&&req.path=="/api/v1/restore/snapshot") return handlePostRestoreSnapshot(req);
+        if(startsWith(req.path,"/api/v1/")) return jsonMethodNotAllowed("Metodo HTTP nao suportado para esta rota.");
         return jsonNotFound("Rota nao encontrada.");
-    }catch(const std::exception& e){ return jsonError(e.what()); }
+    }catch(const std::exception& e){
+        const std::string msg=e.what();
+        if(
+            containsText(msg,"nao encontrado")||
+            containsText(msg,"Nenhum snapshot encontrado")||
+            containsText(msg,"Nao existe snapshot anterior")
+        ) return jsonNotFound(msg);
+        if(
+            containsText(msg,"invalido")||
+            containsText(msg,"inválido")||
+            containsText(msg,"vazia")||
+            containsText(msg,"vazio")||
+            containsText(msg,"suportado")||
+            containsText(msg,"Formato ")||
+            containsText(msg,"Use ambos os parametros")||
+            containsText(msg,"Path relativo inseguro")||
+            containsText(msg,"Path relativo invalido")||
+            containsText(msg,"Path relativo vazio")||
+            containsText(msg,"Path escapou do diretorio de restore")||
+            containsText(msg,"Origem permitida neste build")||
+            containsText(msg,"Tamanho de divisao muito pequeno")
+        ) return jsonBadRequest(msg);
+        return jsonError(msg);
+    }
     catch(...){ return jsonError("Erro interno desconhecido."); }
 }
 
@@ -313,37 +341,43 @@ RestResponse KeeplyRestApi::handlePostConfigRestoreRoot(const RestRequest& req){
 }
 
 RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
+    const auto impl=impl_;
     std::string label=req.body;
-    auto id=impl_->newJobId();
+    auto id=impl->newJobId();
     BackupJob job;
     job.id=id;
     job.label=label;
     job.status="running";
     job.startedAtMs=Impl::nowMs();
-    { std::lock_guard<std::mutex> lk(impl_->jobsMu); impl_->jobs[id]=job; }
-    auto api=impl_->api;
-    auto ws=impl_->ws;
-    auto& jobs=impl_->jobs;
-    auto& jobsMu=impl_->jobsMu;
-    auto& mu=impl_->mu;
-    std::thread([id,label,api,ws,&jobs,&jobsMu,&mu](){
+    { std::lock_guard<std::mutex> lk(impl->jobsMu); impl->jobs[id]=job; }
+    std::thread([impl,id,label](){
         BackupStats stats{};
         std::string err;
-        try{ std::lock_guard<std::mutex> lock(mu); stats=api->runBackup(label); }
+        try{
+            std::lock_guard<std::mutex> lock(impl->mu);
+            stats=impl->api->runBackup(label);
+        }
         catch(const std::exception& e){ err=e.what(); }
         catch(...){ err="erro interno"; }
-        std::lock_guard<std::mutex> lk(jobsMu);
-        auto it=jobs.find(id);
-        if(it==jobs.end()) return;
-        it->second.stats=stats;
-        it->second.finishedAtMs=Impl::nowMs();
-        if(err.empty()){ it->second.status="finished"; if(ws) ws->broadcastJson(R"({"type":"backup.finished"})"); }
-        else{ it->second.status="failed"; it->second.error=err; if(ws) ws->broadcastJson(R"({"type":"backup.failed"})"); }
+        std::string eventJson;
+        {
+            std::lock_guard<std::mutex> lk(impl->jobsMu);
+            auto it=impl->jobs.find(id);
+            if(it==impl->jobs.end()) return;
+            it->second.stats=stats;
+            it->second.finishedAtMs=Impl::nowMs();
+            if(err.empty()){
+                it->second.status="finished";
+                eventJson=std::string("{\"type\":\"backup.finished\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\"}";
+            }else{
+                it->second.status="failed";
+                it->second.error=err;
+                eventJson=std::string("{\"type\":\"backup.failed\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\",\"error\":\""+KeeplyRestApi::escapeJson(err)+"\"}";
+            }
+        }
+        if(impl->ws) impl->ws->broadcastJson(eventJson);
     }).detach();
-    RestResponse r;
-    r.status=202;
-    r.body=std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}";
-    return r;
+    return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");
 }
 
 RestResponse KeeplyRestApi::handleGetBackupJobs(){
@@ -420,6 +454,10 @@ RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     std::string snapshot,relPath,outRoot;
     if(!std::getline(iss,snapshot,'|')||!std::getline(iss,relPath,'|')) return jsonBadRequest("Formato invalido. Use: snapshot|relpath|outRoot(opcional)");
     std::getline(iss,outRoot);
+    snapshot=trimHttp(snapshot);
+    relPath=trimHttp(relPath);
+    outRoot=trimHttp(outRoot);
+    if(snapshot.empty()||relPath.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|relpath|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreFile(snapshot,relPath,std::nullopt);
       else impl_->api->restoreFile(snapshot,relPath,std::filesystem::path(outRoot));
@@ -433,6 +471,9 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     std::string snapshot,outRoot;
     if(!std::getline(iss,snapshot,'|')) return jsonBadRequest("Formato invalido. Use: snapshot|outRoot(opcional)");
     std::getline(iss,outRoot);
+    snapshot=trimHttp(snapshot);
+    outRoot=trimHttp(outRoot);
+    if(snapshot.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreSnapshot(snapshot,std::nullopt);
       else impl_->api->restoreSnapshot(snapshot,std::filesystem::path(outRoot));
@@ -443,7 +484,9 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
 
 RestResponse KeeplyRestApi::jsonOk(const std::string& json){ RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
 RestResponse KeeplyRestApi::jsonCreated(const std::string& json){ RestResponse r; r.status=201; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
+RestResponse KeeplyRestApi::jsonAccepted(const std::string& json){ RestResponse r; r.status=202; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
 RestResponse KeeplyRestApi::jsonBadRequest(const std::string& message){ RestResponse r; r.status=400; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
+RestResponse KeeplyRestApi::jsonMethodNotAllowed(const std::string& message){ RestResponse r; r.status=405; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
 RestResponse KeeplyRestApi::jsonNotFound(const std::string& message){ RestResponse r; r.status=404; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
 RestResponse KeeplyRestApi::jsonError(const std::string& message){ RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
 

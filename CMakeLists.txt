@@ -120,3 +120,38 @@ target_compile_definitions(keeply_agent PRIVATE
 )
 
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
+
+if(UNIX AND NOT WIN32)
+    add_executable(keeply_cbt_daemon
+        Backup/Linux/daemon.cpp
+        Backup/cbt.cpp
+    )
+
+    target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+    target_compile_definitions(keeply_cbt_daemon PRIVATE
+        BLAKE3_USE_NEON=0
+        BLAKE3_NO_AVX512
+    )
+
+    target_link_libraries(keeply_cbt_daemon PRIVATE
+        SQLite::SQLite3
+    )
+elseif(WIN32)
+    add_executable(keeply_cbt_daemon
+        Backup/Windows/daemon.cpp
+        Backup/cbt.cpp
+    )
+
+    target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+    target_compile_definitions(keeply_cbt_daemon PRIVATE
+        BLAKE3_USE_NEON=0
+        BLAKE3_NO_AVX512
+    )
+
+    target_link_libraries(keeply_cbt_daemon PRIVATE
+        SQLite::SQLite3
+        Advapi32
+    )
+endif()

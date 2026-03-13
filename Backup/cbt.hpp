@@ -55,5 +55,6 @@ public:
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker();
 fs::path defaultEventStorePath();
 fs::path defaultEventStorePidPath();
+fs::path defaultEventStoreRootPath();
 
 } // namespace keeply

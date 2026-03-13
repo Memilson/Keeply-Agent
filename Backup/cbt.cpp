@@ -260,6 +260,14 @@ fs::path defaultEventStorePidPath() {
 #endif
 }
 
+fs::path defaultEventStoreRootPath() {
+#ifdef _WIN32
+    return defaultEventStorePath().parent_path() / "keeplyintf.root";
+#else
+    return "/tmp/keeply/keeplyintf.root";
+#endif
+}
+
 fs::path defaultNativeStateStorePath() {
 #ifdef _WIN32
     const char* localAppData = std::getenv("LOCALAPPDATA");
@@ -387,6 +395,32 @@ public:
     }
     sqlite3* raw() const { return db_; }
 };
+bool isExcludedLinuxTrackerPath(const fs::path& rootPath, const fs::path& candidatePath) {
+    const fs::path normalizedRoot = fs::absolute(rootPath).lexically_normal();
+    if (normalizedRoot != fs::path("/")) return false;
+    const fs::path candidate = fs::absolute(candidatePath).lexically_normal();
+    static const std::vector<fs::path> excludedRoots = {
+        fs::path("/proc"),
+        fs::path("/sys"),
+        fs::path("/dev"),
+        fs::path("/run"),
+        fs::path("/tmp"),
+        fs::path("/mnt"),
+        fs::path("/media"),
+        fs::path("/lost+found"),
+        fs::path("/var/run"),
+        fs::path("/var/tmp")
+    };
+    for (const auto& excludedRoot : excludedRoots) {
+        auto excludedIt = excludedRoot.begin();
+        auto candidateIt = candidate.begin();
+        for (; excludedIt != excludedRoot.end(); ++excludedIt, ++candidateIt) {
+            if (candidateIt == candidate.end() || *excludedIt != *candidateIt) break;
+        }
+        if (excludedIt == excludedRoot.end()) return true;
+    }
+    return false;
+}
 std::unordered_map<std::string, LinuxTrackedFile> scanCurrentLinuxFiles(const fs::path& rootPath) {
     std::unordered_map<std::string, LinuxTrackedFile> files;
     std::error_code itEc;
@@ -398,7 +432,7 @@ std::unordered_map<std::string, LinuxTrackedFile> scanCurrentLinuxFiles(const fs
             continue;
         }
         std::error_code typeEc;
-        if (it->is_directory(typeEc) && !typeEc && isExcludedBySystemPolicy(rootPath, it->path())) {
+        if (it->is_directory(typeEc) && !typeEc && isExcludedLinuxTrackerPath(rootPath, it->path())) {
             it.disable_recursion_pending();
             continue;
         }

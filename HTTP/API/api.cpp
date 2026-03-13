@@ -11,6 +11,10 @@
 #include <sstream>
 #include <system_error>
 #include <vector>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
 namespace keeply {
 namespace {
 fs::path detectHomeDir() {
@@ -35,13 +39,21 @@ bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
 
 void validateSourceRootAllowed(const fs::path& sourcePath) {
     const fs::path normalized = normalizeAbsolutePath(sourcePath);
-    if (normalized == fs::path("/")) return;
-    const fs::path homeDir = detectHomeDir();
-    if (normalized == homeDir || isPathWithin(homeDir, normalized)) return;
-    throw std::runtime_error(
-        "Origem permitida neste build: '/' com exclusoes de sistema, pasta HOME do usuario (" +
-        homeDir.string() + ") ou subpastas (recebido: " + normalized.string() + ")"
-    );
+    std::error_code ec;
+    if (!fs::exists(normalized, ec) || ec) {
+        throw std::runtime_error("Origem nao encontrada: " + normalized.string());
+    }
+    ec.clear();
+    if (!fs::is_directory(normalized, ec) || ec) {
+        throw std::runtime_error("Origem precisa ser um diretorio: " + normalized.string());
+    }
+#if defined(__unix__) || defined(__APPLE__)
+    if (::access(normalized.c_str(), R_OK | X_OK) != 0) {
+        throw std::runtime_error(
+            "Sem permissao para acessar a origem configurada: " + normalized.string()
+        );
+    }
+#endif
 }
 
 std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::string& key) {
@@ -255,13 +267,21 @@ void KeeplyApi::setArchive(const std::string& archive) {
     state_.archive = s;
     std::error_code ec;
     fs::path p(s);
-    if (!p.parent_path().empty()) fs::create_directories(p.parent_path(), ec);}
+    if (!p.parent_path().empty()) {
+        fs::create_directories(p.parent_path(), ec);
+        if (ec) {
+            throw std::runtime_error("Falha criando diretorio do arquivo KPLY: " + ec.message());
+        }
+    }}
 void KeeplyApi::setRestoreRoot(const std::string& restoreRoot) {
     const std::string s = trim(restoreRoot);
     if (s.empty()) throw std::runtime_error("Destino de restore nao pode ser vazio.");
     state_.restoreRoot = s;
     std::error_code ec;
-    fs::create_directories(fs::path(s), ec);}
+    fs::create_directories(fs::path(s), ec);
+    if (ec) {
+        throw std::runtime_error("Falha criando diretorio de restore: " + ec.message());
+    }}
 void KeeplyApi::setArchiveSplitMaxBytes(std::uint64_t maxBytes) {
     if (maxBytes == 0) {
         disableArchiveSplit();

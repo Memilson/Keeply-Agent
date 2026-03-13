@@ -28,6 +28,11 @@ namespace fs = std::filesystem;
 
 namespace {
 
+std::string envOrEmpty(const char* key) {
+    const char* value = std::getenv(key);
+    return value ? std::string(value) : std::string();
+}
+
 constexpr uint32_t kWatchMask =
     IN_CREATE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF |
     IN_MOVED_FROM | IN_MOVED_TO | IN_CLOSE_WRITE | IN_ONLYDIR | IN_MOVE_SELF;
@@ -146,6 +151,13 @@ void writePidFile() {
     pid << getpid() << "\n";
 }
 
+void writeRootFile(const fs::path& root) {
+    fs::create_directories(keeply::defaultEventStoreRootPath().parent_path());
+    std::ofstream rootFile(keeply::defaultEventStoreRootPath(), std::ios::trunc);
+    if (!rootFile) throw std::runtime_error("Falha criando arquivo de root do daemon.");
+    rootFile << fs::absolute(root).lexically_normal().generic_string() << "\n";
+}
+
 void daemonizeProcess() {
     pid_t pid = fork();
     if (pid < 0) throw std::runtime_error("fork falhou.");
@@ -190,6 +202,10 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (root.empty()) {
+            const auto rootFromEnv = envOrEmpty("KEEPLY_ROOT");
+            if (!rootFromEnv.empty()) root = fs::path(rootFromEnv);
+        }
         if (root.empty()) throw std::runtime_error("Informe --root <diretorio>.");
         if (!fs::exists(root) || !fs::is_directory(root)) {
             throw std::runtime_error("Root invalido para o daemon.");
@@ -200,6 +216,7 @@ int main(int argc, char** argv) {
 
         if (!foreground) daemonizeProcess();
         writePidFile();
+        writeRootFile(root);
 
         InotifyDaemon daemon(root);
         daemon.run();
