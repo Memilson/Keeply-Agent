@@ -25,6 +25,7 @@
 *.log
 *.tmp
 *.temp
+keeply-all.bin
 
 # Editors / OS
 .DS_Store
