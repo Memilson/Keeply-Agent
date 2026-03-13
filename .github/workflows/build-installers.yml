@@ -63,7 +63,7 @@ jobs:
           ls -lh "${LINUX_INSTALLER_PATH}"
 
       - name: Upload Linux installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: keeply-linux-installer-${{ github.sha }}
           path: ${{ env.LINUX_INSTALLER_PATH }}
@@ -139,7 +139,7 @@ jobs:
           ls -la "${WINDOWS_DIST_DIR}"
 
       - name: Upload Windows package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: keeply-windows-binaries-${{ github.sha }}
           path: ${{ env.WINDOWS_DIST_DIR }}
