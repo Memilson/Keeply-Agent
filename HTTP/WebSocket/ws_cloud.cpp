@@ -163,10 +163,10 @@ HttpTls connectTls(int fd,
         }
     }
     if (certPemPath && keyPemPath) {
-        if (SSL_CTX_use_certificate_file(tls.ctx, certPemPath->c_str(), SSL_FILETYPE_PEM) != 1) {
+        if (SSL_CTX_use_certificate_file(tls.ctx, certPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
             throw std::runtime_error("Falha ao carregar certificado do agente.");
         }
-        if (SSL_CTX_use_PrivateKey_file(tls.ctx, keyPemPath->c_str(), SSL_FILETYPE_PEM) != 1) {
+        if (SSL_CTX_use_PrivateKey_file(tls.ctx, keyPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
             throw std::runtime_error("Falha ao carregar chave privada do agente.");
         }
     }
@@ -461,7 +461,10 @@ std::size_t writeAllFd(int fd, const void* data, std::size_t size) {
 #ifdef MSG_NOSIGNAL
         flags |= MSG_NOSIGNAL;
 #endif
-        const ssize_t n = ::send(fd, ptr + static_cast<std::ptrdiff_t>(offset), size - offset, flags);
+        const ssize_t n = ::send(fd,
+                                 reinterpret_cast<const char*>(ptr + static_cast<std::ptrdiff_t>(offset)),
+                                 static_cast<int>(size - offset),
+                                 flags);
         if (n < 0) {
             if (errno == EINTR) continue;
             throw std::runtime_error(std::string("send falhou: ") + std::strerror(errno));
@@ -489,7 +492,7 @@ std::size_t writeAllSsl(ssl_st* sslHandle, const void* data, std::size_t size) {
 
 std::size_t readSomeFd(int fd, void* data, std::size_t size) {
     for (;;) {
-        const ssize_t n = ::recv(fd, data, size, 0);
+        const ssize_t n = ::recv(fd, reinterpret_cast<char*>(data), static_cast<int>(size), 0);
         if (n < 0) {
             if (errno == EINTR) continue;
             throw std::runtime_error(std::string("recv falhou: ") + std::strerror(errno));

@@ -468,8 +468,8 @@ void KeeplyAgentWsClient::configureTls_(const UrlParts& url){
         if(SSL_CTX_set_default_verify_paths(tls->ctx)!=1) throw std::runtime_error("Falha ao configurar trust store do websocket.");
     }
     if(!identity_.certPemPath.empty()&&!identity_.keyPemPath.empty()){
-        if(SSL_CTX_use_certificate_file(tls->ctx,identity_.certPemPath.c_str(),SSL_FILETYPE_PEM)!=1) throw std::runtime_error("Falha ao carregar certificado cliente para websocket.");
-        if(SSL_CTX_use_PrivateKey_file(tls->ctx,identity_.keyPemPath.c_str(),SSL_FILETYPE_PEM)!=1) throw std::runtime_error("Falha ao carregar chave privada cliente para websocket.");
+        if(SSL_CTX_use_certificate_file(tls->ctx,identity_.certPemPath.string().c_str(),SSL_FILETYPE_PEM)!=1) throw std::runtime_error("Falha ao carregar certificado cliente para websocket.");
+        if(SSL_CTX_use_PrivateKey_file(tls->ctx,identity_.keyPemPath.string().c_str(),SSL_FILETYPE_PEM)!=1) throw std::runtime_error("Falha ao carregar chave privada cliente para websocket.");
     }
     tls->ssl=SSL_new(tls->ctx);
     if(!tls->ssl) throw std::runtime_error("Falha ao criar SSL do websocket.");
