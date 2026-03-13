@@ -40,19 +40,19 @@ set(KEEPLY_CORE
 
 set(KEEPLY_API_WS
     HTTP/multithread.cpp
+    HTTP/WebSocket/ws.cpp
+    HTTP/WebSocket/ws_cloud.cpp
     HTTP/WebSocket/ws_bootstrap.cpp
 )
 
 if(UNIX AND NOT WIN32)
     list(APPEND KEEPLY_API_WS
-        HTTP/WebSocket/ws.cpp
-        HTTP/WebSocket/ws_cloud.cpp
         HTTP/API/api-rest.cpp
     )
 endif()
 
 set(KEEPLY_AGENT_EXTRA_SOURCES)
-if(UNIX AND NOT WIN32)
+if(UNIX OR WIN32)
     list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
         Backup/Linux/inotify_service.cpp
     )

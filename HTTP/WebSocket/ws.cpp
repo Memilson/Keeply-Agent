@@ -1,8 +1,13 @@
 #include "ws.hpp"
 #include "ws_internal.hpp"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 
@@ -32,6 +37,16 @@ namespace {
 namespace fs = std::filesystem;
 
 using namespace keeply::ws_internal;
+
+#ifdef _WIN32
+int closeSocketFd(int fd) {
+    return closesocket(static_cast<SOCKET>(fd));
+}
+#else
+int closeSocketFd(int fd) {
+    return ::close(fd);
+}
+#endif
 
 struct FsListRow{
     bool isDir=false;
@@ -411,7 +426,14 @@ void KeeplyAgentWsClient::close(){
         recvBuffer_.clear();
         tls=std::move(tls_);
     }
-    if(fd>=0){::shutdown(fd,SHUT_RDWR);::close(fd);}
+    if(fd>=0){
+#ifdef _WIN32
+        ::shutdown(fd, SD_BOTH);
+#else
+        ::shutdown(fd, SHUT_RDWR);
+#endif
+        closeSocketFd(fd);
+    }
 }
 
 bool KeeplyAgentWsClient::isConnected() const{std::lock_guard<std::mutex> lock(mu_);return connected_;}

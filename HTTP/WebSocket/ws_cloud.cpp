@@ -1,10 +1,15 @@
 #include "ws_internal.hpp"
 #include "../multithread.hpp"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
@@ -28,6 +33,33 @@
 namespace keeply::ws_internal {
 
 namespace {
+
+#ifdef _WIN32
+struct WinsockInit {
+    WinsockInit() {
+        WSADATA data{};
+        if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+            throw std::runtime_error("WSAStartup falhou.");
+        }
+    }
+    ~WinsockInit() {
+        WSACleanup();
+    }
+};
+
+WinsockInit& ensureWinsock() {
+    static WinsockInit instance;
+    return instance;
+}
+
+int closeSocketFd(int fd) {
+    return closesocket(static_cast<SOCKET>(fd));
+}
+#else
+int closeSocketFd(int fd) {
+    return ::close(fd);
+}
+#endif
 
 struct HttpTls {
     SSL_CTX* ctx = nullptr;
@@ -192,11 +224,11 @@ HttpResponse httpPostJson(const std::string& url,
         if (ssl) static_cast<void>(writeAllSsl(ssl, request.data(), request.size()));
         else static_cast<void>(writeAllFd(fd, request.data(), request.size()));
         std::string raw = readHttpResponseBody(fd, ssl);
-        ::close(fd);
+        closeSocketFd(fd);
         fd = -1;
         return parseHttpResponse(raw, "enroll");
     } catch (...) {
-        if (fd >= 0) ::close(fd);
+        if (fd >= 0) closeSocketFd(fd);
         throw;
     }
 }
@@ -285,11 +317,11 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         if (ssl) static_cast<void>(writeAllSsl(ssl, fileFooterStr.data(), fileFooterStr.size()));
         else static_cast<void>(writeAllFd(fd, fileFooterStr.data(), fileFooterStr.size()));
         std::string raw = readHttpResponseBody(fd, ssl);
-        ::close(fd);
+        closeSocketFd(fd);
         fd = -1;
         return parseHttpResponse(raw, "upload");
     } catch (...) {
-        if (fd >= 0) ::close(fd);
+        if (fd >= 0) closeSocketFd(fd);
         throw;
     }
 }
@@ -398,6 +430,9 @@ std::string escapeJson(const std::string& value) {
 }
 
 int openTcpSocket(const std::string& host, int port) {
+#ifdef _WIN32
+    ensureWinsock();
+#endif
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -409,8 +444,8 @@ int openTcpSocket(const std::string& host, int port) {
     for (addrinfo* p = result; p != nullptr; p = p->ai_next) {
         fd = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (fd < 0) continue;
-        if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) break;
-        ::close(fd);
+        if (::connect(fd, p->ai_addr, static_cast<int>(p->ai_addrlen)) == 0) break;
+        closeSocketFd(fd);
         fd = -1;
     }
     ::freeaddrinfo(result);
