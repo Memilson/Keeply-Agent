@@ -2,7 +2,9 @@ name: Build Installers
 
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   pull_request:
   workflow_dispatch:
 
@@ -14,9 +16,10 @@ permissions:
   contents: read
 
 env:
-  AGENT_DIR: Agente
-  LINUX_INSTALLER_PATH: Agente/keeply-all.bin
-  WINDOWS_BUILD_DIR: Agente/build-win
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  AGENT_DIR: .
+  LINUX_INSTALLER_PATH: keeply-all.bin
+  WINDOWS_BUILD_DIR: build-win
   WINDOWS_DIST_DIR: dist/windows
 
 jobs:
@@ -50,17 +53,17 @@ jobs:
       - name: Make keeply.sh executable
         run: |
           set -euxo pipefail
-          chmod +x "${AGENT_DIR}/keeply.sh"
+          chmod +x keeply.sh
 
       - name: Build Linux installer
         run: |
           set -euxo pipefail
-          "./${AGENT_DIR}/keeply.sh" build-installer
+          ./keeply.sh build-installer
           test -f "${LINUX_INSTALLER_PATH}"
           ls -lh "${LINUX_INSTALLER_PATH}"
 
       - name: Upload Linux installer artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: keeply-linux-installer-${{ github.sha }}
           path: ${{ env.LINUX_INSTALLER_PATH }}
@@ -136,7 +139,7 @@ jobs:
           ls -la "${WINDOWS_DIST_DIR}"
 
       - name: Upload Windows package artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: keeply-windows-binaries-${{ github.sha }}
           path: ${{ env.WINDOWS_DIST_DIR }}
