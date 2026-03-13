@@ -314,21 +314,21 @@ public:
         HANDLE hv = CreateFileA(volPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
         if (hv == INVALID_HANDLE_VALUE) throw std::runtime_error("Falha ao abrir volume NTFS. Keeply precisa rodar como Administrador.");
         hVol_ = WinHandle(hv);
-        USN_JOURNAL_DATA_V0 jd{};
+        USN_JOURNAL_DATA jd{};
         DWORD br = 0;
         if (!DeviceIoControl(hVol_.h, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &jd, sizeof(jd), &br, nullptr)) throw std::runtime_error("Falha ao consultar USN Journal. O volume e NTFS?");
     }
     std::vector<ChangedFile> getChanges(std::uint64_t lastToken, std::uint64_t& newToken) override {
         std::vector<ChangedFile> changes;
         std::unordered_set<std::string> seen;
-        USN_JOURNAL_DATA_V0 jd{};
+        USN_JOURNAL_DATA jd{};
         DWORD br = 0;
         if (!DeviceIoControl(hVol_.h, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &jd, sizeof(jd), &br, nullptr)) throw std::runtime_error("Falha ao consultar USN Journal.");
         if (lastToken == 0) {
             newToken = static_cast<std::uint64_t>(jd.NextUsn);
             return changes;
         }
-        READ_USN_JOURNAL_DATA_V0 rd{};
+        READ_USN_JOURNAL_DATA rd{};
         rd.StartUsn = static_cast<USN>(lastToken);
         rd.ReasonMask = USN_REASON_DATA_OVERWRITE | USN_REASON_DATA_EXTEND | USN_REASON_DATA_TRUNCATION | USN_REASON_FILE_CREATE | USN_REASON_FILE_DELETE | USN_REASON_RENAME_OLD_NAME | USN_REASON_RENAME_NEW_NAME | USN_REASON_BASIC_INFO_CHANGE | USN_REASON_SECURITY_CHANGE;
         rd.ReturnOnlyOnClose = FALSE;
