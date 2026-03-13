@@ -51,7 +51,7 @@ std::string fingerprintFromX509(X509* cert) {
 }
 
 std::string fingerprintFromPemFile(const fs::path& certPemPath) {
-    FILE* fp = std::fopen(certPemPath.c_str(), "rb");
+    FILE* fp = std::fopen(certPemPath.string().c_str(), "rb");
     if (!fp) throw std::runtime_error("Falha ao abrir certificado do agente.");
     X509* cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
     std::fclose(fp);
@@ -93,7 +93,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
                                    -1, -1, 0);
         X509_set_issuer_name(cert, name);
         if (X509_sign(cert, pkey, EVP_sha256()) <= 0) throw std::runtime_error("Falha ao assinar certificado do agente.");
-        FILE* keyFp = std::fopen(identity.keyPemPath.c_str(), "wb");
+        FILE* keyFp = std::fopen(identity.keyPemPath.string().c_str(), "wb");
         if (!keyFp) throw std::runtime_error("Falha ao criar chave PEM do agente.");
         if (PEM_write_PrivateKey(keyFp, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
             std::fclose(keyFp);
@@ -101,7 +101,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
         }
         std::fclose(keyFp);
         tightenIdentityPathPermissions(identity.keyPemPath, false);
-        FILE* certFp = std::fopen(identity.certPemPath.c_str(), "wb");
+        FILE* certFp = std::fopen(identity.certPemPath.string().c_str(), "wb");
         if (!certFp) throw std::runtime_error("Falha ao criar cert PEM do agente.");
         if (PEM_write_X509(certFp, cert) != 1) {
             std::fclose(certFp);
