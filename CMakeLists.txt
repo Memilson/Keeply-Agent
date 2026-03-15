@@ -126,6 +126,10 @@ target_compile_definitions(keeply_agent PRIVATE
 
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
 
+if(WIN32)
+    target_link_libraries(keeply_agent PRIVATE ws2_32)
+endif()
+
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
         Backup/Linux/daemon.cpp
