@@ -1,4 +1,4 @@
-#include "ws_internal.hpp"
+#include "websocket_interno.hpp"
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>

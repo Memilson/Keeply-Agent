@@ -1,8 +1,9 @@
 #pragma once
 
 // =============================================================================
-// keeply_utils.hpp
-// Utilitários compartilhados — elimina duplicações entre storage.cpp, scan.cpp
+// utilitarios_backup.hpp
+// Utilitários compartilhados — elimina duplicações entre arquivo_armazenamento.cpp,
+// varredura_backup.cpp
 // e outros módulos. NUNCA inclua headers de plataforma aqui.
 // =============================================================================
 

@@ -1,5 +1,5 @@
 // =============================================================================
-// keeply_verify.cpp  —  Verificação de Integridade do Arquivo Keeply
+// verificacao_integridade.cpp  —  Verificação de Integridade do Arquivo Keeply
 //
 // Implementa o comando 'verify' que estava ausente no projeto.
 // Verifica 4 camadas de integridade:

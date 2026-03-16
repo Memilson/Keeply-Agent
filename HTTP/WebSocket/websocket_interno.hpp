@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ws.hpp"
+#include "websocket_agente.hpp"
 
 #include <cstddef>
 #include <functional>

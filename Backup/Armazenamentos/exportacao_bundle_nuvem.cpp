@@ -1,5 +1,5 @@
 #include "../../keeply.hpp"
-#include "StorageObjectFactory.hpp"
+#include "fabrica_objetos_armazenamento.hpp"
 
 #include <algorithm>
 #include <chrono>

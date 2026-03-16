@@ -30,35 +30,35 @@ set(KEEPLY_PLATFORM_SOURCES
 
 set(KEEPLY_CORE
     ${KEEPLY_PLATFORM_SOURCES}
-    HTTP/API/api.cpp
-    Backup/cbt.cpp
-    Backup/compactar.cpp
-    Backup/keeply_verify.cpp
-    Backup/restore.cpp
-    Backup/scan.cpp
-    Backup/Storages/storage.cpp
+    HTTP/API/api_agente.cpp
+    Backup/rastreamento_mudancas.cpp
+    Backup/compactacao_e_hash.cpp
+    Backup/verificacao_integridade.cpp
+    Backup/restauracao.cpp
+    Backup/varredura_backup.cpp
+    Backup/Armazenamentos/arquivo_armazenamento.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
     ${blake3_src_SOURCE_DIR}/c/blake3_portable.c
 )
 
 set(KEEPLY_API_WS
-    HTTP/multithread.cpp
-    HTTP/WebSocket/ws.cpp
-    HTTP/WebSocket/ws_cloud.cpp
-    HTTP/WebSocket/ws_bootstrap.cpp
+    HTTP/fila_upload_paralela.cpp
+    HTTP/WebSocket/websocket_agente.cpp
+    HTTP/WebSocket/cliente_http_agente.cpp
+    HTTP/WebSocket/inicializacao_websocket_agente.cpp
 )
 
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_API_WS
-        HTTP/API/api-rest.cpp
+        HTTP/API/servidor_rest.cpp
     )
 endif()
 
 set(KEEPLY_AGENT_EXTRA_SOURCES)
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
-        Backup/change_watcher.cpp
+        Backup/monitor_mudancas_segundo_plano.cpp
     )
 endif()
 
@@ -115,7 +115,7 @@ target_compile_definitions(keeply PRIVATE
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 
 add_executable(keeply_agent
-    HTTP/WebSocket/agent_ws_main.cpp
+    HTTP/WebSocket/agente_websocket_main.cpp
     ${KEEPLY_CORE}
     ${KEEPLY_API_WS}
     ${KEEPLY_AGENT_EXTRA_SOURCES}
@@ -137,8 +137,8 @@ endif()
 
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
-        Backup/Linux/daemon.cpp
-        Backup/cbt.cpp
+        Backup/Linux/daemon_rastreamento_mudancas.cpp
+        Backup/rastreamento_mudancas.cpp
         ${KEEPLY_PLATFORM_SOURCES}
     )
 
@@ -154,8 +154,8 @@ if(UNIX AND NOT WIN32)
     )
 elseif(WIN32)
     add_executable(keeply_cbt_daemon
-        Backup/Windows/daemon.cpp
-        Backup/cbt.cpp
+        Backup/Windows/daemon_rastreamento_mudancas.cpp
+        Backup/rastreamento_mudancas.cpp
         ${KEEPLY_PLATFORM_SOURCES}
     )
 

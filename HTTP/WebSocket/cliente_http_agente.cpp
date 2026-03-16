@@ -1,5 +1,5 @@
-#include "ws_internal.hpp"
-#include "../multithread.hpp"
+#include "websocket_interno.hpp"
+#include "../fila_upload_paralela.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>

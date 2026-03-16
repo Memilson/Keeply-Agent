@@ -1,5 +1,5 @@
-#include "ws.hpp"
-#include "ws_internal.hpp"
+#include "websocket_agente.hpp"
+#include "websocket_interno.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
