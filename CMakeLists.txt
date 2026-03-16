@@ -57,6 +57,7 @@ set(KEEPLY_CORE
 )
 
 set(KEEPLY_API_WS
+    HTTP/http_interno.cpp
     HTTP/fila_upload_paralela.cpp
     HTTP/WebSocket/websocket_agente.cpp
     HTTP/WebSocket/cliente_http_agente.cpp

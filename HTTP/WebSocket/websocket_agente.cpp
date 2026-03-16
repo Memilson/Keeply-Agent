@@ -1,5 +1,6 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
+#include "../http_interno.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -37,16 +38,6 @@ namespace {
 namespace fs = std::filesystem;
 
 using namespace keeply::ws_internal;
-
-#ifdef _WIN32
-int closeSocketFd(int fd) {
-    return closesocket(static_cast<SOCKET>(fd));
-}
-#else
-int closeSocketFd(int fd) {
-    return ::close(fd);
-}
-#endif
 
 struct FsListRow{
     bool isDir=false;
@@ -432,7 +423,7 @@ void KeeplyAgentWsClient::close(){
 #else
         ::shutdown(fd, SHUT_RDWR);
 #endif
-        closeSocketFd(fd);
+        keeply::http_internal::closeSocketFd(fd);
     }
 }
 

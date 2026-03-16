@@ -1,16 +1,12 @@
 #include "servidor_rest.hpp"
+#include "../http_interno.hpp"
 #ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #endif
-#include <cerrno>
 #include <cctype>
-#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -26,64 +22,22 @@
 namespace {
 using keeply::RestRequest;
 using keeply::RestResponse;
+using keeply::http_internal::closeSocketFd;
+using keeply::http_internal::ensureSocketRuntime;
+using keeply::http_internal::escapeJson;
+using keeply::http_internal::lastSocketError;
+using keeply::http_internal::socketErrorMessage;
+using keeply::http_internal::socketInterrupted;
+using keeply::http_internal::socketTimeoutOrWouldBlock;
+using keeply::http_internal::toLower;
 static constexpr std::size_t MAX_HEADER_BYTES=(1u<<20);
 static constexpr std::size_t MAX_BODY_BYTES=(8u<<20);
 
+using SocketLen =
 #ifdef _WIN32
-struct WinsockInit{
-    WinsockInit(){
-        WSADATA data{};
-        if(WSAStartup(MAKEWORD(2,2),&data)!=0){
-            throw std::runtime_error("WSAStartup falhou.");
-        }
-    }
-    ~WinsockInit(){
-        WSACleanup();
-    }
-};
-static WinsockInit& ensureWinsock(){
-    static WinsockInit init;
-    return init;
-}
-static int closeSocketFd(int fd){
-    return closesocket(static_cast<SOCKET>(fd));
-}
-static int lastSocketError(){
-    return WSAGetLastError();
-}
-static bool socketInterrupted(int err){
-    return err==WSAEINTR;
-}
-static bool socketTimeoutOrWouldBlock(int err){
-    return err==WSAETIMEDOUT||err==WSAEWOULDBLOCK;
-}
-static std::string socketErrorMessage(int err){
-    char* buffer=nullptr;
-    const DWORD flags=FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS;
-    const DWORD len=FormatMessageA(flags,nullptr,(DWORD)err,MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),(LPSTR)&buffer,0,nullptr);
-    std::string out=(len&&buffer)?std::string(buffer,len):("WSA error "+std::to_string(err));
-    if(buffer) LocalFree(buffer);
-    while(!out.empty()&&(out.back()=='\r'||out.back()=='\n'||out.back()==' ')) out.pop_back();
-    return out;
-}
-using SocketLen=int;
+    int;
 #else
-static int closeSocketFd(int fd){
-    return ::close(fd);
-}
-static int lastSocketError(){
-    return errno;
-}
-static bool socketInterrupted(int err){
-    return err==EINTR;
-}
-static bool socketTimeoutOrWouldBlock(int err){
-    return err==EAGAIN||err==EWOULDBLOCK;
-}
-static std::string socketErrorMessage(int err){
-    return std::strerror(err);
-}
-using SocketLen=socklen_t;
+    socklen_t;
 #endif
 
 static std::string trimHttp(const std::string& s){
@@ -92,10 +46,6 @@ static std::string trimHttp(const std::string& s){
     std::size_t e=s.size();
     while(e>b&&std::isspace((unsigned char)s[e-1]))--e;
     return s.substr(b,e-b);
-}
-static std::string toLower(std::string s){
-    for(char& c:s) c=(char)std::tolower((unsigned char)c);
-    return s;
 }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
@@ -134,23 +84,6 @@ static void parseQuery(const std::string& q,std::unordered_map<std::string,std::
         if(amp==std::string::npos) break;
         pos=amp+1;
     }
-}
-static std::string escapeJsonLocal(const std::string& s){
-    std::string out;
-    out.reserve(s.size()+8);
-    for(char c:s){
-        switch(c){
-            case '\"': out+="\\\""; break;
-            case '\\': out+="\\\\"; break;
-            case '\b': out+="\\b"; break;
-            case '\f': out+="\\f"; break;
-            case '\n': out+="\\n"; break;
-            case '\r': out+="\\r"; break;
-            case '\t': out+="\\t"; break;
-            default: if((unsigned char)c<0x20) out+='?'; else out+=c;
-        }
-    }
-    return out;
 }
 static std::string reasonPhrase(int status){
     switch(status){
@@ -191,7 +124,7 @@ static void sendHttpError(int fd,int status,const std::string& msg){
     RestResponse r;
     r.status=status;
     r.contentType="application/json; charset=utf-8";
-    r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJsonLocal(msg)+"\"}";
+    r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(msg)+"\"}";
     sendHttpResponse(fd,r);
 }
 static void setSocketTimeouts(int fd,int recvMs,int sendMs){
@@ -274,7 +207,7 @@ static bool recvHttpRequest(int fd,RestRequest& req){
 }
 static int createListenSocket(int port){
 #ifdef _WIN32
-    ensureWinsock();
+    ensureSocketRuntime();
 #endif
     int fd=::socket(AF_INET,SOCK_STREAM,0);
     if(fd<0) throw std::runtime_error(std::string("socket falhou: ")+socketErrorMessage(lastSocketError()));
@@ -573,21 +506,7 @@ RestResponse KeeplyRestApi::jsonNotFound(const std::string& message){ RestRespon
 RestResponse KeeplyRestApi::jsonError(const std::string& message){ RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
 
 std::string KeeplyRestApi::escapeJson(const std::string& s){
-    std::string out;
-    out.reserve(s.size()+8);
-    for(char c:s){
-        switch(c){
-            case '\"': out+="\\\""; break;
-            case '\\': out+="\\\\"; break;
-            case '\b': out+="\\b"; break;
-            case '\f': out+="\\f"; break;
-            case '\n': out+="\\n"; break;
-            case '\r': out+="\\r"; break;
-            case '\t': out+="\\t"; break;
-            default: if((unsigned char)c<0x20) out+='?'; else out+=c;
-        }
-    }
-    return out;
+    return http_internal::escapeJson(s);
 }
 
 std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,const std::string& prefix){

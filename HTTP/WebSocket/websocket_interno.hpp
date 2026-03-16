@@ -1,6 +1,7 @@
 #pragma once
 
 #include "websocket_agente.hpp"
+#include "../http_interno.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -19,23 +20,9 @@ enum class BackupStorageMode{
     Hybrid
 };
 
-struct ParsedUrl{
-    std::string scheme;
-    std::string host;
-    int port=0;
-    std::string target="/";
-};
-
-struct HttpResponse{
-    int status=0;
-    std::string body;
-    std::map<std::string,std::string> headers;
-};
-
-struct MultipartField{
-    std::string name;
-    std::string value;
-};
+using ParsedUrl = http_internal::ParsedUrl;
+using HttpResponse = http_internal::HttpResponse;
+using MultipartField = http_internal::MultipartField;
 
 struct UploadBundleResult{
     HttpResponse manifestResponse;
@@ -60,21 +47,21 @@ struct BackupStoragePolicy{
     bool deleteLocalAfterUpload=false;
 };
 
-[[nodiscard]] std::string toLower(std::string value);
+[[nodiscard]] inline std::string toLower(std::string value){ return http_internal::toLower(std::move(value)); }
 [[nodiscard]] std::string hexEncode(const unsigned char* data,std::size_t size);
 [[nodiscard]] std::string base64Encode(const unsigned char* data,std::size_t size);
 [[nodiscard]] std::string randomBase64(std::size_t bytes);
 [[nodiscard]] std::string randomDigits(std::size_t digits);
 
-[[nodiscard]] ParsedUrl parseUrlCommon(const std::string& url);
-[[nodiscard]] std::string urlEncode(const std::string& value);
-[[nodiscard]] std::string escapeJson(const std::string& value);
+[[nodiscard]] inline ParsedUrl parseUrlCommon(const std::string& url){ return http_internal::parseUrlCommon(url); }
+[[nodiscard]] inline std::string urlEncode(const std::string& value){ return http_internal::urlEncode(value); }
+[[nodiscard]] inline std::string escapeJson(const std::string& value){ return http_internal::escapeJson(value); }
 [[nodiscard]] std::string httpUrlFromWsUrl(const std::string& wsUrl,const std::string& path);
 
-[[nodiscard]] int openTcpSocket(const std::string& host,int port);
-[[nodiscard]] std::size_t writeAllFd(int fd,const void* data,std::size_t size);
+[[nodiscard]] inline int openTcpSocket(const std::string& host,int port){ return http_internal::openTcpSocket(host, port); }
+[[nodiscard]] inline std::size_t writeAllFd(int fd,const void* data,std::size_t size){ return http_internal::writeAllFd(fd, data, size); }
 [[nodiscard]] std::size_t writeAllSsl(ssl_st* sslHandle,const void* data,std::size_t size);
-[[nodiscard]] std::size_t readSomeFd(int fd,void* data,std::size_t size);
+[[nodiscard]] inline std::size_t readSomeFd(int fd,void* data,std::size_t size){ return http_internal::readSomeFd(fd, data, size); }
 [[nodiscard]] std::size_t readSomeSsl(ssl_st* sslHandle,void* data,std::size_t size);
 
 [[nodiscard]] HttpResponse httpPostJson(const std::string& url,

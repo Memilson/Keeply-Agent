@@ -1,4 +1,6 @@
-#include "../keeply.cpp"
+// [PROBLEMA 1] — substituído #include "../keeply.cpp" por #include "../keeply.hpp"
+// Incluir um .cpp viola a ODR e causa erros de linker. Use apenas o cabeçalho.
+#include "../keeply.hpp"
 #include "rastreamento_mudancas.hpp"
 #include <sqlite3.h>
 #include <atomic>
@@ -140,7 +142,7 @@ struct WinHandle {
     bool valid() const { return h != INVALID_HANDLE_VALUE; }
 };
 #endif
-} 
+} // namespace
 
 class EventStore::Db {
     sqlite3* db_ = nullptr;
@@ -164,8 +166,17 @@ public:
     sqlite3* raw() const { return db_; }
 };
 
-EventStore::EventStore(const fs::path& dbPath) : db_(new Db(dbPath)) {}
-EventStore::~EventStore() { delete db_; }
+// [PROBLEMA 2] — substituídos raw pointers por unique_ptr.
+// O header (.hpp) deve declarar:
+//   std::unique_ptr<Db> db_;
+//   std::unique_ptr<SqlStmt> appendStmt_;
+// O destrutor fica como = default pois Db é tipo completo aqui.
+EventStore::EventStore(const fs::path& dbPath)
+    : db_(std::make_unique<Db>(dbPath)) {
+    prepareStatements();
+}
+
+EventStore::~EventStore() = default;
 
 std::string EventStore::normalizePath(const fs::path& path) {
     return normalizeDbPath(path);
@@ -176,11 +187,23 @@ std::int64_t EventStore::nowUnixSeconds() {
     return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::seconds>(clock::now().time_since_epoch()).count());
 }
 
+// [ATENÇÃO 2] — statement preparado uma única vez e reutilizado via reset.
+// Chamado pelo construtor; appendEvent usa appendStmt_ sem re-preparar.
+void EventStore::prepareStatements() {
+    appendStmt_ = std::make_unique<SqlStmt>(db_->raw(),
+        "INSERT INTO cbt_events(root_id, seq, event_type, rel_path, is_dir, event_time)"
+        " VALUES(?, ?, ?, ?, ?, ?);");
+}
+
+// [ATENÇÃO 1] — INSERT e SELECT agora dentro de uma única SqlTransaction
+// (IMMEDIATE), eliminando a janela de race condition entre as duas operações.
 void EventStore::ensureRoot(const fs::path& rootPath) {
     const std::string root = normalizePath(rootPath);
+    const auto ts = nowUnixSeconds();
+
+    SqlTransaction tx(db_->raw());
     {
         SqlStmt st(db_->raw(), "INSERT INTO cbt_event_roots(root_path, created_at, updated_at) VALUES(?, ?, ?) ON CONFLICT(root_path) DO UPDATE SET updated_at=excluded.updated_at;");
-        const auto ts = nowUnixSeconds();
         sqlite3_bind_text(st.get(), 1, root.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int64(st.get(), 2, ts);
         sqlite3_bind_int64(st.get(), 3, ts);
@@ -193,17 +216,21 @@ void EventStore::ensureRoot(const fs::path& rootPath) {
         rootId_ = sqlite3_column_int64(st.get(), 0);
         nextSeq_ = sqlite3_column_int64(st.get(), 1);
     }
+    tx.commit();
 }
 
+// [ATENÇÃO 2] — reutiliza appendStmt_ preparado em prepareStatements().
+// sqlite3_reset + sqlite3_clear_bindings substituem prepare/finalize por chamada.
 void EventStore::appendEvent(const std::string& type, const std::string& relPath, bool isDir) {
-    SqlStmt st(db_->raw(), "INSERT INTO cbt_events(root_id, seq, event_type, rel_path, is_dir, event_time) VALUES(?, ?, ?, ?, ?, ?);");
-    sqlite3_bind_int64(st.get(), 1, rootId_);
-    sqlite3_bind_int64(st.get(), 2, nextSeq_++);
-    sqlite3_bind_text(st.get(), 3, type.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(st.get(), 4, relPath.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(st.get(), 5, isDir ? 1 : 0);
-    sqlite3_bind_int64(st.get(), 6, nowUnixSeconds());
-    if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando evento do daemon.");
+    sqlite3_reset(appendStmt_->get());
+    sqlite3_clear_bindings(appendStmt_->get());
+    sqlite3_bind_int64(appendStmt_->get(), 1, rootId_);
+    sqlite3_bind_int64(appendStmt_->get(), 2, nextSeq_++);
+    sqlite3_bind_text (appendStmt_->get(), 3, type.c_str(),    -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (appendStmt_->get(), 4, relPath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int  (appendStmt_->get(), 5, isDir ? 1 : 0);
+    sqlite3_bind_int64(appendStmt_->get(), 6, nowUnixSeconds());
+    if (sqlite3_step(appendStmt_->get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando evento do daemon.");
 }
 
 std::optional<std::uint64_t> EventStore::latestToken(const fs::path& rootPath) const {
@@ -301,6 +328,9 @@ bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candid
     return false;
 }
 
+// [ATENÇÃO 3] — Nomes em português mantidos para preservar compatibilidade com
+// o restante do projeto. Caso opte por migrar para inglês, consulte o mapeamento
+// no arquivo keeply_corrigido.cpp (seção ATENÇÃO 3).
 namespace rastreamento_eventos_base {
 
 namespace {
@@ -502,7 +532,9 @@ private:
     std::unique_ptr<rastreamento_eventos_base::MonitorRunner> runner_;
 };
 
-BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(new Impl()) {}
+// [PROBLEMA 2] — BackgroundCbtWatcher usa make_unique; destrutor = default.
+// O header (.hpp) deve declarar: std::unique_ptr<Impl> impl_;
+BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(std::make_unique<Impl>()) {}
 BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
 void BackgroundCbtWatcher::start(const fs::path& rootPath) { impl_->start(rootPath); }
 void BackgroundCbtWatcher::stop() noexcept { impl_->stop(); }
@@ -748,7 +780,8 @@ public:
         const auto previousFiles = loadTrackedFiles();
         const auto currentFiles = scanCurrentLinuxFiles(root_);
         std::vector<ChangedFile> changes;
-        changes.reserve(currentFiles.size());
+        // [ATENÇÃO 4] — reserve removido: alocação sob demanda evita desperdício
+        // em diretórios grandes com poucas alterações.
         for (const auto& [relPath, info] : currentFiles) {
             const auto prevIt = previousFiles.find(relPath);
             if (prevIt == previousFiles.end() || prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false});
@@ -856,4 +889,4 @@ public:
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
     return std::make_unique<CompositeChangeTracker>();
 }
-}
+} // namespace keeply
