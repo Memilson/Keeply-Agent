@@ -1,6 +1,7 @@
-#include "../keeply.hpp"
+#include "../keeply.cpp"
 #include "rastreamento_mudancas.hpp"
 #include <sqlite3.h>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -8,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -257,6 +259,254 @@ fs::path defaultEventStoreRootPath() {
 fs::path defaultNativeStateStorePath() {
     return defaultKeeplyStateDir() / "keeply_state.kipy";
 }
+
+namespace {
+
+bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
+    const fs::path base = normalizeAbsolutePath(baseInput);
+    const fs::path candidate = normalizeAbsolutePath(candidateInput);
+    auto baseIt = base.begin();
+    auto candidateIt = candidate.begin();
+    for (; baseIt != base.end(); ++baseIt, ++candidateIt) {
+        if (candidateIt == candidate.end() || *baseIt != *candidateIt) return false;
+    }
+    return true;
+}
+
+std::vector<fs::path> systemExcludedRoots() {
+    return defaultSystemExcludedRoots();
+}
+
+} // namespace
+
+fs::path normalizeAbsolutePath(const fs::path& p) {
+    std::error_code ec;
+    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
+    if (ec) {
+        throw std::runtime_error("Caminho invalido: " + p.string() + " | " + ec.message());
+    }
+    return abs.lexically_normal();
+}
+
+bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
+    return isFilesystemRootPath(normalizeAbsolutePath(sourceRoot));
+}
+
+bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
+    if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
+    const fs::path candidate = normalizeAbsolutePath(candidatePath);
+    for (const auto& excludedRoot : systemExcludedRoots()) {
+        if (candidate == excludedRoot || isPathWithin(excludedRoot, candidate)) return true;
+    }
+    return false;
+}
+
+namespace rastreamento_eventos_base {
+
+namespace {
+
+std::string normalizeMonitorPath(const fs::path& path) {
+    return path.lexically_normal().generic_string();
+}
+
+const char* toStoreEventType(TipoEventoMonitorado eventType) {
+    switch (eventType) {
+        case TipoEventoMonitorado::Upsert: return "upsert";
+        case TipoEventoMonitorado::Modify: return "modify";
+        case TipoEventoMonitorado::Delete: return "delete";
+    }
+    return "modify";
+}
+
+} // namespace
+
+MotorMonitorBase::MotorMonitorBase(const fs::path& rootPath, bool respectSystemExclusionPolicy)
+    : respectSystemExclusionPolicy_(respectSystemExclusionPolicy) {
+    std::error_code ec;
+    const fs::path normalizedRoot = fs::absolute(rootPath, ec).lexically_normal();
+    if (ec || normalizedRoot.empty() || !fs::exists(normalizedRoot) || !fs::is_directory(normalizedRoot)) {
+        throw std::runtime_error("Root invalido para o watcher CBT: " + rootPath.string());
+    }
+
+    rootPath_ = normalizedRoot;
+    store_ = std::make_unique<EventStore>(defaultEventStorePath());
+    store_->ensureRoot(rootPath_);
+}
+
+const fs::path& MotorMonitorBase::rootPath() const noexcept { return rootPath_; }
+bool MotorMonitorBase::respectSystemExclusionPolicy() const noexcept { return respectSystemExclusionPolicy_; }
+
+bool MotorMonitorBase::shouldIgnorePath(const fs::path& path) const {
+    return respectSystemExclusionPolicy_ && isExcludedBySystemPolicy(rootPath_, path);
+}
+
+std::optional<std::string> MotorMonitorBase::buildRelativePath(const fs::path& fullPath) const {
+    return buildRelativeEventPath(rootPath_, fullPath);
+}
+
+void MotorMonitorBase::appendEvent(TipoEventoMonitorado eventType, const std::string& relPath, bool isDir) {
+    appendMonitoredEvent(*store_, eventType, relPath, isDir);
+}
+
+EventStore& MotorMonitorBase::eventStore() noexcept { return *store_; }
+
+MonitorRunner::MonitorRunner(const fs::path& rootPath, bool respectSystemExclusionPolicy)
+    : engine_(createPlatformMotorMonitor(rootPath, respectSystemExclusionPolicy)) {}
+
+void MonitorRunner::requestStop() noexcept {
+    if (engine_) engine_->requestStop();
+}
+
+void MonitorRunner::run(const std::function<bool()>& shouldStop) {
+    if (engine_) engine_->run(shouldStop);
+}
+
+MotorMonitor* MonitorRunner::engine() noexcept { return engine_.get(); }
+
+std::unique_ptr<MotorMonitor> createPlatformMotorMonitor(const fs::path& rootPath,
+                                                         bool respectSystemExclusionPolicy) {
+#ifdef __linux__
+    return createLinuxMotorMonitor(rootPath, respectSystemExclusionPolicy);
+#elif defined(_WIN32)
+    return createWindowsMotorMonitor(rootPath, respectSystemExclusionPolicy);
+#else
+    static_cast<void>(rootPath);
+    static_cast<void>(respectSystemExclusionPolicy);
+    throw std::runtime_error("Watcher CBT em background disponivel apenas no Linux e Windows.");
+#endif
+}
+
+OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServiceOptions) {
+    OpcoesDaemonMonitor options;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--root" && i + 1 < argc) {
+            options.rootPath = fs::path(argv[++i]);
+        } else if (arg == "--foreground") {
+            options.foreground = true;
+        } else if (allowServiceOptions && arg == "--install-service") {
+            options.installService = true;
+        } else if (allowServiceOptions && arg == "--uninstall-service") {
+            options.uninstallService = true;
+        } else if (allowServiceOptions && arg == "--service") {
+            options.serviceMode = true;
+        } else if (arg == "--help") {
+            throw std::runtime_error("__KEEPLY_DAEMON_HELP__");
+        } else {
+            throw std::runtime_error("Argumento invalido: " + arg);
+        }
+    }
+    return options;
+}
+
+fs::path resolveDaemonMonitorRootOrThrow(const fs::path& rootFromArgs) {
+    fs::path rootPath = rootFromArgs;
+    if (rootPath.empty()) {
+        const auto rootFromEnv = envOrEmpty("KEEPLY_ROOT");
+        if (!rootFromEnv.empty()) rootPath = fs::path(rootFromEnv);
+    }
+    if (rootPath.empty()) throw std::runtime_error("Informe --root <diretorio>.");
+    if (!fs::exists(rootPath) || !fs::is_directory(rootPath)) {
+        throw std::runtime_error("Root invalido para o daemon.");
+    }
+    return rootPath;
+}
+
+void prepareDaemonMonitorState(const fs::path& rootPath, const std::string& pidValue) {
+    writeMonitorPidFile(defaultEventStorePidPath(), pidValue);
+    writeMonitorRootFile(defaultEventStoreRootPath(), rootPath);
+}
+
+fs::path resolveAndPrepareDaemonMonitorRootOrThrow(const fs::path& rootFromArgs,
+                                                   const std::string& pidValue) {
+    const fs::path rootPath = resolveDaemonMonitorRootOrThrow(rootFromArgs);
+    prepareDaemonMonitorState(rootPath, pidValue);
+    return rootPath;
+}
+
+void runMonitorDaemonOrThrow(const fs::path& rootPath,
+                             const std::string& pidValue,
+                             const std::function<bool()>& shouldStop) {
+    const fs::path normalizedRoot = resolveAndPrepareDaemonMonitorRootOrThrow(rootPath, pidValue);
+    MonitorRunner daemon(normalizedRoot, false);
+    daemon.run(shouldStop);
+}
+
+std::string envOrEmpty(const char* key) {
+    const char* value = std::getenv(key);
+    return value ? std::string(value) : std::string();
+}
+
+std::optional<std::string> buildRelativeEventPath(const fs::path& rootPath, const fs::path& fullPath) {
+    std::error_code relEc;
+    fs::path relPath = fs::relative(fullPath, rootPath, relEc);
+    const std::string relRaw = relPath.generic_string();
+    if (relEc || relPath.empty() || relRaw.rfind("..", 0) == 0) return std::nullopt;
+    return normalizeMonitorPath(relPath);
+}
+
+void appendMonitoredEvent(EventStore& store,
+                          TipoEventoMonitorado eventType,
+                          const std::string& relPath,
+                          bool isDir) {
+    store.appendEvent(toStoreEventType(eventType), relPath, isDir);
+}
+
+void writeMonitorPidFile(const fs::path& pidPath, const std::string& pidValue) {
+    fs::create_directories(pidPath.parent_path());
+    std::ofstream pid(pidPath, std::ios::trunc);
+    if (!pid) throw std::runtime_error("Falha criando PID file do daemon.");
+    pid << pidValue << "\n";
+}
+
+void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath) {
+    fs::create_directories(metadataPath.parent_path());
+    std::ofstream rootFile(metadataPath, std::ios::trunc);
+    if (!rootFile) throw std::runtime_error("Falha criando arquivo de root do daemon.");
+    rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";
+}
+
+} // namespace rastreamento_eventos_base
+
+class BackgroundCbtWatcher::Impl {
+public:
+    void start(const fs::path& rootPath) {
+        stop();
+        runner_ = std::make_unique<rastreamento_eventos_base::MonitorRunner>(rootPath, true);
+        stopRequested_.store(false);
+        worker_ = std::thread([this]() {
+            try {
+                runner_->run([this]() { return stopRequested_.load(); });
+            } catch (const std::exception& ex) {
+                std::cerr << "[keeply][cbt][warn] watcher falhou: " << ex.what() << "\n";
+            }
+        });
+        running_.store(true);
+    }
+
+    void stop() noexcept {
+        stopRequested_.store(true);
+        if (runner_) runner_->requestStop();
+        if (worker_.joinable()) worker_.join();
+        runner_.reset();
+        running_.store(false);
+    }
+
+    bool running() const noexcept { return running_.load(); }
+    ~Impl() { stop(); }
+
+private:
+    std::atomic<bool> stopRequested_{false};
+    std::atomic<bool> running_{false};
+    std::thread worker_;
+    std::unique_ptr<rastreamento_eventos_base::MonitorRunner> runner_;
+};
+
+BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(new Impl()) {}
+BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
+void BackgroundCbtWatcher::start(const fs::path& rootPath) { impl_->start(rootPath); }
+void BackgroundCbtWatcher::stop() noexcept { impl_->stop(); }
+bool BackgroundCbtWatcher::running() const noexcept { return impl_->running(); }
 
 #ifdef _WIN32
 namespace {

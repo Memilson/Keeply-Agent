@@ -1,4 +1,4 @@
-#include "keeply.hpp"
+#include "keeply.cpp"
 
 #include <blake3.h>
 #include <zlib.h>

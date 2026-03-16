@@ -1,4 +1,4 @@
-#include "keeply.hpp"
+#include "keeply.cpp"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -164,30 +164,6 @@ ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
     scope.resolvedPath = pathToUtf8(normalized);
     return scope;
 }
-}
-namespace {
-std::vector<fs::path> systemExcludedRoots() {
-    return defaultSystemExcludedRoots();
-}
-}
-fs::path normalizeAbsolutePath(const fs::path& p) {
-    std::error_code ec;
-    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
-    if (ec) {
-        throw std::runtime_error("Caminho invalido: " + p.string() + " | " + ec.message());
-    }
-    return abs.lexically_normal();
-}
-bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
-    return isFilesystemRootPath(normalizeAbsolutePath(sourceRoot));
-}
-bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
-    if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
-    const fs::path candidate = normalizeAbsolutePath(candidatePath);
-    for (const auto& excludedRoot : systemExcludedRoots()) {
-        if (candidate == excludedRoot || isPathWithin(excludedRoot, candidate)) return true;
-    }
-    return false;
 }
 std::string trim(const std::string& s) {
     const auto b = s.find_first_not_of(" \t\r\n");

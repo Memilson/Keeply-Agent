@@ -1,4 +1,3 @@
-#include "keeply.hpp"
 #include "backend_armazenamento.hpp"
 #include "../utilitarios_backup.hpp"
 #include <algorithm>
@@ -18,14 +17,6 @@ constexpr std::uint64_t kPackMagic = 0x31504C594B4C424Bull;
 
 static void logStorageWarning(const std::string& msg) {
     std::cerr << "[keeply][storage][warn] " << msg << '\n';
-}
-
-static fs::path packPathForArchive(const fs::path& archivePath) {
-    return archivePath.parent_path() / (archivePath.stem().string() + ".klyp.pack");
-}
-
-static fs::path indexPathForArchive(const fs::path& archivePath) {
-    return archivePath.parent_path() / (archivePath.stem().string() + ".klyp.idx");
 }
 
 static void ensureParentDir(const fs::path& p) {
@@ -179,33 +170,33 @@ static void writeSchemaVersion(sqlite3* db, int ver) {
     }
 }
 
-class LocalPackBackend {
+class LocalPackBackend final : public StorageBackend {
 public:
     explicit LocalPackBackend(const fs::path& archivePath)
-        : archivePath_(archivePath), packPath_(packPathForArchive(archivePath)), indexPath_(indexPathForArchive(archivePath)) {}
+        : paths_(describeArchiveStorage(archivePath)) {}
 
-    void begin() {
+    void beginSession() override {
         if (inTxn_) return;
-        ensureParentDir(packPath_);
-        ensureParentDir(indexPath_);
-        if (!fs::exists(packPath_)) {
-            std::ofstream create(packPath_, std::ios::binary);
+        ensureParentDir(paths_.packPath);
+        ensureParentDir(paths_.indexPath);
+        if (!fs::exists(paths_.packPath)) {
+            std::ofstream create(paths_.packPath, std::ios::binary);
             if (!create) throw std::runtime_error("Falha criando pack.");
         }
-        if (!fs::exists(indexPath_)) {
-            std::ofstream create(indexPath_, std::ios::binary);
+        if (!fs::exists(paths_.indexPath)) {
+            std::ofstream create(paths_.indexPath, std::ios::binary);
             if (!create) throw std::runtime_error("Falha criando index do pack.");
         }
-        packTxnStart_ = fileSizeNoThrow(packPath_);
-        indexTxnStart_ = fileSizeNoThrow(indexPath_);
-        pack_.open(packPath_, std::ios::binary | std::ios::in | std::ios::out);
+        packTxnStart_ = fileSizeNoThrow(paths_.packPath);
+        indexTxnStart_ = fileSizeNoThrow(paths_.indexPath);
+        pack_.open(paths_.packPath, std::ios::binary | std::ios::in | std::ios::out);
         if (!pack_) throw std::runtime_error("Falha abrindo pack.");
-        idx_.open(indexPath_, std::ios::binary | std::ios::in | std::ios::out | std::ios::app);
+        idx_.open(paths_.indexPath, std::ios::binary | std::ios::in | std::ios::out | std::ios::app);
         if (!idx_) throw std::runtime_error("Falha abrindo index do pack.");
         inTxn_ = true;
     }
 
-    void commit() {
+    void commitSession() override {
         if (!inTxn_) return;
         pack_.flush();
         idx_.flush();
@@ -214,42 +205,39 @@ public:
         inTxn_ = false;
     }
 
-    void rollback() {
+    void rollbackSession() override {
         if (!inTxn_) return;
         pack_.flush();
         idx_.flush();
         pack_.close();
         idx_.close();
         std::error_code ec1, ec2;
-        fs::resize_file(packPath_, packTxnStart_, ec1);
-        fs::resize_file(indexPath_, indexTxnStart_, ec2);
+        fs::resize_file(paths_.packPath, packTxnStart_, ec1);
+        fs::resize_file(paths_.indexPath, indexTxnStart_, ec2);
         inTxn_ = false;
         if (ec1) throw std::runtime_error("Falha no rollback do pack: " + ec1.message());
         if (ec2) throw std::runtime_error("Falha no rollback do index do pack: " + ec2.message());
     }
 
-    sqlite3_int64 appendBlob(const ChunkHash& hash, std::size_t rawSize, const Blob& comp, const std::string& algo) {
+    sqlite3_int64 appendBlob(const ProcessedBlob& blob) override {
         if (!inTxn_) throw std::runtime_error("Backend nao esta em transacao.");
         pack_.seekp(0, std::ios::end);
         const sqlite3_int64 off = static_cast<sqlite3_int64>(pack_.tellp());
-        const std::uint64_t raw64 = static_cast<std::uint64_t>(rawSize);
-        const std::uint64_t comp64 = static_cast<std::uint64_t>(comp.size());
-        const std::uint32_t algoLen = static_cast<std::uint32_t>(algo.size());
+        const std::uint64_t raw64 = static_cast<std::uint64_t>(blob.rawSize);
+        const std::uint64_t comp64 = static_cast<std::uint64_t>(blob.data.size());
+        const std::uint32_t algoLen = static_cast<std::uint32_t>(blob.compAlgo.size());
         pack_.write(reinterpret_cast<const char*>(&kPackMagic), sizeof(kPackMagic));
         pack_.write(reinterpret_cast<const char*>(&raw64), sizeof(raw64));
         pack_.write(reinterpret_cast<const char*>(&comp64), sizeof(comp64));
         pack_.write(reinterpret_cast<const char*>(&algoLen), sizeof(algoLen));
-        pack_.write(reinterpret_cast<const char*>(hash.data()), static_cast<std::streamsize>(hash.size()));
-        if (algoLen > 0) pack_.write(algo.data(), static_cast<std::streamsize>(algoLen));
-        if (!comp.empty()) pack_.write(reinterpret_cast<const char*>(comp.data()), static_cast<std::streamsize>(comp.size()));
+        pack_.write(reinterpret_cast<const char*>(blob.hash.data()), static_cast<std::streamsize>(blob.hash.size()));
+        if (algoLen > 0) pack_.write(blob.compAlgo.data(), static_cast<std::streamsize>(algoLen));
+        if (!blob.data.empty()) pack_.write(reinterpret_cast<const char*>(blob.data.data()), static_cast<std::streamsize>(blob.data.size()));
         if (!pack_) throw std::runtime_error("Falha gravando blob no pack.");
-        idx_ << off << "|" << hexOfBytes(hash.data(), hash.size()) << "|" << raw64 << "|" << comp64 << "|" << algo << "\n";
+        idx_ << off << "|" << hexOfBytes(blob.hash.data(), blob.hash.size()) << "|" << raw64 << "|" << comp64 << "|" << blob.compAlgo << "\n";
         if (!idx_) throw std::runtime_error("Falha gravando index do pack.");
         return off;
     }
-
-    const fs::path& packPath() const { return packPath_; }
-    const fs::path& indexPath() const { return indexPath_; }
 
 private:
     static std::uint64_t fileSizeNoThrow(const fs::path& p) {
@@ -258,9 +246,7 @@ private:
         return ec ? 0ull : static_cast<std::uint64_t>(sz);
     }
 
-    fs::path archivePath_;
-    fs::path packPath_;
-    fs::path indexPath_;
+    ArchiveStoragePaths paths_;
     std::fstream pack_;
     std::fstream idx_;
     std::uint64_t packTxnStart_ = 0;
@@ -268,11 +254,164 @@ private:
     bool inTxn_ = false;
 };
 
-static LocalPackBackend* backendFor(const std::shared_ptr<void>& p) {
-    return static_cast<LocalPackBackend*>(p.get());
+class LocalCloudExporter final : public StorageCloudExporter {
+public:
+    explicit LocalCloudExporter(const fs::path& archivePath)
+        : paths_(describeArchiveStorage(archivePath)) {}
+
+    StorageArchive::CloudBundleExport exportBundle(const fs::path& tempRoot,
+                                                   std::uint64_t blobMaxBytes) const override;
+    StorageArchive::CloudBundleFile materializeBlob(const StorageArchive::CloudBundleExport& bundle,
+                                                    std::size_t partIndex) const override;
+
+private:
+    ArchiveStoragePaths paths_;
+};
+
+StorageArchive::CloudBundleExport LocalCloudExporter::exportBundle(const fs::path& tempRoot,
+                                                                  std::uint64_t blobMaxBytes) const {
+    const std::string bundleId = "bundle-" + safeFileComponent(nowIsoLocal());
+    const fs::path rootDir = tempRoot / bundleId;
+    std::error_code ec;
+    fs::create_directories(rootDir, ec);
+    if (ec) throw std::runtime_error("Falha criando root do bundle: " + ec.message());
+
+    const fs::path dbCopy = rootDir / paths_.archivePath.filename();
+    const fs::path idxCopy = rootDir / paths_.indexPath.filename();
+
+    fs::copy_file(paths_.archivePath, dbCopy, fs::copy_options::overwrite_existing, ec);
+    if (ec) throw std::runtime_error("Falha copiando DB do bundle: " + ec.message());
+    if (fs::exists(paths_.indexPath)) {
+        fs::copy_file(paths_.indexPath, idxCopy, fs::copy_options::overwrite_existing, ec);
+        if (ec) throw std::runtime_error("Falha copiando index do bundle: " + ec.message());
+    }
+
+    StorageArchive::CloudBundleExport out;
+    out.bundleId = bundleId;
+    out.rootDir = rootDir;
+    out.packPath = paths_.packPath;
+    out.blobMaxBytes = blobMaxBytes;
+
+    StorageArchive::CloudBundleFile dbFile;
+    dbFile.path = dbCopy;
+    dbFile.uploadName = dbCopy.filename().string();
+    dbFile.objectKey = bundleId + "/" + dbFile.uploadName;
+    dbFile.size = fs::file_size(dbCopy, ec);
+    out.files.push_back(dbFile);
+
+    if (fs::exists(idxCopy)) {
+        StorageArchive::CloudBundleFile idxFile;
+        idxFile.path = idxCopy;
+        idxFile.uploadName = idxCopy.filename().string();
+        idxFile.objectKey = bundleId + "/" + idxFile.uploadName;
+        idxFile.size = fs::file_size(idxCopy, ec);
+        out.files.push_back(idxFile);
+    }
+
+    const std::uint64_t packSize =
+        fs::exists(paths_.packPath) ? static_cast<std::uint64_t>(fs::file_size(paths_.packPath, ec)) : 0ull;
+    if (blobMaxBytes == 0 || packSize <= blobMaxBytes) {
+        const fs::path packCopy = rootDir / paths_.packPath.filename();
+        fs::copy_file(paths_.packPath, packCopy, fs::copy_options::overwrite_existing, ec);
+        if (ec) throw std::runtime_error("Falha copiando pack do bundle: " + ec.message());
+        StorageArchive::CloudBundleFile packFile;
+        packFile.path = packCopy;
+        packFile.uploadName = packCopy.filename().string();
+        packFile.objectKey = bundleId + "/" + packFile.uploadName;
+        packFile.size = fs::file_size(packCopy, ec);
+        packFile.blobPart = true;
+        out.files.push_back(packFile);
+        out.blobPartCount = 1;
+    } else {
+        out.blobPartCount = static_cast<std::size_t>((packSize + blobMaxBytes - 1) / blobMaxBytes);
+    }
+
+    const fs::path manifest = rootDir / "bundle.manifest";
+    {
+        std::ofstream mf(manifest, std::ios::binary | std::ios::trunc);
+        if (!mf) throw std::runtime_error("Falha criando manifest do bundle.");
+        mf << "bundle_id=" << bundleId << "\n";
+        mf << "archive_file=" << paths_.archivePath.filename().string() << "\n";
+        mf << "pack_file=" << paths_.packPath.filename().string() << "\n";
+        mf << "index_file=" << paths_.indexPath.filename().string() << "\n";
+        mf << "blob_max_bytes=" << blobMaxBytes << "\n";
+        mf << "blob_part_count=" << out.blobPartCount << "\n";
+    }
+    StorageArchive::CloudBundleFile mfFile;
+    mfFile.path = manifest;
+    mfFile.uploadName = manifest.filename().string();
+    mfFile.objectKey = bundleId + "/" + mfFile.uploadName;
+    mfFile.size = fs::file_size(manifest, ec);
+    mfFile.manifest = true;
+    out.files.push_back(mfFile);
+
+    return out;
+}
+
+StorageArchive::CloudBundleFile LocalCloudExporter::materializeBlob(const StorageArchive::CloudBundleExport& bundle,
+                                                                    std::size_t partIndex) const {
+    if (bundle.blobPartCount == 0) throw std::runtime_error("Bundle nao possui blobs.");
+    if (partIndex >= bundle.blobPartCount) throw std::runtime_error("blob partIndex invalido.");
+
+    std::ifstream in(bundle.packPath, std::ios::binary);
+    if (!in) throw std::runtime_error("Falha abrindo pack para materializar blob.");
+
+    const std::uint64_t offset = bundle.blobMaxBytes * static_cast<std::uint64_t>(partIndex);
+    in.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+    if (!in) throw std::runtime_error("Falha posicionando no pack para blob.");
+
+    const std::string name =
+        bundle.packPath.stem().string() + ".part" + std::to_string(partIndex) + bundle.packPath.extension().string();
+    const fs::path outPath = bundle.rootDir / name;
+    std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
+    if (!out) throw std::runtime_error("Falha criando arquivo blob do bundle.");
+
+    Blob buf(1024 * 1024);
+    std::uint64_t remaining = bundle.blobMaxBytes;
+    while (remaining > 0 && in) {
+        const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf.size()));
+        in.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(n));
+        const std::streamsize got = in.gcount();
+        if (got <= 0) break;
+        out.write(reinterpret_cast<const char*>(buf.data()), got);
+        if (!out) throw std::runtime_error("Falha escrevendo blob do bundle.");
+        remaining -= static_cast<std::uint64_t>(got);
+    }
+
+    StorageArchive::CloudBundleFile f;
+    f.path = outPath;
+    f.uploadName = outPath.filename().string();
+    f.objectKey = bundle.bundleId + "/" + f.uploadName;
+    std::error_code ec;
+    f.size = fs::file_size(outPath, ec);
+    f.blobPart = true;
+    return f;
 }
 
 } // namespace
+
+ArchiveStoragePaths describeArchiveStorage(const fs::path& archivePath) {
+    ArchiveStoragePaths paths;
+    paths.archivePath = archivePath;
+    paths.packPath = archivePath.parent_path() / (archivePath.stem().string() + ".klyp.pack");
+    paths.indexPath = archivePath.parent_path() / (archivePath.stem().string() + ".klyp.idx");
+    return paths;
+}
+
+void ensureArchiveStorageParent(const fs::path& archivePath) {
+    if (archivePath.parent_path().empty()) return;
+    std::error_code ec;
+    fs::create_directories(archivePath.parent_path(), ec);
+    if (ec) throw std::runtime_error("Falha criando pasta do arquivo: " + ec.message());
+}
+
+std::shared_ptr<StorageBackend> makeLocalStorageBackend(const fs::path& archivePath) {
+    return std::make_shared<LocalPackBackend>(archivePath);
+}
+
+std::unique_ptr<StorageCloudExporter> makeLocalCloudExporter(const fs::path& archivePath) {
+    return std::make_unique<LocalCloudExporter>(archivePath);
+}
 
 SqliteError::SqliteError(const std::string& msg) : std::runtime_error(msg) {}
 
@@ -293,7 +432,7 @@ bool Stmt::stepRow() { return stepRowOrDoneOrThrow(db_, stmt_); }
 void Stmt::stepDone() { stepDoneOrThrow(db_, stmt_); }
 
 DB::DB(const fs::path& p) {
-    ensureParentDir(p);
+    ensureArchiveStorageParent(p);
     if (sqlite3_open_path(p, &db_) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db_);
         sqlite3_close(db_);
@@ -404,8 +543,8 @@ StorageArchive::~StorageArchive() {
 void StorageArchive::begin() {
     if (writeTxnActive_ || readTxnActive_) throw std::runtime_error("StorageArchive ja possui transacao ativa.");
     db_.exec("BEGIN IMMEDIATE;");
-    if (!backendOpaque_) backendOpaque_ = std::shared_ptr<void>(new LocalPackBackend(path_), [](void* p) { delete static_cast<LocalPackBackend*>(p); });
-    backendFor(backendOpaque_)->begin();
+    if (!backendOpaque_) backendOpaque_ = makeLocalStorageBackend(path_);
+    std::static_pointer_cast<StorageBackend>(backendOpaque_)->beginSession();
     writeTxnActive_ = true;
 }
 
@@ -417,7 +556,7 @@ void StorageArchive::beginRead() {
 
 void StorageArchive::commit() {
     if (!writeTxnActive_) throw std::runtime_error("Nenhuma transacao de escrita ativa.");
-    if (backendOpaque_) backendFor(backendOpaque_)->commit();
+    if (backendOpaque_) std::static_pointer_cast<StorageBackend>(backendOpaque_)->commitSession();
     db_.exec("COMMIT;");
     packIn_.reset();
     writeTxnActive_ = false;
@@ -433,7 +572,7 @@ void StorageArchive::endRead() {
 void StorageArchive::rollback() {
     if (!writeTxnActive_) return;
     try {
-        if (backendOpaque_) backendFor(backendOpaque_)->rollback();
+        if (backendOpaque_) std::static_pointer_cast<StorageBackend>(backendOpaque_)->rollbackSession();
     } catch (...) {
         try { db_.exec("ROLLBACK;"); } catch (...) {}
         packIn_.reset();
@@ -613,10 +752,10 @@ bool StorageArchive::insertChunkIfMissing(const ChunkHash& hash, std::size_t raw
     if (stateInfo.first == "ready" && stateInfo.second >= 0) return false;
 
     if (!backendOpaque_) throw std::runtime_error("Backend nao iniciado. Chame begin() antes de gravar chunks.");
-    auto* backend = backendFor(backendOpaque_);
+    auto backend = std::static_pointer_cast<StorageBackend>(backendOpaque_);
     if (!backend) throw std::runtime_error("Backend invalido ou nao inicializado.");
 
-    const sqlite3_int64 packOffset = backend->appendBlob(hash, rawSize, comp, compAlgo);
+    const sqlite3_int64 packOffset = backend->appendBlob(ProcessedBlob{hash, rawSize, comp, compAlgo});
     if (packOffset < 0) throw std::runtime_error("Backend retornou pack_offset invalido.");
 
     sqlite3_stmt* upd = hot_.updateChunkOffset;
@@ -680,7 +819,7 @@ std::optional<RestorableFileRef> StorageArchive::findFileBySnapshotAndPath(sqlit
 }
 
 std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset, const ChunkHash& expectedSha, std::size_t expectedRawSize, std::size_t expectedCompSize, const std::string& expectedAlgo) const {
-    const fs::path p = packPathForArchive(path_);
+    const fs::path p = describeArchiveStorage(path_).packPath;
     if (!packIn_ || !packIn_->is_open()) {
         packIn_ = std::make_unique<std::ifstream>(p, std::ios::binary);
         if (!packIn_ || !*packIn_) throw std::runtime_error("Falha abrindo pack para leitura.");
@@ -822,122 +961,11 @@ std::vector<ChangeEntry> StorageArchive::diffLatestVsPrevious() {
 }
 
 StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::path& tempRoot, std::uint64_t blobMaxBytes) const {
-    const std::string bundleId = "bundle-" + safeFileComponent(nowIsoLocal());
-    const fs::path rootDir = tempRoot / bundleId;
-    std::error_code ec;
-    fs::create_directories(rootDir, ec);
-    if (ec) throw std::runtime_error("Falha criando root do bundle: " + ec.message());
-
-    const fs::path dbCopy = rootDir / path_.filename();
-    const fs::path packSrc = packPathForArchive(path_);
-    const fs::path idxSrc = indexPathForArchive(path_);
-    const fs::path idxCopy = rootDir / idxSrc.filename();
-
-    fs::copy_file(path_, dbCopy, fs::copy_options::overwrite_existing, ec);
-    if (ec) throw std::runtime_error("Falha copiando DB do bundle: " + ec.message());
-    if (fs::exists(idxSrc)) {
-        fs::copy_file(idxSrc, idxCopy, fs::copy_options::overwrite_existing, ec);
-        if (ec) throw std::runtime_error("Falha copiando index do bundle: " + ec.message());
-    }
-
-    CloudBundleExport out;
-    out.bundleId = bundleId;
-    out.rootDir = rootDir;
-    out.packPath = packSrc;
-    out.blobMaxBytes = blobMaxBytes;
-
-    CloudBundleFile dbFile;
-    dbFile.path = dbCopy;
-    dbFile.uploadName = dbCopy.filename().string();
-    dbFile.objectKey = bundleId + "/" + dbFile.uploadName;
-    dbFile.size = fs::file_size(dbCopy, ec);
-    out.files.push_back(dbFile);
-
-    if (fs::exists(idxCopy)) {
-        CloudBundleFile idxFile;
-        idxFile.path = idxCopy;
-        idxFile.uploadName = idxCopy.filename().string();
-        idxFile.objectKey = bundleId + "/" + idxFile.uploadName;
-        idxFile.size = fs::file_size(idxCopy, ec);
-        out.files.push_back(idxFile);
-    }
-
-    const std::uint64_t packSize = fs::exists(packSrc) ? static_cast<std::uint64_t>(fs::file_size(packSrc, ec)) : 0ull;
-    if (blobMaxBytes == 0 || packSize <= blobMaxBytes) {
-        const fs::path packCopy = rootDir / packSrc.filename();
-        fs::copy_file(packSrc, packCopy, fs::copy_options::overwrite_existing, ec);
-        if (ec) throw std::runtime_error("Falha copiando pack do bundle: " + ec.message());
-        CloudBundleFile packFile;
-        packFile.path = packCopy;
-        packFile.uploadName = packCopy.filename().string();
-        packFile.objectKey = bundleId + "/" + packFile.uploadName;
-        packFile.size = fs::file_size(packCopy, ec);
-        packFile.blobPart = true;
-        out.files.push_back(packFile);
-        out.blobPartCount = 1;
-    } else {
-        out.blobPartCount = static_cast<std::size_t>((packSize + blobMaxBytes - 1) / blobMaxBytes);
-    }
-
-    const fs::path manifest = rootDir / "bundle.manifest";
-    {
-        std::ofstream mf(manifest, std::ios::binary | std::ios::trunc);
-        if (!mf) throw std::runtime_error("Falha criando manifest do bundle.");
-        mf << "bundle_id=" << bundleId << "\n";
-        mf << "archive_file=" << path_.filename().string() << "\n";
-        mf << "pack_file=" << packSrc.filename().string() << "\n";
-        mf << "index_file=" << idxSrc.filename().string() << "\n";
-        mf << "blob_max_bytes=" << blobMaxBytes << "\n";
-        mf << "blob_part_count=" << out.blobPartCount << "\n";
-    }
-    CloudBundleFile mfFile;
-    mfFile.path = manifest;
-    mfFile.uploadName = manifest.filename().string();
-    mfFile.objectKey = bundleId + "/" + mfFile.uploadName;
-    mfFile.size = fs::file_size(manifest, ec);
-    mfFile.manifest = true;
-    out.files.push_back(mfFile);
-
-    return out;
+    return makeLocalCloudExporter(path_)->exportBundle(tempRoot, blobMaxBytes);
 }
 
 StorageArchive::CloudBundleFile StorageArchive::materializeCloudBundleBlob(const CloudBundleExport& bundle, std::size_t partIndex) const {
-    if (bundle.blobPartCount == 0) throw std::runtime_error("Bundle nao possui blobs.");
-    if (partIndex >= bundle.blobPartCount) throw std::runtime_error("blob partIndex invalido.");
-
-    const fs::path src = bundle.packPath;
-    std::ifstream in(src, std::ios::binary);
-    if (!in) throw std::runtime_error("Falha abrindo pack para materializar blob.");
-
-    const std::uint64_t offset = bundle.blobMaxBytes * static_cast<std::uint64_t>(partIndex);
-    in.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-    if (!in) throw std::runtime_error("Falha posicionando no pack para blob.");
-
-    std::string name = src.stem().string() + ".part" + std::to_string(partIndex) + src.extension().string();
-    fs::path outPath = bundle.rootDir / name;
-    std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
-    if (!out) throw std::runtime_error("Falha criando arquivo blob do bundle.");
-
-    Blob buf(1024 * 1024);
-    std::uint64_t remaining = bundle.blobMaxBytes;
-    while (remaining > 0 && in) {
-        const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf.size()));
-        in.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(n));
-        const std::streamsize got = in.gcount();
-        if (got <= 0) break;
-        out.write(reinterpret_cast<const char*>(buf.data()), got);
-        if (!out) throw std::runtime_error("Falha escrevendo blob do bundle.");
-        remaining -= static_cast<std::uint64_t>(got);
-    }
-
-    CloudBundleFile f;
-    f.path = outPath;
-    f.uploadName = outPath.filename().string();
-    f.objectKey = bundle.bundleId + "/" + f.uploadName;
-    std::error_code ec;
-    f.size = fs::file_size(outPath, ec);
-    f.blobPart = true;
-    return f;
+    return makeLocalCloudExporter(path_)->materializeBlob(bundle, partIndex);
 }
 
 } // namespace keeply

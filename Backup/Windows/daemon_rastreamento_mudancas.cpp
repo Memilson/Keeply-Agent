@@ -1,25 +1,163 @@
+#include "../../keeply.cpp"
+#include "../rastreamento_mudancas.hpp"
+
 #ifdef _WIN32
 #include <windows.h>
 #include <winsvc.h>
 #include <atomic>
-#include <chrono>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <stdexcept>
-#include <string>
+#include <memory>
 #include <vector>
-#include "../rastreamento_mudancas.hpp"
+#endif
 
 namespace fs = std::filesystem;
 
+#ifdef _WIN32
+
+namespace keeply::rastreamento_eventos_base {
+
+class MotorMonitorWindows final : public MotorMonitorBase {
+public:
+    MotorMonitorWindows(const fs::path& rootPath, bool respectSystemExclusionPolicy)
+        : MotorMonitorBase(rootPath, respectSystemExclusionPolicy),
+          dir_(new Handle()) {
+        dir_->reset(CreateFileW(
+            this->rootPath().wstring().c_str(),
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            nullptr
+        ));
+        if (!dir_->valid()) throw std::runtime_error("Falha abrindo diretorio para monitoramento.");
+    }
+
+    ~MotorMonitorWindows() override {
+        requestStop();
+    }
+
+    void requestStop() noexcept override {
+        if (dir_) dir_->reset();
+    }
+
+    void run(const std::function<bool()>& shouldStop) override {
+        std::vector<unsigned char> buffer(64 * 1024);
+        while (!shouldStop()) {
+            if (!dir_ || !dir_->valid()) return;
+            DWORD bytesReturned = 0;
+            const BOOL ok = ReadDirectoryChangesW(
+                dir_->get(),
+                buffer.data(),
+                static_cast<DWORD>(buffer.size()),
+                TRUE,
+                FILE_NOTIFY_CHANGE_FILE_NAME |
+                FILE_NOTIFY_CHANGE_DIR_NAME |
+                FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                FILE_NOTIFY_CHANGE_SIZE |
+                FILE_NOTIFY_CHANGE_LAST_WRITE |
+                FILE_NOTIFY_CHANGE_CREATION,
+                &bytesReturned,
+                nullptr,
+                nullptr
+            );
+            if (!ok) {
+                if (shouldStop()) return;
+                const DWORD err = GetLastError();
+                throw std::runtime_error("Falha em ReadDirectoryChangesW. Codigo=" + std::to_string(err));
+            }
+            if (bytesReturned == 0) continue;
+            parseBuffer(buffer.data(), bytesReturned);
+        }
+    }
+
+private:
+    class Handle {
+        HANDLE handle_ = INVALID_HANDLE_VALUE;
+
+    public:
+        Handle() = default;
+        explicit Handle(HANDLE handle) : handle_(handle) {}
+
+        ~Handle() {
+            if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+        }
+
+        Handle(const Handle&) = delete;
+        Handle& operator=(const Handle&) = delete;
+
+        HANDLE get() const { return handle_; }
+        bool valid() const { return handle_ != INVALID_HANDLE_VALUE; }
+        void reset(HANDLE next = INVALID_HANDLE_VALUE) {
+            if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+            handle_ = next;
+        }
+    };
+
+    static std::string normalizePath(const fs::path& path) {
+        return path.lexically_normal().generic_string();
+    }
+
+    void parseBuffer(void* data, unsigned long bytes) {
+        unsigned char* ptr = static_cast<unsigned char*>(data);
+        unsigned char* end = ptr + bytes;
+        while (ptr < end) {
+            auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(ptr);
+            handleNotification(std::wstring(info->FileName, info->FileNameLength / sizeof(WCHAR)), info->Action);
+            if (info->NextEntryOffset == 0) break;
+            ptr += info->NextEntryOffset;
+        }
+    }
+
+    void handleNotification(const std::wstring& relativePathUtf16, unsigned long action) {
+        if (relativePathUtf16.empty()) return;
+        const fs::path fullPath = rootPath() / fs::path(relativePathUtf16);
+        if (shouldIgnorePath(fullPath)) return;
+
+        const auto rel = buildRelativePath(fullPath);
+        if (!rel) return;
+
+        TipoEventoMonitorado eventType;
+        switch (action) {
+            case FILE_ACTION_ADDED:
+            case FILE_ACTION_RENAMED_NEW_NAME:
+                eventType = TipoEventoMonitorado::Upsert;
+                break;
+            case FILE_ACTION_MODIFIED:
+                eventType = TipoEventoMonitorado::Modify;
+                break;
+            case FILE_ACTION_REMOVED:
+            case FILE_ACTION_RENAMED_OLD_NAME:
+                eventType = TipoEventoMonitorado::Delete;
+                break;
+            default:
+                return;
+        }
+
+        std::error_code typeEc;
+        bool isDir = false;
+        if (eventType != TipoEventoMonitorado::Delete) {
+            isDir = fs::is_directory(fullPath, typeEc) && !typeEc;
+        }
+        appendEvent(eventType, normalizePath(fs::path(*rel)), isDir);
+    }
+
+    std::unique_ptr<Handle> dir_;
+};
+
+std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path& rootPath,
+                                                        bool respectSystemExclusionPolicy) {
+    return std::make_unique<MotorMonitorWindows>(rootPath, respectSystemExclusionPolicy);
+}
+
+} // namespace keeply::rastreamento_eventos_base
+
 namespace {
+
 std::atomic_bool gStopRequested{false};
 SERVICE_STATUS_HANDLE gServiceStatusHandle = nullptr;
 SERVICE_STATUS gServiceStatus{};
 std::string gServiceRootUtf8;
-constexpr const char* kServiceName = "KeeplyCbtDaemon";
+keeply::rastreamento_eventos_base::MonitorRunner* gActiveRunner = nullptr;
 
 BOOL WINAPI consoleHandler(DWORD ctrlType) {
     switch (ctrlType) {
@@ -29,65 +167,11 @@ BOOL WINAPI consoleHandler(DWORD ctrlType) {
         case CTRL_LOGOFF_EVENT:
         case CTRL_SHUTDOWN_EVENT:
             gStopRequested = true;
+            if (gActiveRunner) gActiveRunner->requestStop();
             return TRUE;
         default:
             return FALSE;
     }
-}
-
-std::string normalizePath(const fs::path& p) {
-    return p.lexically_normal().generic_string();
-}
-
-fs::path getDbPath() {
-    return keeply::defaultEventStorePath();
-}
-
-fs::path getPidPath() {
-    return keeply::defaultEventStorePidPath();
-}
-
-fs::path getRootPath() {
-    return keeply::defaultEventStoreRootPath();
-}
-
-void writePidFile() {
-    fs::create_directories(getPidPath().parent_path());
-    std::ofstream pid(getPidPath(), std::ios::trunc);
-    if (!pid) throw std::runtime_error("Falha criando PID file do daemon.");
-    pid << GetCurrentProcessId() << "\n";
-}
-
-void writeRootFile(const fs::path& root) {
-    fs::create_directories(getRootPath().parent_path());
-    std::ofstream rootFile(getRootPath(), std::ios::trunc);
-    if (!rootFile) throw std::runtime_error("Falha criando arquivo de root do daemon.");
-    rootFile << fs::absolute(root).lexically_normal().generic_string() << "\n";
-}
-
-std::string envOrEmpty(const char* key) {
-    const char* value = std::getenv(key);
-    return value ? std::string(value) : std::string();
-}
-
-std::string wideToUtf8(const std::wstring& ws) {
-    if (ws.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
-    if (size <= 0) throw std::runtime_error("Falha convertendo UTF-16 para UTF-8.");
-    std::string out(size, '\0');
-    const int written = WideCharToMultiByte(CP_UTF8, 0, ws.data(), static_cast<int>(ws.size()), out.data(), size, nullptr, nullptr);
-    if (written != size) throw std::runtime_error("Falha convertendo UTF-16 para UTF-8.");
-    return out;
-}
-
-std::wstring utf8ToWide(const std::string& s) {
-    if (s.empty()) return {};
-    const int size = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    if (size <= 0) throw std::runtime_error("Falha convertendo UTF-8 para UTF-16.");
-    std::wstring out(static_cast<std::size_t>(size), L'\0');
-    const int written = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), size);
-    if (written != size) throw std::runtime_error("Falha convertendo UTF-8 para UTF-16.");
-    return out;
 }
 
 fs::path currentExecutablePath() {
@@ -114,133 +198,12 @@ void setServiceState(DWORD state, DWORD win32ExitCode = NO_ERROR, DWORD waitHint
     SetServiceStatus(gServiceStatusHandle, &gServiceStatus);
 }
 
-class Handle {
-    HANDLE h_ = INVALID_HANDLE_VALUE;
-public:
-    Handle() = default;
-    explicit Handle(HANDLE h) : h_(h) {}
-    ~Handle() {
-        if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
-    }
-    Handle(const Handle&) = delete;
-    Handle& operator=(const Handle&) = delete;
-    Handle(Handle&& other) noexcept : h_(other.h_) {
-        other.h_ = INVALID_HANDLE_VALUE;
-    }
-    Handle& operator=(Handle&& other) noexcept {
-        if (this != &other) {
-            if (h_ != INVALID_HANDLE_VALUE) CloseHandle(h_);
-            h_ = other.h_;
-            other.h_ = INVALID_HANDLE_VALUE;
-        }
-        return *this;
-    }
-    HANDLE get() const { return h_; }
-    bool valid() const { return h_ != INVALID_HANDLE_VALUE; }
-};
-
-class WindowsDaemon {
-    fs::path root_;
-    keeply::EventStore store_;
-    Handle dir_;
-
-public:
-    explicit WindowsDaemon(const fs::path& root)
-        : root_(fs::absolute(root).lexically_normal()), store_(getDbPath()) {
-        dir_ = Handle(CreateFileW(
-            root_.wstring().c_str(),
-            FILE_LIST_DIRECTORY,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            nullptr
-        ));
-        if (!dir_.valid()) throw std::runtime_error("Falha abrindo diretorio para monitoramento.");
-        store_.ensureRoot(root_);
-    }
-
-    void run() {
-        std::vector<unsigned char> buffer(64 * 1024);
-        while (!gStopRequested) {
-            DWORD bytesReturned = 0;
-            const BOOL ok = ReadDirectoryChangesW(
-                dir_.get(),
-                buffer.data(),
-                static_cast<DWORD>(buffer.size()),
-                TRUE,
-                FILE_NOTIFY_CHANGE_FILE_NAME |
-                FILE_NOTIFY_CHANGE_DIR_NAME |
-                FILE_NOTIFY_CHANGE_ATTRIBUTES |
-                FILE_NOTIFY_CHANGE_SIZE |
-                FILE_NOTIFY_CHANGE_LAST_WRITE |
-                FILE_NOTIFY_CHANGE_CREATION,
-                &bytesReturned,
-                nullptr,
-                nullptr
-            );
-            if (!ok) {
-                const DWORD err = GetLastError();
-                if (gStopRequested) break;
-                throw std::runtime_error("Falha em ReadDirectoryChangesW. Codigo=" + std::to_string(err));
-            }
-            if (bytesReturned == 0) continue;
-            parseBuffer(buffer.data(), bytesReturned);
-        }
-    }
-
-private:
-    void parseBuffer(void* data, DWORD bytes) {
-        unsigned char* ptr = static_cast<unsigned char*>(data);
-        unsigned char* end = ptr + bytes;
-        while (ptr < end) {
-            auto* info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(ptr);
-            handleNotification(*info);
-            if (info->NextEntryOffset == 0) break;
-            ptr += info->NextEntryOffset;
-        }
-    }
-
-    void handleNotification(const FILE_NOTIFY_INFORMATION& info) {
-        const std::wstring ws(info.FileName, info.FileNameLength / sizeof(WCHAR));
-        if (ws.empty()) return;
-        const fs::path fullPath = root_ / fs::path(ws);
-        std::error_code relEc;
-        fs::path relPath = fs::relative(fullPath, root_, relEc);
-        if (relEc || relPath.empty()) return;
-        const std::string rel = normalizePath(relPath);
-        if (rel.rfind("..", 0) == 0) return;
-
-        std::string type;
-        switch (info.Action) {
-            case FILE_ACTION_ADDED:
-            case FILE_ACTION_RENAMED_NEW_NAME:
-                type = "upsert";
-                break;
-            case FILE_ACTION_MODIFIED:
-                type = "modify";
-                break;
-            case FILE_ACTION_REMOVED:
-            case FILE_ACTION_RENAMED_OLD_NAME:
-                type = "delete";
-                break;
-            default:
-                return;
-        }
-
-        std::error_code typeEc;
-        bool isDir = false;
-        if (type != "delete") isDir = fs::is_directory(fullPath, typeEc) && !typeEc;
-
-        store_.appendEvent(type, rel, isDir);
-    }
-};
-
 DWORD WINAPI serviceControlHandler(DWORD ctrlCode, DWORD, LPVOID, LPVOID) {
     switch (ctrlCode) {
         case SERVICE_CONTROL_STOP:
         case SERVICE_CONTROL_SHUTDOWN:
             gStopRequested = true;
+            if (gActiveRunner) gActiveRunner->requestStop();
             setServiceState(SERVICE_STOP_PENDING, NO_ERROR, 2000);
             return NO_ERROR;
         default:
@@ -249,13 +212,14 @@ DWORD WINAPI serviceControlHandler(DWORD ctrlCode, DWORD, LPVOID, LPVOID) {
 }
 
 void runDaemonOrThrow(const fs::path& root) {
-    if (root.empty()) throw std::runtime_error("Informe --root <diretorio>.");
-    if (!fs::exists(root) || !fs::is_directory(root)) throw std::runtime_error("Root invalido para o daemon.");
-    fs::create_directories(getPidPath().parent_path());
-    writePidFile();
-    writeRootFile(root);
-    WindowsDaemon daemon(root);
-    daemon.run();
+    const fs::path normalizedRoot = keeply::rastreamento_eventos_base::resolveAndPrepareDaemonMonitorRootOrThrow(
+        root,
+        std::to_string(GetCurrentProcessId())
+    );
+    keeply::rastreamento_eventos_base::MonitorRunner daemon(normalizedRoot, false);
+    gActiveRunner = &daemon;
+    daemon.run([]() { return gStopRequested.load(); });
+    gActiveRunner = nullptr;
 }
 
 void WINAPI serviceMain(DWORD, LPWSTR*) {
@@ -263,7 +227,7 @@ void WINAPI serviceMain(DWORD, LPWSTR*) {
     if (!gServiceStatusHandle) return;
     setServiceState(SERVICE_START_PENDING, NO_ERROR, 3000);
     try {
-        const fs::path root = gServiceRootUtf8.empty() ? fs::path(envOrEmpty("KEEPLY_ROOT")) : fs::path(gServiceRootUtf8);
+        const fs::path root = gServiceRootUtf8.empty() ? fs::path() : fs::path(gServiceRootUtf8);
         setServiceState(SERVICE_RUNNING);
         runDaemonOrThrow(root);
         setServiceState(SERVICE_STOPPED);
@@ -325,50 +289,34 @@ void uninstallService() {
     CloseServiceHandle(scm);
 }
 
-} 
+} // namespace
 
+#ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
     try {
-        fs::path root;
-        bool install = false;
-        bool uninstall = false;
-        bool serviceMode = false;
-        for (int i = 1; i < argc; ++i) {
-            const std::string arg = argv[i];
-            if (arg == "--root" && i + 1 < argc) {
-                root = argv[++i];
-            } else if (arg == "--foreground") {
-            } else if (arg == "--install-service") {
-                install = true;
-            } else if (arg == "--uninstall-service") {
-                uninstall = true;
-            } else if (arg == "--service") {
-                serviceMode = true;
-            } else if (arg == "--help") {
+        keeply::rastreamento_eventos_base::OpcoesDaemonMonitor options;
+        try {
+            options = keeply::rastreamento_eventos_base::parseDaemonMonitorArgs(argc, argv, true);
+        } catch (const std::runtime_error& ex) {
+            if (std::string(ex.what()) == "__KEEPLY_DAEMON_HELP__") {
                 std::cout << "Uso: keeply_cbt_daemon --root <diretorio> [--foreground] [--install-service|--uninstall-service|--service]\n";
                 return 0;
-            } else {
-                throw std::runtime_error("Argumento invalido: " + arg);
             }
+            throw;
         }
 
-        if (root.empty()) {
-            const auto rootFromEnv = envOrEmpty("KEEPLY_ROOT");
-            if (!rootFromEnv.empty()) root = fs::path(rootFromEnv);
-        }
-
-        if (install) {
-            installService(root);
+        if (options.installService) {
+            installService(keeply::rastreamento_eventos_base::resolveDaemonMonitorRootOrThrow(options.rootPath));
             std::cout << "Servico Windows instalado.\n";
             return 0;
         }
-        if (uninstall) {
+        if (options.uninstallService) {
             uninstallService();
             std::cout << "Servico Windows removido.\n";
             return 0;
         }
-        if (serviceMode) {
-            gServiceRootUtf8 = root.string();
+        if (options.serviceMode) {
+            gServiceRootUtf8 = options.rootPath.string();
             SERVICE_TABLE_ENTRYW serviceTable[] = {
                 { const_cast<LPWSTR>(L"KeeplyCbtDaemon"), serviceMain },
                 { nullptr, nullptr }
@@ -379,22 +327,33 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (root.empty()) throw std::runtime_error("Informe --root <diretorio>.");
-        if (!fs::exists(root) || !fs::is_directory(root)) throw std::runtime_error("Root invalido para o daemon.");
-
         if (!SetConsoleCtrlHandler(consoleHandler, TRUE)) {
             throw std::runtime_error("Falha registrando handler do console.");
         }
 
-        runDaemonOrThrow(root);
+        runDaemonOrThrow(options.rootPath);
         return 0;
     } catch (const std::exception& ex) {
         std::cerr << "keeply_cbt_daemon: " << ex.what() << "\n";
         return 1;
     }
 }
+#endif
+
 #else
+
+namespace keeply::rastreamento_eventos_base {
+
+std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path&, bool) {
+    throw std::runtime_error("Motor Windows disponivel apenas no Windows.");
+}
+
+} // namespace keeply::rastreamento_eventos_base
+
+#ifdef KEEPLY_DAEMON_PROGRAM
 int main() {
     return 1;
 }
+#endif
+
 #endif

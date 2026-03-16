@@ -1,6 +1,5 @@
 #include "websocket_agente.hpp"
 #include "Backup/rastreamento_mudancas.hpp"
-#include "Backup/monitor_mudancas_segundo_plano.hpp"
 #include <filesystem>
 #include <cerrno>
 #include <cctype>

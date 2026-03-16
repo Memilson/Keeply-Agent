@@ -24,8 +24,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(blake3_src)
 
+set(KEEPLY_PLATFORM_SOURCES)
+set(KEEPLY_CBT_COMMON_SOURCES)
+
+set(KEEPLY_CBT_PLATFORM_SOURCES)
+if(UNIX AND NOT WIN32)
+    list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
+        Backup/Linux/daemon_rastreamento_mudancas.cpp
+    )
+elseif(WIN32)
+    list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
+        Backup/Windows/daemon_rastreamento_mudancas.cpp
+    )
+endif()
+
 set(KEEPLY_PLATFORM_SOURCES
-    platform_utils.cpp
+    ${KEEPLY_CBT_PLATFORM_SOURCES}
 )
 
 set(KEEPLY_CORE
@@ -58,7 +72,8 @@ endif()
 set(KEEPLY_AGENT_EXTRA_SOURCES)
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
-        Backup/monitor_mudancas_segundo_plano.cpp
+        ${KEEPLY_CBT_COMMON_SOURCES}
+        ${KEEPLY_CBT_PLATFORM_SOURCES}
     )
 endif()
 
@@ -85,9 +100,11 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$"
 endif()
 
 add_executable(keeply
-    main_cli.cpp
+    keeply.cpp
     ${KEEPLY_CORE}
 )
+
+set_source_files_properties(keeply.cpp PROPERTIES COMPILE_DEFINITIONS KEEPLY_CLI_IMPLEMENTATION=1)
 
 set(KEEPLY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -137,14 +154,16 @@ endif()
 
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
-        Backup/Linux/daemon_rastreamento_mudancas.cpp
         Backup/rastreamento_mudancas.cpp
+        ${KEEPLY_CBT_COMMON_SOURCES}
+        ${KEEPLY_CBT_PLATFORM_SOURCES}
         ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
 
     target_compile_definitions(keeply_cbt_daemon PRIVATE
+        KEEPLY_DAEMON_PROGRAM=1
         BLAKE3_USE_NEON=0
         BLAKE3_NO_AVX512
     )
@@ -154,14 +173,16 @@ if(UNIX AND NOT WIN32)
     )
 elseif(WIN32)
     add_executable(keeply_cbt_daemon
-        Backup/Windows/daemon_rastreamento_mudancas.cpp
         Backup/rastreamento_mudancas.cpp
+        ${KEEPLY_CBT_COMMON_SOURCES}
+        ${KEEPLY_CBT_PLATFORM_SOURCES}
         ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
 
     target_compile_definitions(keeply_cbt_daemon PRIVATE
+        KEEPLY_DAEMON_PROGRAM=1
         BLAKE3_USE_NEON=0
         BLAKE3_NO_AVX512
     )
