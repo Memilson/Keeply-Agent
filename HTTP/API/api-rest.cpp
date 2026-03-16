@@ -1,8 +1,13 @@
 #include "api-rest.hpp"
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 #include <cerrno>
 #include <cctype>
 #include <cstring>
@@ -23,6 +28,63 @@ using keeply::RestRequest;
 using keeply::RestResponse;
 static constexpr std::size_t MAX_HEADER_BYTES=(1u<<20);
 static constexpr std::size_t MAX_BODY_BYTES=(8u<<20);
+
+#ifdef _WIN32
+struct WinsockInit{
+    WinsockInit(){
+        WSADATA data{};
+        if(WSAStartup(MAKEWORD(2,2),&data)!=0){
+            throw std::runtime_error("WSAStartup falhou.");
+        }
+    }
+    ~WinsockInit(){
+        WSACleanup();
+    }
+};
+static WinsockInit& ensureWinsock(){
+    static WinsockInit init;
+    return init;
+}
+static int closeSocketFd(int fd){
+    return closesocket(static_cast<SOCKET>(fd));
+}
+static int lastSocketError(){
+    return WSAGetLastError();
+}
+static bool socketInterrupted(int err){
+    return err==WSAEINTR;
+}
+static bool socketTimeoutOrWouldBlock(int err){
+    return err==WSAETIMEDOUT||err==WSAEWOULDBLOCK;
+}
+static std::string socketErrorMessage(int err){
+    char* buffer=nullptr;
+    const DWORD flags=FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS;
+    const DWORD len=FormatMessageA(flags,nullptr,(DWORD)err,MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),(LPSTR)&buffer,0,nullptr);
+    std::string out=(len&&buffer)?std::string(buffer,len):("WSA error "+std::to_string(err));
+    if(buffer) LocalFree(buffer);
+    while(!out.empty()&&(out.back()=='\r'||out.back()=='\n'||out.back()==' ')) out.pop_back();
+    return out;
+}
+using SocketLen=int;
+#else
+static int closeSocketFd(int fd){
+    return ::close(fd);
+}
+static int lastSocketError(){
+    return errno;
+}
+static bool socketInterrupted(int err){
+    return err==EINTR;
+}
+static bool socketTimeoutOrWouldBlock(int err){
+    return err==EAGAIN||err==EWOULDBLOCK;
+}
+static std::string socketErrorMessage(int err){
+    return std::strerror(err);
+}
+using SocketLen=socklen_t;
+#endif
 
 static std::string trimHttp(const std::string& s){
     std::size_t b=0;
@@ -107,7 +169,11 @@ static void sendAll(int fd,const std::string& data){
     std::size_t off=0;
     while(off<data.size()){
         auto n=::send(fd,data.data()+(std::ptrdiff_t)off,data.size()-off,0);
-        if(n<0){ if(errno==EINTR) continue; throw std::runtime_error(std::string("send falhou: ")+std::strerror(errno)); }
+        if(n<0){
+            const int err=lastSocketError();
+            if(socketInterrupted(err)) continue;
+            throw std::runtime_error(std::string("send falhou: ")+socketErrorMessage(err));
+        }
         off+=(std::size_t)n;
     }
 }
@@ -129,10 +195,17 @@ static void sendHttpError(int fd,int status,const std::string& msg){
     sendHttpResponse(fd,r);
 }
 static void setSocketTimeouts(int fd,int recvMs,int sendMs){
+#ifdef _WIN32
+    const DWORD rtv=(DWORD)recvMs;
+    const DWORD stv=(DWORD)sendMs;
+    (void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<const char*>(&rtv),sizeof(rtv));
+    (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<const char*>(&stv),sizeof(stv));
+#else
     timeval rtv{recvMs/1000,(recvMs%1000)*1000};
     timeval stv{sendMs/1000,(sendMs%1000)*1000};
     (void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&rtv,sizeof(rtv));
     (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&stv,sizeof(stv));
+#endif
 }
 static bool recvHttpRequest(int fd,RestRequest& req){
     std::string buf;
@@ -143,9 +216,10 @@ static bool recvHttpRequest(int fd,RestRequest& req){
         auto n=::recv(fd,tmp,sizeof(tmp),0);
         if(n==0) return false;
         if(n<0){
-            if(errno==EINTR) continue;
-            if(errno==EAGAIN||errno==EWOULDBLOCK) throw std::runtime_error("timeout lendo request");
-            throw std::runtime_error(std::string("recv falhou: ")+std::strerror(errno));
+            const int err=lastSocketError();
+            if(socketInterrupted(err)) continue;
+            if(socketTimeoutOrWouldBlock(err)) throw std::runtime_error("timeout lendo request");
+            throw std::runtime_error(std::string("recv falhou: ")+socketErrorMessage(err));
         }
         buf.append(tmp,(std::size_t)n);
         headerEnd=buf.find("\r\n\r\n");
@@ -186,9 +260,10 @@ static bool recvHttpRequest(int fd,RestRequest& req){
         auto n=::recv(fd,tmp,sizeof(tmp),0);
         if(n==0) break;
         if(n<0){
-            if(errno==EINTR) continue;
-            if(errno==EAGAIN||errno==EWOULDBLOCK) throw std::runtime_error("timeout lendo body");
-            throw std::runtime_error(std::string("recv body falhou: ")+std::strerror(errno));
+            const int err=lastSocketError();
+            if(socketInterrupted(err)) continue;
+            if(socketTimeoutOrWouldBlock(err)) throw std::runtime_error("timeout lendo body");
+            throw std::runtime_error(std::string("recv body falhou: ")+socketErrorMessage(err));
         }
         buf.append(tmp,(std::size_t)n);
         if(buf.size()>bodyStart+contentLen) break;
@@ -198,22 +273,29 @@ static bool recvHttpRequest(int fd,RestRequest& req){
     return true;
 }
 static int createListenSocket(int port){
+#ifdef _WIN32
+    ensureWinsock();
+#endif
     int fd=::socket(AF_INET,SOCK_STREAM,0);
-    if(fd<0) throw std::runtime_error(std::string("socket falhou: ")+std::strerror(errno));
+    if(fd<0) throw std::runtime_error(std::string("socket falhou: ")+socketErrorMessage(lastSocketError()));
     int one=1;
+#ifdef _WIN32
+    (void)::setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,reinterpret_cast<const char*>(&one),sizeof(one));
+#else
     (void)::setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
+#endif
     sockaddr_in addr{};
     addr.sin_family=AF_INET;
     addr.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
     addr.sin_port=htons((uint16_t)port);
     if(::bind(fd,(sockaddr*)&addr,sizeof(addr))<0){
-        auto err=std::string("bind falhou: ")+std::strerror(errno);
-        ::close(fd);
+        auto err=std::string("bind falhou: ")+socketErrorMessage(lastSocketError());
+        closeSocketFd(fd);
         throw std::runtime_error(err);
     }
     if(::listen(fd,64)<0){
-        auto err=std::string("listen falhou: ")+std::strerror(errno);
-        ::close(fd);
+        auto err=std::string("listen falhou: ")+socketErrorMessage(lastSocketError());
+        closeSocketFd(fd);
         throw std::runtime_error(err);
     }
     return fd;
@@ -525,9 +607,13 @@ int runRestHttpServer(const RestHttpServerConfig& config){
         std::cout.flush();
         for(;;){
             sockaddr_in cli{};
-            socklen_t cliLen=sizeof(cli);
+            SocketLen cliLen=sizeof(cli);
             int cfd=::accept(listenFd,(sockaddr*)&cli,&cliLen);
-            if(cfd<0){ if(errno==EINTR) continue; throw std::runtime_error(std::string("accept falhou: ")+std::strerror(errno)); }
+            if(cfd<0){
+                const int err=lastSocketError();
+                if(socketInterrupted(err)) continue;
+                throw std::runtime_error(std::string("accept falhou: ")+socketErrorMessage(err));
+            }
             setSocketTimeouts(cfd,8000,8000);
             try{
                 RestRequest req;
@@ -544,7 +630,7 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             }catch(...){
                 try{ sendHttpError(cfd,500,"erro interno"); }catch(...){}
             }
-            ::close(cfd);
+            closeSocketFd(cfd);
         }
     }catch(const std::exception& e){
         std::cerr<<"REST HTTP server falhou: "<<e.what()<<"\n";

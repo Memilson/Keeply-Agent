@@ -38,6 +38,19 @@ static std::string blobToHex(const Blob& b) {
     return hexOfBytes(b.data(), b.size());
 }
 
+static std::string safeFileComponent(std::string value) {
+    for (char& c : value) {
+        const bool ok =
+            (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.';
+        if (!ok) c = '_';
+    }
+    while (!value.empty() && value.back() == '.') value.pop_back();
+    return value.empty() ? std::string("bundle") : value;
+}
+
 static void finalizeStmt(sqlite3_stmt*& st) {
     if (st) {
         sqlite3_finalize(st);
@@ -281,7 +294,7 @@ void Stmt::stepDone() { stepDoneOrThrow(db_, stmt_); }
 
 DB::DB(const fs::path& p) {
     ensureParentDir(p);
-    if (sqlite3_open(p.string().c_str(), &db_) != SQLITE_OK) {
+    if (sqlite3_open_path(p, &db_) != SQLITE_OK) {
         std::string err = sqlite3_errmsg(db_);
         sqlite3_close(db_);
         throw SqliteError("sqlite open: " + err);
@@ -809,7 +822,7 @@ std::vector<ChangeEntry> StorageArchive::diffLatestVsPrevious() {
 }
 
 StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::path& tempRoot, std::uint64_t blobMaxBytes) const {
-    const std::string bundleId = "bundle-" + nowIsoLocal();
+    const std::string bundleId = "bundle-" + safeFileComponent(nowIsoLocal());
     const fs::path rootDir = tempRoot / bundleId;
     std::error_code ec;
     fs::create_directories(rootDir, ec);

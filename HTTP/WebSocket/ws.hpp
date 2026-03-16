@@ -44,7 +44,7 @@ struct WsClientConfig{
     std::string hostName="keeply-host";
     std::string osName="linux";
     std::string pairingCode;
-    fs::path identityDir="/tmp/keeply/agent_identity";
+    fs::path identityDir=defaultKeeplyDataDir()/"agent_identity";
     bool allowInsecureTls=false;
     int pairingPollIntervalMs=3000;
 };

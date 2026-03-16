@@ -51,7 +51,7 @@ std::string fingerprintFromX509(X509* cert) {
 }
 
 std::string fingerprintFromPemFile(const fs::path& certPemPath) {
-    FILE* fp = std::fopen(certPemPath.string().c_str(), "rb");
+    FILE* fp = fopenPath(certPemPath, "rb");
     if (!fp) throw std::runtime_error("Falha ao abrir certificado do agente.");
     X509* cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
     std::fclose(fp);
@@ -93,7 +93,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
                                    -1, -1, 0);
         X509_set_issuer_name(cert, name);
         if (X509_sign(cert, pkey, EVP_sha256()) <= 0) throw std::runtime_error("Falha ao assinar certificado do agente.");
-        FILE* keyFp = std::fopen(identity.keyPemPath.string().c_str(), "wb");
+        FILE* keyFp = fopenPath(identity.keyPemPath, "wb");
         if (!keyFp) throw std::runtime_error("Falha ao criar chave PEM do agente.");
         if (PEM_write_PrivateKey(keyFp, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
             std::fclose(keyFp);
@@ -101,7 +101,7 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
         }
         std::fclose(keyFp);
         tightenIdentityPathPermissions(identity.keyPemPath, false);
-        FILE* certFp = std::fopen(identity.certPemPath.string().c_str(), "wb");
+        FILE* certFp = fopenPath(identity.certPemPath, "wb");
         if (!certFp) throw std::runtime_error("Falha ao criar cert PEM do agente.");
         if (PEM_write_X509(certFp, cert) != 1) {
             std::fclose(certFp);
@@ -180,10 +180,10 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     auto itCert = meta.find("cert_pem");
     auto itKey = meta.find("key_pem");
     identity.certPemPath = (itCert != meta.end() && !trim(itCert->second).empty())
-        ? fs::path(trim(itCert->second))
+        ? pathFromUtf8(trim(itCert->second))
         : (config.identityDir / "agent-cert.pem");
     identity.keyPemPath = (itKey != meta.end() && !trim(itKey->second).empty())
-        ? fs::path(trim(itKey->second))
+        ? pathFromUtf8(trim(itKey->second))
         : (config.identityDir / "agent-key.pem");
     if (!fs::exists(identity.certPemPath) || !fs::exists(identity.keyPemPath)) {
         identity = generateSelfSignedIdentity(config);

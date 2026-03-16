@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
-#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -18,12 +17,7 @@
 namespace keeply {
 namespace {
 fs::path detectHomeDir() {
-    const char* envHome = std::getenv("HOME");
-    if (envHome && *envHome) return normalizeAbsolutePath(fs::path(envHome));
-    std::error_code ec;
-    const fs::path current = fs::current_path(ec);
-    if (!ec) return current.lexically_normal();
-    return DEFAULT_SOURCE_ROOT;
+    return normalizeAbsolutePath(homeDirectoryPath());
 }
 
 bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
@@ -57,6 +51,11 @@ void validateSourceRootAllowed(const fs::path& sourcePath) {
 }
 
 std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::string& key) {
+#if defined(_WIN32)
+    (void)homeDir;
+    (void)key;
+    return std::nullopt;
+#else
     const fs::path configPath = homeDir / ".config" / "user-dirs.dirs";
     std::ifstream input(configPath);
     if (!input) return std::nullopt;
@@ -78,6 +77,7 @@ std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::s
         return value;
     }
     return std::nullopt;
+#endif
 }
 
 fs::path pickExistingPath(const std::vector<fs::path>& candidates) {
@@ -93,37 +93,39 @@ fs::path pickExistingPath(const std::vector<fs::path>& candidates) {
 }
 
 fs::path resolveKnownScopePath(const std::string& scopeId) {
-    const fs::path homeDir = detectHomeDir();
-    if (scopeId == "home") return homeDir;
-
     struct ScopeCandidate {
         const char* id;
-        const char* xdgKey;
-        std::vector<const char*> names;
+        KnownDirectory dir;
+        std::vector<const char*> fallbackNames;
     };
     static const std::vector<ScopeCandidate> kCandidates = {
-        {"documents", "XDG_DOCUMENTS_DIR", {"Documents", "Documentos"}},
-        {"desktop", "XDG_DESKTOP_DIR", {"Desktop", "Area de Trabalho"}},
-        {"downloads", "XDG_DOWNLOAD_DIR", {"Downloads"}},
-        {"pictures", "XDG_PICTURES_DIR", {"Pictures", "Imagens"}},
-        {"music", "XDG_MUSIC_DIR", {"Music", "Musicas", "Música"}},
-        {"videos", "XDG_VIDEOS_DIR", {"Videos", "Vídeos"}}
+        {"home", KnownDirectory::Home, {}},
+        {"documents", KnownDirectory::Documents, {"Documents", "Documentos"}},
+        {"desktop", KnownDirectory::Desktop, {"Desktop", "Area de Trabalho"}},
+        {"downloads", KnownDirectory::Downloads, {"Downloads"}},
+        {"pictures", KnownDirectory::Pictures, {"Pictures", "Imagens"}},
+        {"music", KnownDirectory::Music, {"Music", "Musicas", "Música"}},
+        {"videos", KnownDirectory::Videos, {"Videos", "Vídeos"}}
     };
 
     for (const auto& scope : kCandidates) {
         if (scopeId != scope.id) continue;
-        std::vector<fs::path> paths;
-        if (auto xdgDir = readXdgDirValue(homeDir, scope.xdgKey); xdgDir && !xdgDir->empty()) {
-            paths.emplace_back(*xdgDir);
+        if (auto knownDir = knownDirectoryPath(scope.dir); knownDir && !knownDir->empty()) {
+            std::error_code ec;
+            if (fs::exists(*knownDir, ec) && fs::is_directory(*knownDir, ec) && !ec) {
+                return normalizeAbsolutePath(*knownDir);
+            }
         }
-        for (const char* name : scope.names) {
-            paths.emplace_back(homeDir / name);
+        std::vector<fs::path> fallbacks;
+        const fs::path homeDir = detectHomeDir();
+        for (const char* name : scope.fallbackNames) {
+            fallbacks.emplace_back(homeDir / name);
         }
-        const fs::path resolved = pickExistingPath(paths);
+        const fs::path resolved = pickExistingPath(fallbacks);
         if (!resolved.empty()) return resolved;
         throw std::runtime_error(
             "Nao foi possivel localizar a pasta do escopo '" + scopeId + "' dentro de " +
-            homeDir.string()
+            detectHomeDir().string()
         );
     }
 
@@ -148,7 +150,7 @@ ScanScopeState resolveScanScope(const std::string& rawScopeId) {
     else if (scopeId == "music") scope.label = "Music";
     else if (scopeId == "videos") scope.label = "Videos";
     else throw std::runtime_error("Escopo de scan nao suportado: " + scopeId);
-    scope.resolvedPath = resolveKnownScopePath(scopeId).string();
+    scope.resolvedPath = pathToUtf8(resolveKnownScopePath(scopeId));
     return scope;
 }
 
@@ -158,25 +160,14 @@ ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
     ScanScopeState scope;
     scope.id = "custom";
     scope.label = "Custom";
-    scope.requestedPath = normalized.string();
-    scope.resolvedPath = normalized.string();
+    scope.requestedPath = pathToUtf8(normalized);
+    scope.resolvedPath = pathToUtf8(normalized);
     return scope;
 }
 }
 namespace {
 std::vector<fs::path> systemExcludedRoots() {
-    return {
-        fs::path("/proc"),
-        fs::path("/sys"),
-        fs::path("/dev"),
-        fs::path("/run"),
-        fs::path("/tmp"),
-        fs::path("/mnt"),
-        fs::path("/media"),
-        fs::path("/lost+found"),
-        fs::path("/var/run"),
-        fs::path("/var/tmp")
-    };
+    return defaultSystemExcludedRoots();
 }
 }
 fs::path normalizeAbsolutePath(const fs::path& p) {
@@ -188,7 +179,7 @@ fs::path normalizeAbsolutePath(const fs::path& p) {
     return abs.lexically_normal();
 }
 bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
-    return normalizeAbsolutePath(sourceRoot) == fs::path("/");
+    return isFilesystemRootPath(normalizeAbsolutePath(sourceRoot));
 }
 bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
     if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
@@ -244,9 +235,10 @@ bool isSafeRelativePath(const std::string& p) {
     return true;}
 void ensureDefaults() {
     std::error_code ec;
-    fs::create_directories(DEFAULT_ARCHIVE_PATH.parent_path(), ec);
+    fs::create_directories(defaultArchivePath().parent_path(), ec);
     ec.clear();
-    fs::create_directories(DEFAULT_RESTORE_ROOT, ec);}
+    fs::create_directories(defaultRestoreRootPath(), ec);
+}
 KeeplyApi::KeeplyApi() {
     state_.scanScope = resolveScanScope("home");
     state_.source = state_.scanScope.resolvedPath;
@@ -256,7 +248,7 @@ const AppState& KeeplyApi::state() const {
 void KeeplyApi::setSource(const std::string& source) {
     const std::string s = trim(source);
     if (s.empty()) throw std::runtime_error("Origem nao pode ser vazia.");
-    state_.scanScope = resolveCustomScope(fs::path(s));
+    state_.scanScope = resolveCustomScope(pathFromUtf8(s));
     state_.source = state_.scanScope.resolvedPath;}
 void KeeplyApi::setScanScope(const std::string& scopeId) {
     state_.scanScope = resolveScanScope(scopeId);
@@ -264,11 +256,11 @@ void KeeplyApi::setScanScope(const std::string& scopeId) {
 void KeeplyApi::setArchive(const std::string& archive) {
     const std::string s = trim(archive);
     if (s.empty()) throw std::runtime_error("Arquivo KPLY nao pode ser vazio.");
-    state_.archive = s;
+    const fs::path archivePath = normalizeAbsolutePath(pathFromUtf8(s));
+    state_.archive = pathToUtf8(archivePath);
     std::error_code ec;
-    fs::path p(s);
-    if (!p.parent_path().empty()) {
-        fs::create_directories(p.parent_path(), ec);
+    if (!archivePath.parent_path().empty()) {
+        fs::create_directories(archivePath.parent_path(), ec);
         if (ec) {
             throw std::runtime_error("Falha criando diretorio do arquivo KPLY: " + ec.message());
         }
@@ -276,9 +268,10 @@ void KeeplyApi::setArchive(const std::string& archive) {
 void KeeplyApi::setRestoreRoot(const std::string& restoreRoot) {
     const std::string s = trim(restoreRoot);
     if (s.empty()) throw std::runtime_error("Destino de restore nao pode ser vazio.");
-    state_.restoreRoot = s;
+    const fs::path restorePath = normalizeAbsolutePath(pathFromUtf8(s));
+    state_.restoreRoot = pathToUtf8(restorePath);
     std::error_code ec;
-    fs::create_directories(fs::path(s), ec);
+    fs::create_directories(restorePath, ec);
     if (ec) {
         throw std::runtime_error("Falha criando diretorio de restore: " + ec.message());
     }}
@@ -301,42 +294,42 @@ void KeeplyApi::disableArchiveSplit() {
     state_.archiveSplitMaxBytes = 0;
 }
 bool KeeplyApi::archiveExists() const {
-    return fs::exists(state_.archive);}
+    return fs::exists(pathFromUtf8(state_.archive));}
 BackupStats KeeplyApi::runBackup(const std::string& label,
                                  const std::function<void(const BackupProgress&)>& progressCallback) {
     // TODO: state_.archiveSplitEnabled / state_.archiveSplitMaxBytes ainda nao sao aplicados
     // no storage. Esta configuracao foi criada para futura implementacao de volumes.
-    return ScanEngine::backupFolderToKply(state_.source, state_.archive, label, progressCallback);}
+    return ScanEngine::backupFolderToKply(pathFromUtf8(state_.source), pathFromUtf8(state_.archive), label, progressCallback);}
 std::vector<SnapshotRow> KeeplyApi::listSnapshots() {
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     return arc.listSnapshots();}
 std::vector<ChangeEntry> KeeplyApi::diffSnapshots(const std::string& olderSnapshotInput,
                                                   const std::string& newerSnapshotInput) {
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     sqlite3_int64 older = arc.resolveSnapshotId(olderSnapshotInput);
     sqlite3_int64 newer = arc.resolveSnapshotId(newerSnapshotInput);
     return arc.diffSnapshots(older, newer);}
 std::vector<ChangeEntry> KeeplyApi::diffLatestVsPrevious() {
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     return arc.diffLatestVsPrevious();}
 std::vector<std::string> KeeplyApi::listSnapshotPaths(const std::string& snapshotInput) {
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     sqlite3_int64 sid = arc.resolveSnapshotId(snapshotInput);
     return arc.listSnapshotPaths(sid);}
 void KeeplyApi::restoreFile(const std::string& snapshotInput,
                             const std::string& relPath,
                             const std::optional<fs::path>& outRootOpt) {
-    fs::path outRoot = outRootOpt.value_or(fs::path(state_.restoreRoot));
+    fs::path outRoot = outRootOpt.value_or(pathFromUtf8(state_.restoreRoot));
     std::error_code ec;
     fs::create_directories(outRoot, ec);
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     sqlite3_int64 sid = arc.resolveSnapshotId(snapshotInput);
-    RestoreEngine::restoreFile(state_.archive, sid, relPath, outRoot);}
+    RestoreEngine::restoreFile(pathFromUtf8(state_.archive), sid, relPath, outRoot);}
 void KeeplyApi::restoreSnapshot(const std::string& snapshotInput,
                                 const std::optional<fs::path>& outRootOpt) {
-    fs::path outRoot = outRootOpt.value_or(fs::path(state_.restoreRoot));
+    fs::path outRoot = outRootOpt.value_or(pathFromUtf8(state_.restoreRoot));
     std::error_code ec;
     fs::create_directories(outRoot, ec);
-    StorageArchive arc(state_.archive);
+    StorageArchive arc(pathFromUtf8(state_.archive));
     sqlite3_int64 sid = arc.resolveSnapshotId(snapshotInput);
-    RestoreEngine::restoreSnapshot(state_.archive, sid, outRoot);}}
+    RestoreEngine::restoreSnapshot(pathFromUtf8(state_.archive), sid, outRoot);}}

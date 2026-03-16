@@ -9,11 +9,10 @@ find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
 
 find_library(ZSTD_LIB
-    NAMES zstd libzstd.so.1 zstd.so.1
-    PATHS /lib /usr/lib /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+    NAMES zstd libzstd zstd_static libzstd_static
 )
 if(NOT ZSTD_LIB)
-    message(FATAL_ERROR "libzstd runtime nao encontrada (instale libzstd)")
+    message(FATAL_ERROR "Biblioteca zstd nao encontrada.")
 endif()
 
 include(FetchContent)
@@ -25,7 +24,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(blake3_src)
 
+set(KEEPLY_PLATFORM_SOURCES
+    platform_utils.cpp
+)
+
 set(KEEPLY_CORE
+    ${KEEPLY_PLATFORM_SOURCES}
     HTTP/API/api.cpp
     Backup/cbt.cpp
     Backup/compactar.cpp
@@ -45,7 +49,7 @@ set(KEEPLY_API_WS
     HTTP/WebSocket/ws_bootstrap.cpp
 )
 
-if(UNIX AND NOT WIN32)
+if(UNIX OR WIN32)
     list(APPEND KEEPLY_API_WS
         HTTP/API/api-rest.cpp
     )
@@ -54,7 +58,7 @@ endif()
 set(KEEPLY_AGENT_EXTRA_SOURCES)
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
-        Backup/Linux/inotify_service.cpp
+        Backup/change_watcher.cpp
     )
 endif()
 
@@ -127,13 +131,15 @@ target_compile_definitions(keeply_agent PRIVATE
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
 
 if(WIN32)
-    target_link_libraries(keeply_agent PRIVATE ws2_32)
+    target_link_libraries(keeply PRIVATE Shell32 Ole32)
+    target_link_libraries(keeply_agent PRIVATE ws2_32 Shell32 Ole32)
 endif()
 
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
         Backup/Linux/daemon.cpp
         Backup/cbt.cpp
+        ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
@@ -150,6 +156,7 @@ elseif(WIN32)
     add_executable(keeply_cbt_daemon
         Backup/Windows/daemon.cpp
         Backup/cbt.cpp
+        ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
@@ -162,5 +169,7 @@ elseif(WIN32)
     target_link_libraries(keeply_cbt_daemon PRIVATE
         SQLite::SQLite3
         Advapi32
+        Shell32
+        Ole32
     )
 endif()

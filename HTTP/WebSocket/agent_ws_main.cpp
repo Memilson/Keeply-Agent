@@ -1,6 +1,6 @@
 #include "ws.hpp"
 #include "../Backup/cbt.hpp"
-#include "../Backup/Linux/inotify_service.hpp"
+#include "../Backup/change_watcher.hpp"
 #include <filesystem>
 #include <cerrno>
 #include <cctype>
@@ -13,6 +13,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #if defined(__linux__) || defined(__APPLE__)
 #include <csignal>
 #include <sys/types.h>
@@ -75,16 +78,12 @@ static std::string argOrEmpty(int argc,char** argv,int i){
 static fs::path pickDataDir(){
     auto fromEnv=envOrEmptyAny({"KEEPLY_DATA_DIR","KEEPly_DATA_DIR"});
     if(!fromEnv.empty()) return fs::path(fromEnv);
-    return fs::path("/tmp/keeply");
+    return keeply::defaultKeeplyDataDir();
 }
 static fs::path pickWatchRoot(){
     auto fromEnv=envOrEmptyAny({"KEEPLY_ROOT","KEEPly_ROOT"});
     if(!fromEnv.empty()) return fs::path(fromEnv);
-    auto home=envOrEmpty("HOME");
-    if(!home.empty()) return fs::path(home);
-    std::error_code ec;
-    auto cwd=fs::current_path(ec);
-    return ec?fs::path("/tmp"):cwd;
+    return keeply::defaultSourceRootPath();
 }
 static fs::path pickPidFilePath(const fs::path& dataDir){
     auto fromEnv=envOrEmptyAny({"KEEPLY_AGENT_PID_FILE","KEEPly_AGENT_PID_FILE"});
@@ -94,23 +93,57 @@ static fs::path pickPidFilePath(const fs::path& dataDir){
 static std::string findExecutableOnPath(const char* name){
     auto pathEnv=envOrEmpty("PATH");
     if(pathEnv.empty()) return {};
+    const char separator =
+#ifdef _WIN32
+        ';';
+#else
+        ':';
+#endif
+
+    std::vector<std::string> candidates;
+    candidates.emplace_back(name);
+#ifdef _WIN32
+    const std::string baseName=name?std::string(name):std::string();
+    if(baseName.find('.')==std::string::npos){
+        candidates.push_back(baseName+".exe");
+        candidates.push_back(baseName+".cmd");
+        candidates.push_back(baseName+".bat");
+    }
+#endif
+
     std::size_t start=0;
     while(start<=pathEnv.size()){
-        const std::size_t end=pathEnv.find(':',start);
+        const std::size_t end=pathEnv.find(separator,start);
         const std::string entry=pathEnv.substr(start,end==std::string::npos?std::string::npos:end-start);
         if(!entry.empty()){
-            fs::path candidate=fs::path(entry)/name;
-            std::error_code ec;
-            const auto perms=fs::status(candidate,ec).permissions();
-            if(!ec&&fs::exists(candidate,ec)&&!ec&&
-               (perms&fs::perms::owner_exec)!=fs::perms::none){
-                return candidate.string();
+            for(const auto& candidateName:candidates){
+                fs::path candidate=fs::path(entry)/candidateName;
+                std::error_code ec;
+                if(!fs::exists(candidate,ec)||ec) continue;
+#ifdef _WIN32
+                if(fs::is_regular_file(candidate,ec)&&!ec) return candidate.string();
+#else
+                const auto perms=fs::status(candidate,ec).permissions();
+                if(!ec&&(perms&fs::perms::owner_exec)!=fs::perms::none) return candidate.string();
+#endif
             }
         }
         if(end==std::string::npos) break;
         start=end+1;
     }
     return {};
+}
+static void writePidFile(const fs::path& pidFile){
+    std::error_code ec;
+    fs::create_directories(pidFile.parent_path(),ec);
+    if(ec) throw std::runtime_error("Falha criando diretorio do PID file: "+ec.message());
+    std::ofstream out(pidFile,std::ios::trunc);
+    if(!out) throw std::runtime_error("Falha criando PID file: "+pidFile.string());
+#ifdef _WIN32
+    out<<GetCurrentProcessId()<<"\n";
+#else
+    out<<getpid()<<"\n";
+#endif
 }
 #ifdef __linux__
 static fs::path currentExecutablePath(){
@@ -275,14 +308,6 @@ static void daemonizeProcess(){
         if(nullFd>STDERR_FILENO) close(nullFd);
     }
 }
-static void writePidFile(const fs::path& pidFile){
-    std::error_code ec;
-    fs::create_directories(pidFile.parent_path(),ec);
-    if(ec) throw std::runtime_error("Falha criando diretorio do PID file: "+ec.message());
-    std::ofstream out(pidFile,std::ios::trunc);
-    if(!out) throw std::runtime_error("Falha criando PID file: "+pidFile.string());
-    out<<getpid()<<"\n";
-}
 class OptionalTrayIndicator{
 public:
     void start(){
@@ -316,8 +341,6 @@ private:
     pid_t pid_=-1;
 };
 #else
-static void writePidFile(const fs::path&){
-}
 class OptionalTrayIndicator{
 public:
     void start(){}
@@ -450,9 +473,9 @@ int main(int argc,char** argv){
         writePidFile(pidFile);
 
         auto api=std::make_shared<keeply::KeeplyApi>();
-        api->setArchive((dataDir/"keeply.kipy").string());
-        api->setRestoreRoot((dataDir/"restore_agent_ws").string());
-        api->setSource(watchRoot.string());
+        api->setArchive(keeply::pathToUtf8(dataDir/"keeply.kipy"));
+        api->setRestoreRoot(keeply::pathToUtf8(dataDir/"restore_agent_ws"));
+        api->setSource(keeply::pathToUtf8(watchRoot));
 
         OptionalTrayIndicator tray;
         if(options.enableTray) tray.start();

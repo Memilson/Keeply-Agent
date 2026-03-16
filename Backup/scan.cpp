@@ -64,8 +64,8 @@ static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue)
 
 static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, bool defaultValue) {
     sqlite3* rawDb = nullptr;
-    const int openRc = sqlite3_open_v2(
-        archivePath.string().c_str(),
+    const int openRc = sqlite3_open_v2_path(
+        archivePath,
         &rawDb,
         SQLITE_OPEN_READONLY,
         nullptr
@@ -365,7 +365,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
 std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     std::vector<std::string> out;
 #ifdef _WIN32
-    for (char d = 'C'; d <= 'Z'; ++d) {
+    for (char d = 'A'; d <= 'Z'; ++d) {
         std::string root;
         root += d;
         root += ":\\";
@@ -373,12 +373,23 @@ std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     }
 #else
     if (fs::exists("/")) out.push_back("/");
-    if (fs::exists("/home")) out.push_back("/home");
-    if (fs::exists("/root")) out.push_back("/root");
-    if (fs::exists("/srv")) out.push_back("/srv");
-    if (fs::exists("/var/www")) out.push_back("/var/www");
+    const std::vector<KnownDirectory> knownDirs = {
+        KnownDirectory::Home,
+        KnownDirectory::Documents,
+        KnownDirectory::Desktop,
+        KnownDirectory::Downloads,
+        KnownDirectory::Pictures,
+        KnownDirectory::Music,
+        KnownDirectory::Videos
+    };
+    for (const auto dir : knownDirs) {
+        if (const auto path = knownDirectoryPath(dir); path && fs::exists(*path)) {
+            const std::string value = path->string();
+            if (std::find(out.begin(), out.end(), value) == out.end()) out.push_back(value);
+        }
+    }
 #endif
-    if (out.empty()) out.push_back(DEFAULT_SOURCE_ROOT.string());
+    if (out.empty()) out.push_back(defaultSourceRootPath().string());
     return out;
 }
 } // namespace keeply

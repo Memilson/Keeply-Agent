@@ -87,8 +87,12 @@ SERVICE_USER="${SERVICE_USER:-keeply}"
 SERVICE_GROUP="${SERVICE_GROUP:-keeply}"
 INSTALL_CBT_SERVICE="${INSTALL_CBT_SERVICE:-1}"
 KEEPLY_HOME="${KEEPLY_HOME:-/var/lib/keeply}"
+XDG_DATA_HOME_DIR="${XDG_DATA_HOME_DIR:-${KEEPLY_HOME}/.local/share}"
+XDG_STATE_HOME_DIR="${XDG_STATE_HOME_DIR:-${KEEPLY_HOME}/.local/state}"
+XDG_CACHE_HOME_DIR="${XDG_CACHE_HOME_DIR:-${KEEPLY_HOME}/.cache}"
+KEEPLY_TMP_DIR="${KEEPLY_TMP_DIR:-${KEEPLY_HOME}/tmp}"
 BIN_DIR="${PREFIX%/}/bin"
-TMP_KEEPLY_DIR="/tmp/keeply"
+CBT_STATE_DIR="${XDG_STATE_HOME_DIR}/keeply"
 
 AGENT_BIN_SRC="${PKG_DIR}/Agente/build/keeply_agent"
 CBT_BIN_SRC="${PKG_DIR}/Agente/build/keeply_cbt_daemon"
@@ -126,7 +130,11 @@ pkill -f '/usr/local/bin/keeply_cbt_daemon' >/dev/null 2>&1 || true
 
 install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${BIN_DIR}"
 install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${KEEPLY_HOME}"
-install -d -m 775 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${TMP_KEEPLY_DIR}"
+install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${XDG_DATA_HOME_DIR}"
+install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${XDG_STATE_HOME_DIR}"
+install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${XDG_CACHE_HOME_DIR}"
+install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${KEEPLY_TMP_DIR}"
+install -d -m 755 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${CBT_STATE_DIR}"
 
 install -m 755 "${AGENT_BIN_SRC}" "${AGENT_BIN_DST}"
 install -m 755 "${CBT_BIN_SRC}" "${CBT_BIN_DST}"
@@ -180,15 +188,25 @@ cat > "${AGENT_ENV_FILE}" <<EOF2
 KEEPLY_WS_URL=$(escape_env "${WS_URL}")
 KEEPLY_ROOT=$(escape_env "${WATCH_ROOT}")
 KEEPLY_DATA_DIR=$(escape_env "${KEEPLY_HOME}")
+HOME=$(escape_env "${KEEPLY_HOME}")
+XDG_DATA_HOME=$(escape_env "${XDG_DATA_HOME_DIR}")
+XDG_STATE_HOME=$(escape_env "${XDG_STATE_HOME_DIR}")
+XDG_CACHE_HOME=$(escape_env "${XDG_CACHE_HOME_DIR}")
+TMPDIR=$(escape_env "${KEEPLY_TMP_DIR}")
 EOF2
 
 cat > "${CBT_ENV_FILE}" <<EOF2
 KEEPLY_ROOT=$(escape_env "${WATCH_ROOT}")
+HOME=$(escape_env "${KEEPLY_HOME}")
+XDG_DATA_HOME=$(escape_env "${XDG_DATA_HOME_DIR}")
+XDG_STATE_HOME=$(escape_env "${XDG_STATE_HOME_DIR}")
+XDG_CACHE_HOME=$(escape_env "${XDG_CACHE_HOME_DIR}")
+TMPDIR=$(escape_env "${KEEPLY_TMP_DIR}")
 EOF2
 
 chmod 644 "${AGENT_ENV_FILE}" "${CBT_ENV_FILE}"
 
-rm -f "${TMP_KEEPLY_DIR}/keeplyintf.pid" "${TMP_KEEPLY_DIR}/keeplyintf.root"
+rm -f "${CBT_STATE_DIR}/keeplyintf.pid" "${CBT_STATE_DIR}/keeplyintf.root"
 systemctl daemon-reload
 
 if [[ "${INSTALL_CBT_SERVICE}" == "1" ]]; then

@@ -18,14 +18,11 @@
 
 #include <sqlite3.h>
 
+#include "platform_utils.hpp"
+
 namespace keeply {
 
 namespace fs = std::filesystem;
-
-// Defaults fixos (CLI basico)
-inline const fs::path DEFAULT_SOURCE_ROOT  = "/home";
-inline const fs::path DEFAULT_ARCHIVE_PATH = "/tmp/keeply/keeply.kipy";
-inline const fs::path DEFAULT_RESTORE_ROOT = "/tmp/keeply/restore";
 
 inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
@@ -376,7 +373,7 @@ struct ScanScopeState {
     std::string id = "home";
     std::string label = "Home";
     std::string requestedPath;
-    std::string resolvedPath = DEFAULT_SOURCE_ROOT.string();
+    std::string resolvedPath = pathToUtf8(defaultSourceRootPath());
 };
 
 class VerifyEngine {
@@ -386,9 +383,9 @@ public:
 
 // API
 struct AppState {
-    std::string source = DEFAULT_SOURCE_ROOT.string();
-    std::string archive = DEFAULT_ARCHIVE_PATH.string();
-    std::string restoreRoot = DEFAULT_RESTORE_ROOT.string();
+    std::string source = pathToUtf8(defaultSourceRootPath());
+    std::string archive = pathToUtf8(defaultArchivePath());
+    std::string restoreRoot = pathToUtf8(defaultRestoreRootPath());
     ScanScopeState scanScope{};
     bool archiveSplitEnabled = false;
     std::uint64_t archiveSplitMaxBytes = 0; // 0 = desabilitado (placeholder para futura divisao)

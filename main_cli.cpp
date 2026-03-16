@@ -78,9 +78,9 @@ void printUsage(const char* argv0) {
         << "  " << argv0 << " files [snapshot]\n"
         << "  " << argv0 << " restore-file <arquivo_relativo> [snapshot]\n\n"
         << "Defaults:\n"
-        << "  - Scan origem: HOME do usuario (ou '/' com exclusoes de sistema)\n"
-        << "  - Backup DB   : /tmp/keeply/keeply.kipy\n"
-        << "  - Restore root: /tmp/keeply/restore\n";
+        << "  - Scan origem: pasta Home do usuario\n"
+        << "  - Backup DB   : " << keeply::pathToUtf8(keeply::defaultArchivePath()) << "\n"
+        << "  - Restore root: " << keeply::pathToUtf8(keeply::defaultRestoreRootPath()) << "\n";
 }
 int cmdConfig(KeeplyApi& api) {
     printConfig(api);
@@ -136,7 +136,7 @@ int cmdTimeline(KeeplyApi& api) {
 }
 int cmdReset(KeeplyApi& api, bool force) {
     const auto& st = api.state();
-    const std::string root = "/tmp/keeply";
+    const std::string root = keeply::pathToUtf8(keeply::defaultKeeplyDataDir());
     if (!force) {
         std::cout << "ATENCAO: isso vai apagar TUDO em " << root << "\n";
         std::cout << "Inclui backup DB e restauracoes de teste.\n";
@@ -434,7 +434,7 @@ int runMenu(KeeplyApi& api) {
         std::cout << "  [1] Executar backup (scan em " << api.state().source << ")\n";
         std::cout << "  [2] Ver historico (completo/incremental)\n";
         std::cout << "  [3] Restaurar (selecionar snapshot e arquivo)\n";
-        std::cout << "  [4] Apagar tudo em /tmp/keeply (teste)\n";
+        std::cout << "  [4] Apagar tudo em " << keeply::pathToUtf8(keeply::defaultKeeplyDataDir()) << " (teste)\n";
         std::cout << "  [5] Listar arquivos do ultimo snapshot\n";
         std::cout << "  [0] Sair\n";
         const std::string op = readLine("Opcao: ");
@@ -467,8 +467,8 @@ int main(int argc, char* argv[]) {
     try {
         KeeplyApi api;
         api.setScanScope("home");
-        api.setArchive("/tmp/keeply/keeply.kipy");
-        api.setRestoreRoot("/tmp/keeply/restore");
+        api.setArchive(keeply::pathToUtf8(keeply::defaultArchivePath()));
+        api.setRestoreRoot(keeply::pathToUtf8(keeply::defaultRestoreRootPath()));
         if (argc < 2) {
             return runMenu(api);
         }

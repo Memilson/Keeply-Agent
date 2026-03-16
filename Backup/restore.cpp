@@ -28,7 +28,7 @@ bool restoreFsyncEnabled() {
 
 void fsyncRestoredFile(const fs::path& target) {
 #if defined(_WIN32)
-    const int fd = _open(target.string().c_str(), _O_BINARY | _O_RDWR);
+    const int fd = _wopen(target.wstring().c_str(), _O_BINARY | _O_RDWR);
     if (fd < 0) throw std::runtime_error("Falha abrindo arquivo para flush fisico: " + target.string());
     const int rc = _commit(fd);
     _close(fd);

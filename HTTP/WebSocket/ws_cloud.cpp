@@ -592,8 +592,8 @@ void saveIdentityMeta(const AgentIdentity& identity) {
     out << "user_id=" << identity.userId << "\n";
     out << "fingerprint_sha256=" << identity.fingerprintSha256 << "\n";
     out << "pairing_code=" << identity.pairingCode << "\n";
-    out << "cert_pem=" << identity.certPemPath.string() << "\n";
-    out << "key_pem=" << identity.keyPemPath.string() << "\n";
+    out << "cert_pem=" << pathToUtf8(identity.certPemPath) << "\n";
+    out << "key_pem=" << pathToUtf8(identity.keyPemPath) << "\n";
     out.flush();
     if (!out) throw std::runtime_error("Falha ao finalizar identity.meta do agente.");
 #if defined(__linux__) || defined(__APPLE__)
@@ -663,11 +663,11 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                                        const std::string& label,
                                        const std::function<void(const UploadProgressSnapshot&)>& onProgress) {
     if (identity.userId.empty()) throw std::runtime_error("Agente sem userId persistido. Refaça o pareamento.");
-    const fs::path archivePath = fs::path(state.archive);
+    const fs::path archivePath = pathFromUtf8(state.archive);
     if (!fs::exists(archivePath)) throw std::runtime_error("Arquivo de backup local nao encontrado para upload.");
 
     StorageArchive archive(archivePath);
-    const auto bundle = archive.exportCloudBundle("/tmp/keeply/cloud_bundle_export", 16ull * 1024ull * 1024ull);
+    const auto bundle = archive.exportCloudBundle(defaultCloudBundleExportRoot(), 16ull * 1024ull * 1024ull);
     const std::string url = httpUrlFromWsUrl(config.url, "/api/agent/backups/upload");
     UploadBundleResult result;
     result.bundleId = bundle.bundleId;

@@ -80,7 +80,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     info("V1: Verificando integridade do SQLite...");
     {
         sqlite3* rawDb = nullptr;
-        if (sqlite3_open_v2(archivePath.string().c_str(), &rawDb,
+        if (sqlite3_open_v2_path(archivePath, &rawDb,
                             SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
             fail("Nao foi possivel abrir o banco SQLite: " +
                  std::string(sqlite3_errmsg(rawDb)));

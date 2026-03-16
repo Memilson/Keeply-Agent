@@ -44,7 +44,7 @@ std::string normalizeEventType(std::string type) {
     return toLowerAscii(std::move(type));
 }
 std::string normalizeDbPath(const fs::path& path) {
-    return fs::absolute(path).lexically_normal().generic_string();
+    return pathToUtf8(fs::absolute(path).lexically_normal());
 }
 long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     using namespace std::chrono;
@@ -144,7 +144,7 @@ class EventStore::Db {
     sqlite3* db_ = nullptr;
 public:
     explicit Db(const fs::path& path) {
-        if (sqlite3_open(path.string().c_str(), &db_) != SQLITE_OK) {
+        if (sqlite3_open_path(path, &db_) != SQLITE_OK) {
             std::string msg = db_ ? sqlite3_errmsg(db_) : "sqlite open failed";
             if (db_) sqlite3_close(db_);
             throw std::runtime_error("Falha abrindo banco do daemon: " + msg);
@@ -243,39 +243,19 @@ std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, 
 }
 
 fs::path defaultEventStorePath() {
-#ifdef _WIN32
-    const char* localAppData = std::getenv("LOCALAPPDATA");
-    if (!localAppData || !*localAppData) throw std::runtime_error("LOCALAPPDATA nao definido.");
-    return fs::path(localAppData) / "keeply" / "keeplyintf.kipy";
-#else
-    return "/tmp/keeply/keeplyintf.kipy";
-#endif
+    return defaultKeeplyStateDir() / "keeplyintf.kipy";
 }
 
 fs::path defaultEventStorePidPath() {
-#ifdef _WIN32
     return defaultEventStorePath().parent_path() / "keeplyintf.pid";
-#else
-    return "/tmp/keeply/keeplyintf.pid";
-#endif
 }
 
 fs::path defaultEventStoreRootPath() {
-#ifdef _WIN32
     return defaultEventStorePath().parent_path() / "keeplyintf.root";
-#else
-    return "/tmp/keeply/keeplyintf.root";
-#endif
 }
 
 fs::path defaultNativeStateStorePath() {
-#ifdef _WIN32
-    const char* localAppData = std::getenv("LOCALAPPDATA");
-    if (!localAppData || !*localAppData) throw std::runtime_error("LOCALAPPDATA nao definido.");
-    return fs::path(localAppData) / "keeply" / "keeply_state.kipy";
-#else
-    return "/tmp/keeply/keeply_state.kipy";
-#endif
+    return defaultKeeplyStateDir() / "keeply_state.kipy";
 }
 
 #ifdef _WIN32
@@ -284,8 +264,7 @@ class WindowsUSNTracker : public ChangeTracker {
     WinHandle hVol_;
     fs::path root_;
     std::string rootNorm_;
-    std::string rootNative_;
-    std::string resolvePathFromFileId(std::uint64_t fileId) {
+    fs::path resolvePathFromFileId(std::uint64_t fileId) {
         FILE_ID_DESCRIPTOR fd{};
         fd.dwSize = sizeof(FILE_ID_DESCRIPTOR);
         fd.Type = FileIdType;
@@ -293,25 +272,24 @@ class WindowsUSNTracker : public ChangeTracker {
         HANDLE hFile = OpenFileById(hVol_.h, &fd, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, FILE_FLAG_BACKUP_SEMANTICS);
         if (hFile == INVALID_HANDLE_VALUE) return {};
         WinHandle hf(hFile);
-        DWORD need = GetFinalPathNameByHandleA(hf.h, nullptr, 0, FILE_NAME_NORMALIZED);
+        DWORD need = GetFinalPathNameByHandleW(hf.h, nullptr, 0, FILE_NAME_NORMALIZED);
         if (need == 0) return {};
-        std::string buf(need, '\0');
-        DWORD got = GetFinalPathNameByHandleA(hf.h, buf.data(), need, FILE_NAME_NORMALIZED);
+        std::wstring buf(need, L'\0');
+        DWORD got = GetFinalPathNameByHandleW(hf.h, buf.data(), need, FILE_NAME_NORMALIZED);
         if (got == 0 || got >= need) return {};
         buf.resize(got);
-        return buf;
+        return fs::path(buf).lexically_normal();
     }
 public:
     bool isAvailable() const override { return true; }
     const char* backendName() const override { return "usn_journal"; }
     void startTracking(const fs::path& rootPath) override {
         root_ = fs::absolute(rootPath).lexically_normal();
-        rootNative_ = root_.string();
-        rootNorm_ = normWinPath(rootNative_);
+        rootNorm_ = normWinPath(pathToUtf8(root_));
         const auto rn = root_.root_name().string();
         if (rn.size() < 2 || rn[1] != ':') throw std::runtime_error("Root invalido para USN Tracker.");
-        const std::string volPath = "\\\\.\\" + rn;
-        HANDLE hv = CreateFileA(volPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+        const std::wstring volPath = L"\\\\.\\" + root_.root_name().wstring();
+        HANDLE hv = CreateFileW(volPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
         if (hv == INVALID_HANDLE_VALUE) throw std::runtime_error("Falha ao abrir volume NTFS. Keeply precisa rodar como Administrador.");
         hVol_ = WinHandle(hv);
         USN_JOURNAL_DATA jd{};
@@ -349,13 +327,16 @@ public:
                 if (rec->RecordLength == 0) break;
                 if ((rec->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
                     const bool isDeleted = (rec->Reason & USN_REASON_FILE_DELETE) != 0;
-                    std::string full = resolvePathFromFileId(static_cast<std::uint64_t>(rec->FileReferenceNumber));
+                    const fs::path full = resolvePathFromFileId(static_cast<std::uint64_t>(rec->FileReferenceNumber));
                     if (!full.empty()) {
-                        std::string fullNorm = normWinPath(full);
+                        std::string fullNorm = normWinPath(pathToUtf8(full));
                         if (fullNorm.size() >= rootNorm_.size() && fullNorm.compare(0, rootNorm_.size(), rootNorm_) == 0) {
-                            std::string rel = full.substr(rootNative_.size());
-                            if (!rel.empty() && (rel[0] == '\\' || rel[0] == '/')) rel.erase(rel.begin());
-                            if (!rel.empty() && seen.insert(rel).second) changes.push_back({fs::path(rel).generic_string(), isDeleted});
+                            std::error_code relEc;
+                            fs::path relPath = fs::relative(full, root_, relEc);
+                            if (!relEc && !relPath.empty()) {
+                                const std::string rel = relPath.generic_string();
+                                if (!rel.empty() && seen.insert(rel).second) changes.push_back({rel, isDeleted});
+                            }
                         }
                     }
                 }
@@ -379,7 +360,7 @@ class LinuxTrackerDb {
     sqlite3* db_ = nullptr;
 public:
     explicit LinuxTrackerDb(const fs::path& path) {
-        if (sqlite3_open(path.string().c_str(), &db_) != SQLITE_OK) {
+        if (sqlite3_open_path(path, &db_) != SQLITE_OK) {
             std::string msg = db_ ? sqlite3_errmsg(db_) : "sqlite open failed";
             if (db_) sqlite3_close(db_);
             throw std::runtime_error("Falha abrindo banco CBT Linux: " + msg);
@@ -399,18 +380,7 @@ bool isExcludedLinuxTrackerPath(const fs::path& rootPath, const fs::path& candid
     const fs::path normalizedRoot = fs::absolute(rootPath).lexically_normal();
     if (normalizedRoot != fs::path("/")) return false;
     const fs::path candidate = fs::absolute(candidatePath).lexically_normal();
-    static const std::vector<fs::path> excludedRoots = {
-        fs::path("/proc"),
-        fs::path("/sys"),
-        fs::path("/dev"),
-        fs::path("/run"),
-        fs::path("/tmp"),
-        fs::path("/mnt"),
-        fs::path("/media"),
-        fs::path("/lost+found"),
-        fs::path("/var/run"),
-        fs::path("/var/tmp")
-    };
+    static const std::vector<fs::path> excludedRoots = defaultSystemExcludedRoots();
     for (const auto& excludedRoot : excludedRoots) {
         auto excludedIt = excludedRoot.begin();
         auto candidateIt = candidate.begin();
