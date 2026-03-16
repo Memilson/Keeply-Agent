@@ -14,7 +14,7 @@
 //   → retorna VerifyResult com lista de erros encontrados
 // =============================================================================
 
-#include "keeply.cpp"
+#include "../keeply.hpp"
 #include <blake3.h>
 #include <cstring>
 #include <fstream>

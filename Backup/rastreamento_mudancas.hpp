@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include <sqlite3.h>
+
 namespace keeply {
 
 namespace fs = std::filesystem;
@@ -34,11 +36,13 @@ public:
 
 private:
     class Db;
+    void prepareStatements();
 
     static std::string normalizePath(const fs::path& path);
     static std::int64_t nowUnixSeconds();
 
-    Db* db_ = nullptr;
+    std::unique_ptr<Db> db_;
+    sqlite3_stmt* appendStmt_ = nullptr;
     std::int64_t rootId_ = 0;
     std::int64_t nextSeq_ = 1;
 };

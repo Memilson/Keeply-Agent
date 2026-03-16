@@ -1,4 +1,4 @@
-#include "keeply.cpp"
+#include "../../keeply.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -165,11 +165,6 @@ ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
     return scope;
 }
 }
-std::string trim(const std::string& s) {
-    const auto b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return "";
-    const auto e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);}
 std::string nowIsoLocal() {
     std::time_t t = std::time(nullptr);
     std::tm tmv{};

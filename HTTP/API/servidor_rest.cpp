@@ -261,13 +261,30 @@ public:
     std::shared_ptr<IWsNotifier> ws;
     std::mutex mu;
     std::mutex jobsMu;
+    std::mutex workersMu;
     std::unordered_map<std::string,BackupJob> jobs;
+    std::vector<std::thread> workers;
     std::atomic<std::uint64_t> seq{1};
+    std::atomic<bool> shuttingDown{false};
     static std::uint64_t nowMs(){
         using namespace std::chrono;
         return (std::uint64_t)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     }
     std::string newJobId(){ return std::to_string(seq.fetch_add(1,std::memory_order_relaxed)); }
+    void addWorker(std::thread worker){
+        std::lock_guard<std::mutex> lock(workersMu);
+        workers.push_back(std::move(worker));
+    }
+    void joinWorkers(){
+        std::vector<std::thread> pending;
+        {
+            std::lock_guard<std::mutex> lock(workersMu);
+            pending.swap(workers);
+        }
+        for(auto& worker:pending){
+            if(worker.joinable()) worker.join();
+        }
+    }
 };
 
 KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsNotifier> wsNotifier):api_(std::move(api)),ws_(std::move(wsNotifier)),impl_(std::make_shared<Impl>()){
@@ -275,7 +292,10 @@ KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsN
     impl_->api=api_;
     impl_->ws=ws_;
 }
-KeeplyRestApi::~KeeplyRestApi()=default;
+KeeplyRestApi::~KeeplyRestApi(){
+    impl_->shuttingDown.store(true,std::memory_order_relaxed);
+    impl_->joinWorkers();
+}
 
 RestResponse KeeplyRestApi::handle(const RestRequest& req){
     try{
@@ -357,6 +377,7 @@ RestResponse KeeplyRestApi::handlePostConfigRestoreRoot(const RestRequest& req){
 
 RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
     const auto impl=impl_;
+    if(impl->shuttingDown.load(std::memory_order_relaxed)) return jsonError("Servidor em desligamento.");
     std::string label=req.body;
     auto id=impl->newJobId();
     BackupJob job;
@@ -365,7 +386,7 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
     job.status="running";
     job.startedAtMs=Impl::nowMs();
     { std::lock_guard<std::mutex> lk(impl->jobsMu); impl->jobs[id]=job; }
-    std::thread([impl,id,label](){
+    impl->addWorker(std::thread([impl,id,label](){
         BackupStats stats{};
         std::string err;
         try{
@@ -391,7 +412,7 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
             }
         }
         if(impl->ws) impl->ws->broadcastJson(eventJson);
-    }).detach();
+    }));
     return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");
 }
 
@@ -551,6 +572,8 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             }
             closeSocketFd(cfd);
         }
+        closeSocketFd(listenFd);
+        return 0;
     }catch(const std::exception& e){
         std::cerr<<"REST HTTP server falhou: "<<e.what()<<"\n";
         return 1;

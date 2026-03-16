@@ -24,23 +24,21 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <vector>
 #endif
 
 namespace fs = std::filesystem;
+namespace eventos = keeply::rastreamento_eventos_base;
 
-static std::string envOrEmpty(const char* key){
-    const char* v=std::getenv(key);
-    return v?std::string(v):std::string();
-}
 static std::string envOrEmptyAny(std::initializer_list<const char*> keys){
     for(const char* key:keys){
-        auto value=envOrEmpty(key);
+        auto value=eventos::envOrEmpty(key);
         if(!value.empty()) return value;
     }
     return {};
 }
 static bool envTruthy(const char* key){
-    auto v=envOrEmpty(key);
+    auto v=eventos::envOrEmpty(key);
     for(auto& c:v) c=char(std::tolower((unsigned char)c));
     return v=="1"||v=="true"||v=="yes"||v=="on";
 }
@@ -62,12 +60,12 @@ static std::string detectOsName(){
 }
 static std::string detectHostName(){
 #if defined(_WIN32)
-    auto v=envOrEmpty("COMPUTERNAME");
+    auto v=eventos::envOrEmpty("COMPUTERNAME");
     return v.empty()?"keeply-host":v;
 #else
     char buf[256]{};
     if(::gethostname(buf,sizeof(buf)-1)==0 && buf[0]) return std::string(buf);
-    auto v=envOrEmpty("HOSTNAME");
+    auto v=eventos::envOrEmpty("HOSTNAME");
     return v.empty()?"keeply-host":v;
 #endif
 }
@@ -90,7 +88,7 @@ static fs::path pickPidFilePath(const fs::path& dataDir){
     return dataDir/"keeply_agent.pid";
 }
 static std::string findExecutableOnPath(const char* name){
-    auto pathEnv=envOrEmpty("PATH");
+    auto pathEnv=eventos::envOrEmpty("PATH");
     if(pathEnv.empty()) return {};
     const char separator =
 #ifdef _WIN32
@@ -229,15 +227,41 @@ static bool systemdAvailable(){
     std::error_code ec;
     return fs::exists("/run/systemd/system",ec)&&!ec&&!findExecutableOnPath("systemctl").empty();
 }
-static int runDetachedCommand(const std::string& command){
-    return std::system(command.c_str());
+static int runDetachedCommand(const fs::path& executable,std::initializer_list<const char*> args){
+    pid_t pid=fork();
+    if(pid<0) return -1;
+    if(pid==0){
+        const int nullFd=open("/dev/null",O_RDWR);
+        if(nullFd>=0){
+            dup2(nullFd,STDOUT_FILENO);
+            dup2(nullFd,STDERR_FILENO);
+            if(nullFd>STDERR_FILENO) close(nullFd);
+        }
+
+        std::vector<char*> argv;
+        argv.reserve(args.size()+2);
+        argv.push_back(const_cast<char*>(executable.c_str()));
+        for(const char* arg:args){
+            argv.push_back(const_cast<char*>(arg));
+        }
+        argv.push_back(nullptr);
+        execv(executable.c_str(),argv.data());
+        _exit(127);
+    }
+
+    int status=0;
+    while(waitpid(pid,&status,0)<0){
+        if(errno==EINTR) continue;
+        return -1;
+    }
+    if(WIFEXITED(status)) return WEXITSTATUS(status);
+    return -1;
 }
 static bool tryEnsureDaemonViaSystemd(const std::string& expectedRoot){
     if(!systemdAvailable()) return false;
     const std::string systemctl=findExecutableOnPath("systemctl");
     if(systemctl.empty()) return false;
-    const std::string startCmd="\""+systemctl+"\" start keeply-cbt-daemon.service >/dev/null 2>&1";
-    if(runDetachedCommand(startCmd)!=0) return false;
+    if(runDetachedCommand(systemctl,{"start","keeply-cbt-daemon.service"})!=0) return false;
     for(int attempt=0;attempt<30;++attempt){
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         const auto daemonPid=readDaemonPid();

@@ -54,9 +54,12 @@ inline constexpr const char* kAlgoRaw    = "raw";      ///< Sem compressão
 // Incrementar kCurrentSchemaVersion a cada mudança estrutural no banco.
 // O mecanismo de migração em DB::initSchema() aplica as etapas necessárias.
 // -----------------------------------------------------------------------------
-inline constexpr int kCurrentSchemaVersion = 3;
+inline constexpr int kCurrentSchemaVersion = 6;
 //  v1 — schema inicial
 //  v2 — ADD COLUMN cbt_token em snapshots
 //  v3 — rename hash_sha256 → chunk_hash (BLAKE3, não SHA-256)
+//  v4 — ADD COLUMN pack_id em chunks
+//  v5 — ADD COLUMN storage_state em chunks
+//  v6 — recreate files table para reparar FKs/migração
 
 } // namespace keeply

@@ -42,16 +42,6 @@ static std::string safeFileComponent(std::string value) {
     return value.empty() ? std::string("bundle") : value;
 }
 
-static void finalizeStmt(sqlite3_stmt*& st) {
-    if (st) {
-        sqlite3_finalize(st);
-        st = nullptr;
-    }
-}
-static void resetStmt(sqlite3_stmt* st) {
-    sqlite3_reset(st);
-    sqlite3_clear_bindings(st);
-}
 static void stepDoneOrThrow(sqlite3* db, sqlite3_stmt* st) {
     if (sqlite3_step(st) != SQLITE_DONE) throw SqliteError(sqlite3_errmsg(db));
 }
@@ -60,21 +50,6 @@ static bool stepRowOrDoneOrThrow(sqlite3* db, sqlite3_stmt* st) {
     if (rc == SQLITE_ROW) return true;
     if (rc == SQLITE_DONE) return false;
     throw SqliteError(sqlite3_errmsg(db));
-}
-static void sqBindInt(sqlite3* db, sqlite3_stmt* st, int idx, int v) {
-    if (sqlite3_bind_int(st, idx, v) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
-}
-static void sqBindInt64(sqlite3* db, sqlite3_stmt* st, int idx, sqlite3_int64 v) {
-    if (sqlite3_bind_int64(st, idx, v) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
-}
-static void sqBindText(sqlite3* db, sqlite3_stmt* st, int idx, const std::string& v) {
-    if (sqlite3_bind_text(st, idx, v.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
-}
-static void sqBindBlob(sqlite3* db, sqlite3_stmt* st, int idx, const void* d, int len) {
-    if (sqlite3_bind_blob(st, idx, d, len, SQLITE_TRANSIENT) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
-}
-static void sqBindNull(sqlite3* db, sqlite3_stmt* st, int idx) {
-    if (sqlite3_bind_null(st, idx) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
 }
 static std::string colText(sqlite3_stmt* st, int idx) {
     const unsigned char* p = sqlite3_column_text(st, idx);
@@ -423,11 +398,25 @@ Stmt::~Stmt() {
     if (stmt_) sqlite3_finalize(stmt_);
 }
 sqlite3_stmt* Stmt::get() { return stmt_; }
-void Stmt::bindInt(int idx, int v) { sqBindInt(db_, stmt_, idx, v); }
-void Stmt::bindInt64(int idx, sqlite3_int64 v) { sqBindInt64(db_, stmt_, idx, v); }
-void Stmt::bindText(int idx, const std::string& v) { sqBindText(db_, stmt_, idx, v); }
-void Stmt::bindBlob(int idx, const void* d, int len) { sqBindBlob(db_, stmt_, idx, d, len); }
-void Stmt::bindNull(int idx) { sqBindNull(db_, stmt_, idx); }
+void Stmt::bindInt(int idx, int v) {
+    if (sqlite3_bind_int(stmt_, idx, v) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db_));
+}
+void Stmt::bindInt64(int idx, sqlite3_int64 v) {
+    if (sqlite3_bind_int64(stmt_, idx, v) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db_));
+}
+void Stmt::bindText(int idx, const std::string& v) {
+    if (sqlite3_bind_text(stmt_, idx, v.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db_));
+}
+void Stmt::bindBlob(int idx, const void* d, int len) {
+    if (sqlite3_bind_blob(stmt_, idx, d, len, SQLITE_TRANSIENT) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db_));
+}
+void Stmt::bindNull(int idx) {
+    if (sqlite3_bind_null(stmt_, idx) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db_));
+}
+void Stmt::reset() {
+    sqlite3_reset(stmt_);
+    sqlite3_clear_bindings(stmt_);
+}
 bool Stmt::stepRow() { return stepRowOrDoneOrThrow(db_, stmt_); }
 void Stmt::stepDone() { stepDoneOrThrow(db_, stmt_); }
 
@@ -585,8 +574,8 @@ void StorageArchive::rollback() {
 }
 
 void StorageArchive::prepareHotStatements() {
-    auto prepare = [&](sqlite3_stmt*& out, const char* sql) {
-        if (sqlite3_prepare_v2(db_.raw(), sql, -1, &out, nullptr) != SQLITE_OK) throw SqliteError(std::string("sqlite prepare(hot): ") + sqlite3_errmsg(db_.raw()));
+    auto prepare = [&](std::unique_ptr<Stmt>& out, const char* sql) {
+        out = std::make_unique<Stmt>(db_.raw(), sql);
     };
     prepare(hot_.insertSnapshot, "INSERT INTO snapshots(created_at,source_root,label) VALUES(?,?,?);");
     prepare(hot_.updateSnapshotCbtToken, "UPDATE snapshots SET cbt_token=? WHERE id=?;");
@@ -599,24 +588,24 @@ void StorageArchive::prepareHotStatements() {
 }
 
 void StorageArchive::finalizeHotStatements() {
-    finalizeStmt(hot_.insertSnapshot);
-    finalizeStmt(hot_.updateSnapshotCbtToken);
-    finalizeStmt(hot_.insertFilePlaceholder);
-    finalizeStmt(hot_.cloneFileInsert);
-    finalizeStmt(hot_.cloneFileChunks);
-    finalizeStmt(hot_.insertChunkIfMissing);
-    finalizeStmt(hot_.updateChunkOffset);
-    finalizeStmt(hot_.addFileChunk);
+    hot_.insertSnapshot.reset();
+    hot_.updateSnapshotCbtToken.reset();
+    hot_.insertFilePlaceholder.reset();
+    hot_.cloneFileInsert.reset();
+    hot_.cloneFileChunks.reset();
+    hot_.insertChunkIfMissing.reset();
+    hot_.updateChunkOffset.reset();
+    hot_.addFileChunk.reset();
 }
 
 sqlite3_int64 StorageArchive::createSnapshot(const std::string& sourceRoot, const std::string& label) {
-    sqlite3_stmt* st = hot_.insertSnapshot;
-    resetStmt(st);
-    sqBindText(db_.raw(), st, 1, nowIsoLocal());
-    sqBindText(db_.raw(), st, 2, sourceRoot);
-    if (label.empty()) sqBindNull(db_.raw(), st, 3);
-    else sqBindText(db_.raw(), st, 3, label);
-    stepDoneOrThrow(db_.raw(), st);
+    Stmt& st = *hot_.insertSnapshot;
+    st.reset();
+    st.bindText(1, nowIsoLocal());
+    st.bindText(2, sourceRoot);
+    if (label.empty()) st.bindNull(3);
+    else st.bindText(3, label);
+    st.stepDone();
     return db_.lastInsertId();
 }
 
@@ -685,13 +674,13 @@ std::map<std::string, FileInfo> StorageArchive::loadLatestSnapshotFileMap() {
 }
 
 sqlite3_int64 StorageArchive::insertFilePlaceholder(sqlite3_int64 snapshotId, const std::string& relPath, sqlite3_int64 size, sqlite3_int64 mtime) {
-    sqlite3_stmt* st = hot_.insertFilePlaceholder;
-    resetStmt(st);
-    sqBindInt64(db_.raw(), st, 1, snapshotId);
-    sqBindText(db_.raw(), st, 2, relPath);
-    sqBindInt64(db_.raw(), st, 3, size);
-    sqBindInt64(db_.raw(), st, 4, mtime);
-    stepDoneOrThrow(db_.raw(), st);
+    Stmt& st = *hot_.insertFilePlaceholder;
+    st.reset();
+    st.bindInt64(1, snapshotId);
+    st.bindText(2, relPath);
+    st.bindInt64(3, size);
+    st.bindInt64(4, mtime);
+    st.stepDone();
     return db_.lastInsertId();
 }
 
@@ -712,22 +701,22 @@ void StorageArchive::deleteFileRecord(sqlite3_int64 fileId) {
 }
 
 sqlite3_int64 StorageArchive::cloneFileFromPrevious(sqlite3_int64 snapshotId, const std::string& relPath, const FileInfo& prev) {
-    sqlite3_stmt* ins = hot_.cloneFileInsert;
-    resetStmt(ins);
-    sqBindInt64(db_.raw(), ins, 1, snapshotId);
-    sqBindText(db_.raw(), ins, 2, relPath);
-    sqBindInt64(db_.raw(), ins, 3, prev.size);
-    sqBindInt64(db_.raw(), ins, 4, prev.mtime);
-    if (prev.fileHash.empty()) sqBindNull(db_.raw(), ins, 5);
-    else sqBindBlob(db_.raw(), ins, 5, prev.fileHash.data(), static_cast<int>(prev.fileHash.size()));
-    stepDoneOrThrow(db_.raw(), ins);
+    Stmt& ins = *hot_.cloneFileInsert;
+    ins.reset();
+    ins.bindInt64(1, snapshotId);
+    ins.bindText(2, relPath);
+    ins.bindInt64(3, prev.size);
+    ins.bindInt64(4, prev.mtime);
+    if (prev.fileHash.empty()) ins.bindNull(5);
+    else ins.bindBlob(5, prev.fileHash.data(), static_cast<int>(prev.fileHash.size()));
+    ins.stepDone();
     const sqlite3_int64 newId = db_.lastInsertId();
 
-    sqlite3_stmt* cl = hot_.cloneFileChunks;
-    resetStmt(cl);
-    sqBindInt64(db_.raw(), cl, 1, newId);
-    sqBindInt64(db_.raw(), cl, 2, prev.fileId);
-    stepDoneOrThrow(db_.raw(), cl);
+    Stmt& cl = *hot_.cloneFileChunks;
+    cl.reset();
+    cl.bindInt64(1, newId);
+    cl.bindInt64(2, prev.fileId);
+    cl.stepDone();
     return newId;
 }
 
@@ -739,14 +728,14 @@ bool StorageArchive::insertChunkIfMissing(const ChunkHash& hash, std::size_t raw
         return {colText(st.get(), 0), sqlite3_column_int64(st.get(), 1)};
     };
 
-    sqlite3_stmt* ins = hot_.insertChunkIfMissing;
-    resetStmt(ins);
-    sqBindBlob(db_.raw(), ins, 1, hash.data(), static_cast<int>(hash.size()));
-    sqBindInt64(db_.raw(), ins, 2, static_cast<sqlite3_int64>(rawSize));
-    sqBindInt64(db_.raw(), ins, 3, static_cast<sqlite3_int64>(comp.size()));
-    sqBindText(db_.raw(), ins, 4, compAlgo);
-    sqBindText(db_.raw(), ins, 5, kDefaultPackId);
-    stepDoneOrThrow(db_.raw(), ins);
+    Stmt& ins = *hot_.insertChunkIfMissing;
+    ins.reset();
+    ins.bindBlob(1, hash.data(), static_cast<int>(hash.size()));
+    ins.bindInt64(2, static_cast<sqlite3_int64>(rawSize));
+    ins.bindInt64(3, static_cast<sqlite3_int64>(comp.size()));
+    ins.bindText(4, compAlgo);
+    ins.bindText(5, kDefaultPackId);
+    ins.stepDone();
 
     const auto stateInfo = queryState();
     if (stateInfo.first == "ready" && stateInfo.second >= 0) return false;
@@ -758,12 +747,12 @@ bool StorageArchive::insertChunkIfMissing(const ChunkHash& hash, std::size_t raw
     const sqlite3_int64 packOffset = backend->appendBlob(ProcessedBlob{hash, rawSize, comp, compAlgo});
     if (packOffset < 0) throw std::runtime_error("Backend retornou pack_offset invalido.");
 
-    sqlite3_stmt* upd = hot_.updateChunkOffset;
-    resetStmt(upd);
-    sqBindText(db_.raw(), upd, 1, kDefaultPackId);
-    sqBindInt64(db_.raw(), upd, 2, packOffset);
-    sqBindBlob(db_.raw(), upd, 3, hash.data(), static_cast<int>(hash.size()));
-    stepDoneOrThrow(db_.raw(), upd);
+    Stmt& upd = *hot_.updateChunkOffset;
+    upd.reset();
+    upd.bindText(1, kDefaultPackId);
+    upd.bindInt64(2, packOffset);
+    upd.bindBlob(3, hash.data(), static_cast<int>(hash.size()));
+    upd.stepDone();
 
     if (sqlite3_changes(db_.raw()) != 1) {
         Stmt force(db_.raw(), "UPDATE chunks SET pack_id=?, pack_offset=?, storage_state='ready' WHERE chunk_hash=?;");
@@ -783,25 +772,24 @@ bool StorageArchive::hasChunk(const ChunkHash& hash) {
 }
 
 void StorageArchive::addFileChunk(sqlite3_int64 fileId, int chunkIdx, const ChunkHash& chunkHash, std::size_t rawSize) {
-    sqlite3_stmt* st = hot_.addFileChunk;
-    resetStmt(st);
-    sqBindInt64(db_.raw(), st, 1, fileId);
-    sqBindInt(db_.raw(), st, 2, chunkIdx);
-    sqBindBlob(db_.raw(), st, 3, chunkHash.data(), static_cast<int>(chunkHash.size()));
-    sqBindInt64(db_.raw(), st, 4, static_cast<sqlite3_int64>(rawSize));
-    stepDoneOrThrow(db_.raw(), st);
+    Stmt& st = *hot_.addFileChunk;
+    st.reset();
+    st.bindInt64(1, fileId);
+    st.bindInt(2, chunkIdx);
+    st.bindBlob(3, chunkHash.data(), static_cast<int>(chunkHash.size()));
+    st.bindInt64(4, static_cast<sqlite3_int64>(rawSize));
+    st.stepDone();
 }
 
 void StorageArchive::addFileChunksBulk(sqlite3_int64 fileId, const std::vector<PendingFileChunk>& rows) {
     if (rows.empty()) return;
     Stmt st(db_.raw(), "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) VALUES(?,?,?,?);");
     for (const auto& r : rows) {
-        sqlite3_reset(st.get());
-        sqlite3_clear_bindings(st.get());
-        sqBindInt64(db_.raw(), st.get(), 1, fileId);
-        sqBindInt(db_.raw(), st.get(), 2, r.chunkIdx);
-        sqBindBlob(db_.raw(), st.get(), 3, r.chunkHash.data(), static_cast<int>(r.chunkHash.size()));
-        sqBindInt64(db_.raw(), st.get(), 4, static_cast<sqlite3_int64>(r.rawSize));
+        st.reset();
+        st.bindInt64(1, fileId);
+        st.bindInt(2, r.chunkIdx);
+        st.bindBlob(3, r.chunkHash.data(), static_cast<int>(r.chunkHash.size()));
+        st.bindInt64(4, static_cast<sqlite3_int64>(r.rawSize));
         st.stepDone();
     }
 }
@@ -901,11 +889,11 @@ std::vector<std::string> StorageArchive::listSnapshotPaths(sqlite3_int64 snapsho
 }
 
 void StorageArchive::updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint64_t token) {
-    sqlite3_stmt* st = hot_.updateSnapshotCbtToken;
-    resetStmt(st);
-    sqBindInt64(db_.raw(), st, 1, static_cast<sqlite3_int64>(token));
-    sqBindInt64(db_.raw(), st, 2, snapshotId);
-    stepDoneOrThrow(db_.raw(), st);
+    Stmt& st = *hot_.updateSnapshotCbtToken;
+    st.reset();
+    st.bindInt64(1, static_cast<sqlite3_int64>(token));
+    st.bindInt64(2, snapshotId);
+    st.stepDone();
     if (sqlite3_changes(db_.raw()) != 1) throw std::runtime_error("Falha atualizando cbt_token do snapshot.");
 }
 

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <iostream>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -55,30 +56,6 @@ long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     const auto sctp = time_point_cast<system_clock::duration>(ftp - fs::file_time_type::clock::now() + system_clock::now());
     return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
-class SqlStmt {
-    sqlite3_stmt* st_ = nullptr;
-public:
-    SqlStmt(sqlite3* db, const char* sql) {
-        if (sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db));
-    }
-    ~SqlStmt() {
-        if (st_) sqlite3_finalize(st_);
-    }
-    SqlStmt(const SqlStmt&) = delete;
-    SqlStmt& operator=(const SqlStmt&) = delete;
-    SqlStmt(SqlStmt&& other) noexcept : st_(other.st_) {
-        other.st_ = nullptr;
-    }
-    SqlStmt& operator=(SqlStmt&& other) noexcept {
-        if (this != &other) {
-            if (st_) sqlite3_finalize(st_);
-            st_ = other.st_;
-            other.st_ = nullptr;
-        }
-        return *this;
-    }
-    sqlite3_stmt* get() const { return st_; }
-};
 class SqlTransaction {
     sqlite3* db_ = nullptr;
     bool committed_ = false;
@@ -103,6 +80,19 @@ public:
         }
         committed_ = true;
     }
+};
+class SqlStmt {
+    sqlite3_stmt* st_ = nullptr;
+public:
+    SqlStmt(sqlite3* db, const char* sql) {
+        if (sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db));
+    }
+    ~SqlStmt() {
+        if (st_) sqlite3_finalize(st_);
+    }
+    SqlStmt(const SqlStmt&) = delete;
+    SqlStmt& operator=(const SqlStmt&) = delete;
+    sqlite3_stmt* get() const { return st_; }
 };
 void execSql(sqlite3* db, const char* sql, const char* ctx) {
     char* err = nullptr;
@@ -166,17 +156,17 @@ public:
     sqlite3* raw() const { return db_; }
 };
 
-// [PROBLEMA 2] — substituídos raw pointers por unique_ptr.
-// O header (.hpp) deve declarar:
-//   std::unique_ptr<Db> db_;
-//   std::unique_ptr<SqlStmt> appendStmt_;
-// O destrutor fica como = default pois Db é tipo completo aqui.
 EventStore::EventStore(const fs::path& dbPath)
     : db_(std::make_unique<Db>(dbPath)) {
     prepareStatements();
 }
 
-EventStore::~EventStore() = default;
+EventStore::~EventStore() {
+    if (appendStmt_) {
+        sqlite3_finalize(appendStmt_);
+        appendStmt_ = nullptr;
+    }
+}
 
 std::string EventStore::normalizePath(const fs::path& path) {
     return normalizeDbPath(path);
@@ -187,16 +177,19 @@ std::int64_t EventStore::nowUnixSeconds() {
     return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::seconds>(clock::now().time_since_epoch()).count());
 }
 
-// [ATENÇÃO 2] — statement preparado uma única vez e reutilizado via reset.
-// Chamado pelo construtor; appendEvent usa appendStmt_ sem re-preparar.
 void EventStore::prepareStatements() {
-    appendStmt_ = std::make_unique<SqlStmt>(db_->raw(),
-        "INSERT INTO cbt_events(root_id, seq, event_type, rel_path, is_dir, event_time)"
-        " VALUES(?, ?, ?, ?, ?, ?);");
+    if (sqlite3_prepare_v2(
+            db_->raw(),
+            "INSERT INTO cbt_events(root_id, seq, event_type, rel_path, is_dir, event_time)"
+            " VALUES(?, ?, ?, ?, ?, ?);",
+            -1,
+            &appendStmt_,
+            nullptr
+        ) != SQLITE_OK) {
+        throw std::runtime_error("Falha preparando statement de evento do daemon.");
+    }
 }
 
-// [ATENÇÃO 1] — INSERT e SELECT agora dentro de uma única SqlTransaction
-// (IMMEDIATE), eliminando a janela de race condition entre as duas operações.
 void EventStore::ensureRoot(const fs::path& rootPath) {
     const std::string root = normalizePath(rootPath);
     const auto ts = nowUnixSeconds();
@@ -219,18 +212,16 @@ void EventStore::ensureRoot(const fs::path& rootPath) {
     tx.commit();
 }
 
-// [ATENÇÃO 2] — reutiliza appendStmt_ preparado em prepareStatements().
-// sqlite3_reset + sqlite3_clear_bindings substituem prepare/finalize por chamada.
 void EventStore::appendEvent(const std::string& type, const std::string& relPath, bool isDir) {
-    sqlite3_reset(appendStmt_->get());
-    sqlite3_clear_bindings(appendStmt_->get());
-    sqlite3_bind_int64(appendStmt_->get(), 1, rootId_);
-    sqlite3_bind_int64(appendStmt_->get(), 2, nextSeq_++);
-    sqlite3_bind_text (appendStmt_->get(), 3, type.c_str(),    -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text (appendStmt_->get(), 4, relPath.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int  (appendStmt_->get(), 5, isDir ? 1 : 0);
-    sqlite3_bind_int64(appendStmt_->get(), 6, nowUnixSeconds());
-    if (sqlite3_step(appendStmt_->get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando evento do daemon.");
+    sqlite3_reset(appendStmt_);
+    sqlite3_clear_bindings(appendStmt_);
+    sqlite3_bind_int64(appendStmt_, 1, rootId_);
+    sqlite3_bind_int64(appendStmt_, 2, nextSeq_++);
+    sqlite3_bind_text (appendStmt_, 3, type.c_str(),    -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (appendStmt_, 4, relPath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int  (appendStmt_, 5, isDir ? 1 : 0);
+    sqlite3_bind_int64(appendStmt_, 6, nowUnixSeconds());
+    if (sqlite3_step(appendStmt_) != SQLITE_DONE) throw std::runtime_error("Falha gravando evento do daemon.");
 }
 
 std::optional<std::uint64_t> EventStore::latestToken(const fs::path& rootPath) const {

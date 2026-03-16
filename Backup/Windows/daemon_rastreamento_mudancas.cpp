@@ -1,4 +1,4 @@
-#include "../../keeply.cpp"
+#include "../../keeply.hpp"
 #include "../rastreamento_mudancas.hpp"
 
 #ifdef _WIN32
@@ -19,7 +19,7 @@ class MotorMonitorWindows final : public MotorMonitorBase {
 public:
     MotorMonitorWindows(const fs::path& rootPath, bool respectSystemExclusionPolicy)
         : MotorMonitorBase(rootPath, respectSystemExclusionPolicy),
-          dir_(new Handle()) {
+          dir_(std::make_unique<Handle>()) {
         dir_->reset(CreateFileW(
             this->rootPath().wstring().c_str(),
             FILE_LIST_DIRECTORY,

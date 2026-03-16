@@ -1,4 +1,4 @@
-#include "../../keeply.cpp"
+#include "../../keeply.hpp"
 #include "../rastreamento_mudancas.hpp"
 
 #ifdef __linux__
@@ -7,6 +7,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <fcntl.h>
+#include <iostream>
 #include <mutex>
 #include <poll.h>
 #include <sys/inotify.h>

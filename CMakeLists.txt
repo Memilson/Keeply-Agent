@@ -9,7 +9,7 @@ find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
 
 find_library(ZSTD_LIB
-    NAMES zstd libzstd zstd_static libzstd_static
+    NAMES zstd libzstd zstd.so.1 libzstd.so.1 zstd_static libzstd_static
 )
 if(NOT ZSTD_LIB)
     message(FATAL_ERROR "Biblioteca zstd nao encontrada.")
@@ -43,6 +43,7 @@ set(KEEPLY_PLATFORM_SOURCES
 )
 
 set(KEEPLY_CORE
+    keeply_impl.cpp
     ${KEEPLY_PLATFORM_SOURCES}
     HTTP/API/api_agente.cpp
     Backup/rastreamento_mudancas.cpp
@@ -155,6 +156,7 @@ endif()
 
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
+        keeply_impl.cpp
         Backup/rastreamento_mudancas.cpp
         ${KEEPLY_CBT_COMMON_SOURCES}
         ${KEEPLY_CBT_PLATFORM_SOURCES}
@@ -174,6 +176,7 @@ if(UNIX AND NOT WIN32)
     )
 elseif(WIN32)
     add_executable(keeply_cbt_daemon
+        keeply_impl.cpp
         Backup/rastreamento_mudancas.cpp
         ${KEEPLY_CBT_COMMON_SOURCES}
         ${KEEPLY_CBT_PLATFORM_SOURCES}

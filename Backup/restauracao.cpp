@@ -1,4 +1,4 @@
-#include "keeply.cpp"
+#include "../keeply.hpp"
 
 #include <cctype>
 #include <cstdio>
