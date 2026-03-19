@@ -2,6 +2,7 @@
 // Incluir um .cpp viola a ODR e causa erros de linker. Use apenas o cabeçalho.
 #include "../keeply.hpp"
 #include "rastreamento_mudancas.hpp"
+#include "sqlite_util.hpp"  // SharedSqlTransaction, SharedSqlStmt, execSqlOrThrow
 #include <sqlite3.h>
 #include <atomic>
 #include <chrono>
@@ -41,12 +42,9 @@ DecodedToken decodeToken(std::uint64_t token) {
     if (rawBackend == static_cast<std::uint64_t>(TokenBackend::Daemon)) return {TokenBackend::Daemon, token & kTokenValueMask};
     return {TokenBackend::Native, token & kTokenValueMask};
 }
-std::string toLowerAscii(std::string s) {
-    for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
+// toLowerAscii removida — usar keeply::lowerAscii() de utilitarios_backup.hpp
 std::string normalizeEventType(std::string type) {
-    return toLowerAscii(std::move(type));
+    return keeply::lowerAscii(std::move(type));
 }
 std::string normalizeDbPath(const fs::path& path) {
     return pathToUtf8(fs::absolute(path).lexically_normal());
@@ -56,44 +54,11 @@ long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     const auto sctp = time_point_cast<system_clock::duration>(ftp - fs::file_time_type::clock::now() + system_clock::now());
     return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
-class SqlTransaction {
-    sqlite3* db_ = nullptr;
-    bool committed_ = false;
-public:
-    explicit SqlTransaction(sqlite3* db) : db_(db) {
-        char* err = nullptr;
-        if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, &err) != SQLITE_OK) {
-            std::string msg = err ? err : "erro sqlite";
-            if (err) sqlite3_free(err);
-            throw std::runtime_error(msg);
-        }
-    }
-    ~SqlTransaction() {
-        if (!committed_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-    }
-    void commit() {
-        char* err = nullptr;
-        if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err) != SQLITE_OK) {
-            std::string msg = err ? err : "erro sqlite";
-            if (err) sqlite3_free(err);
-            throw std::runtime_error(msg);
-        }
-        committed_ = true;
-    }
-};
-class SqlStmt {
-    sqlite3_stmt* st_ = nullptr;
-public:
-    SqlStmt(sqlite3* db, const char* sql) {
-        if (sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db));
-    }
-    ~SqlStmt() {
-        if (st_) sqlite3_finalize(st_);
-    }
-    SqlStmt(const SqlStmt&) = delete;
-    SqlStmt& operator=(const SqlStmt&) = delete;
-    sqlite3_stmt* get() const { return st_; }
-};
+// SqlTransaction / SqlStmt locais substituídos por SharedSqlTransaction / SharedSqlStmt
+// de sqlite_util.hpp. Aliases mantidos para compatibilidade com código existente.
+using SqlTransaction = keeply::SharedSqlTransaction;
+using SqlStmt = keeply::SharedSqlStmt;
+
 void execSql(sqlite3* db, const char* sql, const char* ctx) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {

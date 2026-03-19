@@ -2,13 +2,16 @@
 
 // =============================================================================
 // utilitarios_backup.hpp
-// Utilitários compartilhados — elimina duplicações entre arquivo_armazenamento.cpp,
-// varredura_backup.cpp
-// e outros módulos. NUNCA inclua headers de plataforma aqui.
+// Utilitários compartilhados — elimina duplicações entre módulos do agente.
+// Todos os módulos devem usar estas funções em vez de implementações locais.
+// NUNCA inclua headers de plataforma aqui.
 // =============================================================================
 
 #include <algorithm>
+#include <cstddef>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace keeply {
 
@@ -40,6 +43,67 @@ inline std::string normalizeSeparators(std::string p) {
     return p;
 }
 
+/// Interpreta verdadeiro/falso a partir de strings de configuração.
+/// Aceita "1", "true", "yes", "on" como true.
+inline bool parseTruthyValue(const std::string& raw) {
+    std::string v = lowerAscii(trim(raw));
+    return v == "1" || v == "true" || v == "yes" || v == "on";
+}
+
+// -----------------------------------------------------------------------------
+// Hex encoding / decoding  (substitui hexOfBytes, hexEncode, hexNibble, etc.)
+// Todas as implementações locais de hex devem ser substituídas por estas.
+// -----------------------------------------------------------------------------
+
+/// Converte um nibble hex ('0'-'9','a'-'f','A'-'F') em valor 0..15.
+inline unsigned hexNibble(char c) {
+    if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
+    if (c >= 'a' && c <= 'f') return static_cast<unsigned>(10 + c - 'a');
+    if (c >= 'A' && c <= 'F') return static_cast<unsigned>(10 + c - 'A');
+    throw std::runtime_error("Hex invalido.");
+}
+
+/// Codifica bytes para hex lowercase.
+inline std::string hexEncode(const unsigned char* data, std::size_t size) {
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(size * 2);
+    for (std::size_t i = 0; i < size; ++i) {
+        out.push_back(kHex[(data[i] >> 4) & 0x0F]);
+        out.push_back(kHex[data[i] & 0x0F]);
+    }
+    return out;
+}
+
+/// Decodifica hex string para vetor de bytes.
+inline std::vector<unsigned char> hexDecode(const std::string& hex) {
+    if (hex.size() % 2 != 0) throw std::runtime_error("Hex com tamanho invalido.");
+    std::vector<unsigned char> out(hex.size() / 2);
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        out[i] = static_cast<unsigned char>(
+            (hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));
+    }
+    return out;
+}
+
+// -----------------------------------------------------------------------------
+// Typed exceptions — substituem classificação de erros por string matching.
+// Use estas exceções em throw sites novos. No REST handler, o catch pode
+// distinguir por tipo em vez de parsear o texto da mensagem.
+// -----------------------------------------------------------------------------
+
+/// Recurso não encontrado (mapeia para HTTP 404).
+class KeeplyNotFoundError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+/// Requisição inválida / parâmetro incorreto (mapeia para HTTP 400).
+class KeeplyValidationError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 // -----------------------------------------------------------------------------
 // Hash algorithm name constants
 // Centraliza os nomes dos algoritmos para evitar strings mágicas espalhadas.
@@ -48,6 +112,12 @@ inline constexpr const char* kAlgoBlake3 = "blake3";   ///< Hash primário de ch
 inline constexpr const char* kAlgoZstd   = "zstd";     ///< Compressão padrão
 inline constexpr const char* kAlgoZlib   = "zlib";     ///< Compressão legada
 inline constexpr const char* kAlgoRaw    = "raw";      ///< Sem compressão
+
+// -----------------------------------------------------------------------------
+// Protocol versioning  — incluso em todas as mensagens JSON do agente.
+// Incrementar a cada mudança incompatível no formato de mensagens.
+// -----------------------------------------------------------------------------
+inline constexpr int kProtocolVersion = 1;
 
 // -----------------------------------------------------------------------------
 // Schema versioning

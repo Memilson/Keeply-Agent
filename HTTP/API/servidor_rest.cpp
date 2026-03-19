@@ -1,23 +1,25 @@
 #include "servidor_rest.hpp"
 #include "../http_interno.hpp"
+#include "../../Backup/utilitarios_backup.hpp"  // keeply::trim, keeply::KeeplyNotFoundError, etc.
 #ifdef _WIN32
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #endif
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <deque>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
-#include <optional>
-#include <atomic>
-#include <thread>
-#include <chrono>
 
 namespace {
 using keeply::RestRequest;
@@ -40,13 +42,8 @@ using SocketLen =
     socklen_t;
 #endif
 
-static std::string trimHttp(const std::string& s){
-    std::size_t b=0;
-    while(b<s.size()&&std::isspace((unsigned char)s[b]))++b;
-    std::size_t e=s.size();
-    while(e>b&&std::isspace((unsigned char)s[e-1]))--e;
-    return s.substr(b,e-b);
-}
+// trimHttp removida — usar keeply::trim() de utilitarios_backup.hpp
+static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
     return s;
@@ -259,9 +256,18 @@ class KeeplyRestApi::Impl{
 public:
     std::shared_ptr<KeeplyApi> api;
     std::shared_ptr<IWsNotifier> ws;
-    std::mutex mu;
-    std::mutex jobsMu;
-    std::mutex workersMu;
+
+    // -------------------------------------------------------------------------
+    // Hierarquia de locks (ordenar aquisições nesta sequência para evitar deadlock):
+    //   1. mu          — protege acesso à KeeplyApi (backup, restore, config)
+    //   2. jobsMu      — protege o mapa de BackupJobs
+    //   3. workersMu   — protege o vetor de worker threads
+    // NUNCA adquirir mu enquanto jobsMu ou workersMu estiver held.
+    // jobsMu e workersMu são independentes entre si.
+    // -------------------------------------------------------------------------
+    std::mutex mu;          // Lock nível 1: acesso exclusivo à KeeplyApi
+    std::mutex jobsMu;      // Lock nível 2: mapa jobs (leitura/escrita de BackupJob)
+    std::mutex workersMu;   // Lock nível 2: vetor de worker threads
     std::unordered_map<std::string,BackupJob> jobs;
     std::vector<std::thread> workers;
     std::atomic<std::uint64_t> seq{1};
@@ -314,7 +320,16 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
         if(req.method=="POST"&&req.path=="/api/v1/restore/snapshot") return handlePostRestoreSnapshot(req);
         if(startsWith(req.path,"/api/v1/")) return jsonMethodNotAllowed("Metodo HTTP nao suportado para esta rota.");
         return jsonNotFound("Rota nao encontrada.");
+    }catch(const KeeplyNotFoundError& e){
+        // Exceção tipada — recurso não encontrado (404)
+        return jsonNotFound(e.what());
+    }catch(const KeeplyValidationError& e){
+        // Exceção tipada — requisição inválida (400)
+        return jsonBadRequest(e.what());
     }catch(const std::exception& e){
+        // Fallback: classificação por texto para exceções legadas ainda não migradas.
+        // À medida que throw sites forem migrados para KeeplyNotFoundError /
+        // KeeplyValidationError, este bloco será reduzido até poder ser removido.
         const std::string msg=e.what();
         if(
             containsText(msg,"nao encontrado")||
@@ -518,13 +533,54 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     return jsonOk(R"({"ok":true})");
 }
 
-RestResponse KeeplyRestApi::jsonOk(const std::string& json){ RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
-RestResponse KeeplyRestApi::jsonCreated(const std::string& json){ RestResponse r; r.status=201; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
-RestResponse KeeplyRestApi::jsonAccepted(const std::string& json){ RestResponse r; r.status=202; r.contentType="application/json; charset=utf-8"; r.body=json; return r; }
-RestResponse KeeplyRestApi::jsonBadRequest(const std::string& message){ RestResponse r; r.status=400; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
-RestResponse KeeplyRestApi::jsonMethodNotAllowed(const std::string& message){ RestResponse r; r.status=405; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
-RestResponse KeeplyRestApi::jsonNotFound(const std::string& message){ RestResponse r; r.status=404; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
-RestResponse KeeplyRestApi::jsonError(const std::string& message){ RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8"; r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(message)+"\"}"; return r; }
+// ---------------------------------------------------------------------------
+// Envelope padronizado para REST API:
+//   Sucesso:  {"v":1, ...payload... }
+//   Erro:     {"v":1, "ok":false, "error":"...", "code": <http-status> }
+// O campo "v" (versão de protocolo) permite ao frontend detectar versões
+// do agente e manter compatibilidade.
+// ---------------------------------------------------------------------------
+static const std::string kVersionPrefix=std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+",";
+
+RestResponse KeeplyRestApi::jsonOk(const std::string& json){
+    RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8";
+    // Injeta "v" no início do JSON objeto
+    if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
+    else r.body=json;
+    return r;
+}
+RestResponse KeeplyRestApi::jsonCreated(const std::string& json){
+    RestResponse r; r.status=201; r.contentType="application/json; charset=utf-8";
+    if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
+    else r.body=json;
+    return r;
+}
+RestResponse KeeplyRestApi::jsonAccepted(const std::string& json){
+    RestResponse r; r.status=202; r.contentType="application/json; charset=utf-8";
+    if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
+    else r.body=json;
+    return r;
+}
+RestResponse KeeplyRestApi::jsonBadRequest(const std::string& message){
+    RestResponse r; r.status=400; r.contentType="application/json; charset=utf-8";
+    r.body=kVersionPrefix+"\"ok\":false,\"code\":400,\"error\":\""+escapeJson(message)+"\"}";
+    return r;
+}
+RestResponse KeeplyRestApi::jsonMethodNotAllowed(const std::string& message){
+    RestResponse r; r.status=405; r.contentType="application/json; charset=utf-8";
+    r.body=kVersionPrefix+"\"ok\":false,\"code\":405,\"error\":\""+escapeJson(message)+"\"}";
+    return r;
+}
+RestResponse KeeplyRestApi::jsonNotFound(const std::string& message){
+    RestResponse r; r.status=404; r.contentType="application/json; charset=utf-8";
+    r.body=kVersionPrefix+"\"ok\":false,\"code\":404,\"error\":\""+escapeJson(message)+"\"}";
+    return r;
+}
+RestResponse KeeplyRestApi::jsonError(const std::string& message){
+    RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8";
+    r.body=kVersionPrefix+"\"ok\":false,\"code\":500,\"error\":\""+escapeJson(message)+"\"}";
+    return r;
+}
 
 std::string KeeplyRestApi::escapeJson(const std::string& s){
     return http_internal::escapeJson(s);
@@ -535,12 +591,43 @@ std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,c
     return fullPath.substr(prefix.size());
 }
 
+// ---------------------------------------------------------------------------
+// Rate limiter simples por sliding window.
+// Limita o número de requests aceitos dentro de uma janela de tempo.
+// Protege contra clientes com bugs que enviam requests em loop infinito,
+// scripts mal-configurados, ou tentativas de DoS local.
+// ---------------------------------------------------------------------------
+class RequestRateLimiter{
+    std::deque<std::chrono::steady_clock::time_point> timestamps_;
+    std::size_t maxRequests_;
+    std::chrono::milliseconds window_;
+public:
+    RequestRateLimiter(std::size_t maxRequests,std::chrono::milliseconds window)
+        :maxRequests_(maxRequests),window_(window){}
+
+    /// Retorna true se o request é permitido, false se deve ser rejeitado.
+    bool allow(){
+        const auto now=std::chrono::steady_clock::now();
+        // Remove timestamps fora da janela
+        while(!timestamps_.empty()&&(now-timestamps_.front())>window_)
+            timestamps_.pop_front();
+        if(timestamps_.size()>=maxRequests_) return false;
+        timestamps_.push_back(now);
+        return true;
+    }
+};
+
 int runRestHttpServer(const RestHttpServerConfig& config){
     try{
         if(!config.api) throw std::runtime_error("RestHttpServerConfig requer KeeplyApi.");
         if(config.port<=0||config.port>65535) throw std::runtime_error("Porta invalida.");
         KeeplyRestApi rest(config.api,config.wsNotifier);
         int listenFd=createListenSocket(config.port);
+
+        // Rate limiter: max 120 requests por minuto (2 req/s em média).
+        // Health checks e operações normais ficam bem abaixo desse limite.
+        RequestRateLimiter rateLimiter(120,std::chrono::minutes(1));
+
         std::cout<<"Keeply REST HTTP listening on http://127.0.0.1:"<<config.port<<"\n";
         std::cout<<"Archive: "<<config.api->state().archive<<"\n";
         std::cout<<"RestoreRoot: "<<config.api->state().restoreRoot<<"\n";
@@ -556,6 +643,12 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             }
             setSocketTimeouts(cfd,8000,8000);
             try{
+                // Verifica rate limit antes de processar o request
+                if(!rateLimiter.allow()){
+                    sendHttpError(cfd,429,"Rate limit excedido. Tente novamente em alguns segundos.");
+                    closeSocketFd(cfd);
+                    continue;
+                }
                 RestRequest req;
                 if(recvHttpRequest(cfd,req)){
                     std::cout<<req.method<<" "<<req.path<<"\n";

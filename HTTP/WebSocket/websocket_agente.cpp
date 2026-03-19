@@ -15,8 +15,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -386,11 +388,40 @@ void KeeplyAgentWsClient::connect(const WsClientConfig& config){
 }
 
 void KeeplyAgentWsClient::run(){
+    // Rate limiter para mensagens recebidas: max 60 mensagens de texto por minuto.
+    // Ping/pong não contam. Se o servidor exceder, o agente ignora mensagens
+    // excedentes e loga um aviso (não desconecta — pode ser burst legítimo).
+    constexpr std::size_t kMaxMsgsPerWindow=60;
+    constexpr auto kWindow=std::chrono::minutes(1);
+    std::deque<std::chrono::steady_clock::time_point> msgTimestamps;
+    std::size_t droppedCount=0;
+
     for(;;){
         unsigned char opcode=0;
         std::string payload;
         if(!readFrame_(opcode,payload)) break;
-        if(opcode==0x1){handleServerMessage_(payload);continue;}
+
+        if(opcode==0x1){
+            // Rate check para mensagens de texto (comandos)
+            const auto now=std::chrono::steady_clock::now();
+            while(!msgTimestamps.empty()&&(now-msgTimestamps.front())>kWindow)
+                msgTimestamps.pop_front();
+            if(msgTimestamps.size()>=kMaxMsgsPerWindow){
+                ++droppedCount;
+                if(droppedCount==1||droppedCount%10==0){
+                    std::cerr<<"[keeply][ws][warn] rate limit: "<<droppedCount<<" mensagens ignoradas.\n";
+                }
+                continue;
+            }
+            msgTimestamps.push_back(now);
+            if(droppedCount>0){
+                // Reset counter quando voltou ao normal
+                std::cerr<<"[keeply][ws][info] rate limit normalizado após "<<droppedCount<<" mensagens ignoradas.\n";
+                droppedCount=0;
+            }
+            handleServerMessage_(payload);
+            continue;
+        }
         if(opcode==0x8){try{sendClose_(1000,"");}catch(...){}
             break;
         }
@@ -661,11 +692,33 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
 void KeeplyAgentWsClient::sendHello_(){
     const auto& s=api_->state();
     std::ostringstream oss;
-    oss<<"{"<<"\"type\":\"agent.hello\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"fingerprintSha256\":\""<<escapeJson_(identity_.fingerprintSha256)<<"\","<<"\"connectedAt\":\""<<escapeJson_(nowIsoLocal())<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<"}";
+    oss<<"{"
+       <<"\"type\":\"agent.hello\","
+       <<"\"protocolVersion\":"<<keeply::kProtocolVersion<<","
+       <<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","
+       <<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","
+       <<"\"osName\":\""<<escapeJson_(config_.osName)<<"\","
+       <<"\"hostName\":\""<<escapeJson_(config_.hostName)<<"\","
+       <<"\"fingerprintSha256\":\""<<escapeJson_(identity_.fingerprintSha256)<<"\","
+       <<"\"connectedAt\":\""<<escapeJson_(nowIsoLocal())<<"\","
+       <<"\"source\":\""<<escapeJson_(s.source)<<"\","
+       <<"\"archive\":\""<<escapeJson_(s.archive)<<"\","
+       <<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","
+       <<"\"scanScope\":"<<buildScanScopeJson_()
+       <<"}";
     sendJson_(oss.str());
 }
 
-void KeeplyAgentWsClient::sendJson_(const std::string& payload){sendText(payload);}
+void KeeplyAgentWsClient::sendJson_(const std::string& payload){
+    // Injeta versão do protocolo em todas as mensagens JSON de saída.
+    // O backend pode usar "v" para decidir como interpretar a mensagem
+    // e manter compatibilidade com agentes de versões diferentes.
+    if(!payload.empty()&&payload.front()=='{'){
+        sendText(std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+","+payload.substr(1));
+    }else{
+        sendText(payload);
+    }
+}
 void KeeplyAgentWsClient::sendPong_(const std::string& payload){sendFrame_(0xA,payload);}
 
 void KeeplyAgentWsClient::sendClose_(std::uint16_t code,const std::string& reason){

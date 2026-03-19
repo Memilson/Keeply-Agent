@@ -1,5 +1,6 @@
 #include "backend_armazenamento.hpp"
 #include "../utilitarios_backup.hpp"
+#include "../sqlite_util.hpp"  // SharedSqlTransaction (substitui SqlTxn local)
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -26,7 +27,7 @@ static void ensureParentDir(const fs::path& p) {
 }
 
 static std::string blobToHex(const Blob& b) {
-    return hexOfBytes(b.data(), b.size());
+    return keeply::hexEncode(b.data(), b.size());
 }
 
 static std::string safeFileComponent(std::string value) {
@@ -63,31 +64,9 @@ static Blob colBlob(sqlite3_stmt* st, int idx) {
     return Blob(b, b + n);
 }
 
-class SqlTxn {
-    sqlite3* db_ = nullptr;
-    bool committed_ = false;
-public:
-    explicit SqlTxn(sqlite3* db) : db_(db) {
-        char* err = nullptr;
-        if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, &err) != SQLITE_OK) {
-            std::string msg = err ? err : "erro sqlite";
-            if (err) sqlite3_free(err);
-            throw SqliteError(msg);
-        }
-    }
-    ~SqlTxn() {
-        if (!committed_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-    }
-    void commit() {
-        char* err = nullptr;
-        if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err) != SQLITE_OK) {
-            std::string msg = err ? err : "erro sqlite";
-            if (err) sqlite3_free(err);
-            throw SqliteError(msg);
-        }
-        committed_ = true;
-    }
-};
+// SqlTxn local substituída por SharedSqlTransaction de sqlite_util.hpp.
+// Alias mantido para compatibilidade com código existente neste arquivo.
+using SqlTxn = keeply::SharedSqlTransaction;
 
 static bool tableHasColumn(sqlite3* db, const char* table, const char* colName) {
     std::string sql = "PRAGMA table_info(" + std::string(table) + ");";

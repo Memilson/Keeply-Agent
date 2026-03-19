@@ -9,27 +9,18 @@
 namespace keeply {
 namespace {
 
-static unsigned hexNibble(char c) {
-    if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
-    if (c >= 'a' && c <= 'f') return static_cast<unsigned>(10 + c - 'a');
-    if (c >= 'A' && c <= 'F') return static_cast<unsigned>(10 + c - 'A');
-    throw std::runtime_error("Hex invalido.");
-}
+// hexNibble/hexToBlob removidos — usar keeply::hexNibble/keeply::hexDecode de utilitarios_backup.hpp
 
 static Blob hexToBlob(const std::string& hex) {
-    if (hex.size() % 2 != 0) throw std::runtime_error("Hex com tamanho invalido.");
-    Blob out(hex.size() / 2);
-    for (std::size_t i = 0; i < out.size(); ++i) {
-        out[i] = static_cast<unsigned char>((hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));
-    }
-    return out;
+    return keeply::hexDecode(hex);
 }
 
 static ChunkHash hexToChunkHash(const std::string& hex) {
     if (hex.size() != 64) throw std::runtime_error("Chunk hash hex invalido.");
     ChunkHash out{};
     for (std::size_t i = 0; i < out.size(); ++i) {
-        out[i] = static_cast<unsigned char>((hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));
+        out[i] = static_cast<unsigned char>(
+            (keeply::hexNibble(hex[i * 2]) << 4) | keeply::hexNibble(hex[i * 2 + 1]));
     }
     return out;
 }

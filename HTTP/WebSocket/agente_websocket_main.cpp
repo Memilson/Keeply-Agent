@@ -155,12 +155,8 @@ static fs::path currentExecutablePath(){
         buffer.resize(buffer.size()*2,'\0');
     }
 }
-static std::string trimCopy(std::string value){
-    const auto begin=value.find_first_not_of(" \t\r\n");
-    if(begin==std::string::npos) return {};
-    const auto end=value.find_last_not_of(" \t\r\n");
-    return value.substr(begin,end-begin+1);
-}
+// trimCopy removida — usar keeply::trim() de utilitarios_backup.hpp
+static inline std::string trimCopy(const std::string& value){ return keeply::trim(value); }
 static std::string readSmallTextFile(const fs::path& path){
     std::ifstream in(path);
     if(!in) return {};
@@ -532,6 +528,14 @@ int main(int argc,char** argv){
 
         bool printedStartup=false;
 
+        // Exponential backoff com jitter para reconexão WebSocket.
+        // Começa em 1s e dobra a cada falha até o teto de 60s.
+        // Após conexão bem-sucedida, reseta para o valor inicial.
+        constexpr int kBackoffInitialMs=1000;
+        constexpr int kBackoffMaxMs=60000;
+        constexpr double kBackoffJitterFactor=0.25;
+        int backoffMs=kBackoffInitialMs;
+
         for(;;){
             try{
                 keeply::AgentIdentity identity=keeply::KeeplyAgentBootstrap::ensureRegistered(config);
@@ -545,12 +549,23 @@ int main(int argc,char** argv){
                 }
                 keeply::KeeplyAgentWsClient client(api,identity);
                 client.connect(config);
+                // Conexão bem-sucedida — resetar backoff
+                backoffMs=kBackoffInitialMs;
                 client.run();
-                std::cerr<<"Conexao websocket encerrada. Tentando reconectar em 2s...\n";
+                std::cerr<<"Conexao websocket encerrada. Reconectando em "<<backoffMs<<"ms...\n";
             }catch(const std::exception& loopEx){
                 std::cerr<<"Loop websocket falhou: "<<loopEx.what()<<"\n";
+                std::cerr<<"Reconectando em "<<backoffMs<<"ms...\n";
             }
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+
+            // Jitter: ±25% do backoff atual para evitar thundering herd
+            const int jitterRange=static_cast<int>(backoffMs*kBackoffJitterFactor);
+            const int jitter=jitterRange>0?(std::rand()%(jitterRange*2+1))-jitterRange:0;
+            const int sleepMs=std::max(100,backoffMs+jitter);
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+
+            // Dobra o backoff para a próxima falha, até o teto
+            backoffMs=std::min(backoffMs*2,kBackoffMaxMs);
         }
         return 0;
     }catch(const std::exception& e){

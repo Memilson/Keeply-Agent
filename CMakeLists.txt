@@ -150,8 +150,8 @@ target_compile_definitions(keeply_agent PRIVATE
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
 
 if(WIN32)
-    target_link_libraries(keeply PRIVATE Shell32 Ole32)
-    target_link_libraries(keeply_agent PRIVATE ws2_32 Shell32 Ole32)
+    target_link_libraries(keeply PRIVATE Shell32 Ole32 User32)
+    target_link_libraries(keeply_agent PRIVATE ws2_32 Shell32 Ole32 User32)
 endif()
 
 if(UNIX AND NOT WIN32)
