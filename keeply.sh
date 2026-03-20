@@ -4,7 +4,7 @@ umask 022
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${AGENT_DIR}/build"
 OUTPUT_FILE="${AGENT_DIR}/keeply-all.bin"
-DEFAULT_WS_URL="ws://127.0.0.1:8081/ws/agent"
+DEFAULT_WS_URL="wss://backend.keeply.app.br/ws/agent"
 die(){ echo "Erro: $*" >&2; exit 1; }
 log(){ echo "[keeply] $*"; }
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || die "comando nao encontrado: $1"; }
@@ -433,7 +433,7 @@ wait_for_pairing_activation(){
 }
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCH_ROOT="${1:-/}"
-WS_URL="${2:-ws://127.0.0.1:8081/ws/agent}"
+WS_URL="${2:-wss://backend.keeply.app.br/ws/agent}"
 PREFIX="${3:-/opt/keeply}"
 SYSTEMD_DIR="${4:-/etc/systemd/system}"
 SERVICE_USER="${SERVICE_USER:-keeply}"
@@ -626,7 +626,7 @@ EOF
 set -Eeuo pipefail
 [[ "${EUID}" -eq 0 ]] || { echo "Execute como root: sudo $0" >&2; exit 1; }
 WATCH_ROOT="${1:-/}"
-WS_URL="${2:-ws://127.0.0.1:8081/ws/agent}"
+WS_URL="${2:-wss://backend.keeply.app.br/ws/agent}"
 PREFIX="${3:-/opt/keeply}"
 SYSTEMD_DIR="${4:-/etc/systemd/system}"
 TMP_DIR="$(mktemp -d)"

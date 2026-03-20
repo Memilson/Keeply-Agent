@@ -38,7 +38,7 @@ private:
 };
 
 struct WsClientConfig{
-    std::string url="ws://127.0.0.1:8081/ws/agent";
+    std::string url="wss://backend.keeply.app.br/ws/agent";
     std::string agentId;
     std::string deviceName="keeply-agent";
     std::string hostName="keeply-host";

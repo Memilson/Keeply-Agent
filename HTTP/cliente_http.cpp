@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
@@ -38,13 +39,25 @@ namespace {
 struct HttpTls {
     SSL_CTX* ctx = nullptr;
     SSL* ssl = nullptr;
-    ~HttpTls() {
-        if (ssl) {
-            SSL_shutdown(ssl);
-            SSL_free(ssl);
+
+    HttpTls() = default;
+    HttpTls(const HttpTls&) = delete;
+    HttpTls& operator=(const HttpTls&) = delete;
+    HttpTls(HttpTls&& o) noexcept : ctx(o.ctx), ssl(o.ssl) { o.ctx = nullptr; o.ssl = nullptr; }
+    HttpTls& operator=(HttpTls&& o) noexcept {
+        if (this != &o) {
+            cleanup();
+            ctx = o.ctx; ssl = o.ssl;
+            o.ctx = nullptr; o.ssl = nullptr;
         }
-        if (ctx) SSL_CTX_free(ctx);
+        return *this;
     }
+
+    void cleanup() noexcept {
+        if (ssl) { SSL_free(ssl); ssl = nullptr; }
+        if (ctx) { SSL_CTX_free(ctx); ctx = nullptr; }
+    }
+    ~HttpTls() { cleanup(); }
 };
 
 std::string trimAscii(std::string value) {
@@ -146,6 +159,8 @@ HttpTls connectTls(int fd,
     }
     tls.ssl = SSL_new(tls.ctx);
     if (!tls.ssl) throw std::runtime_error("Falha ao criar SSL.");
+    // Prevent SIGPIPE-triggered null callback crashes inside SSL_write/SSL_read
+    SSL_set_mode(tls.ssl, SSL_MODE_AUTO_RETRY | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     SSL_set_fd(tls.ssl, fd);
     SSL_set_tlsext_host_name(tls.ssl, url.host.c_str());
     configurePeerVerification(tls.ssl, url, allowInsecureTls);
@@ -198,10 +213,12 @@ HttpResponse httpPostJson(const std::string& url,
         if (ssl) static_cast<void>(writeAllSsl(ssl, request.data(), request.size()));
         else static_cast<void>(writeAllFd(fd, request.data(), request.size()));
         std::string raw = readHttpResponseBody(fd, ssl);
+        tls.cleanup();
         http_internal::closeSocketFd(fd);
         fd = -1;
         return parseHttpResponse(raw, "enroll");
     } catch (...) {
+        tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
         throw;
     }
@@ -291,10 +308,12 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         if (ssl) static_cast<void>(writeAllSsl(ssl, fileFooterStr.data(), fileFooterStr.size()));
         else static_cast<void>(writeAllFd(fd, fileFooterStr.data(), fileFooterStr.size()));
         std::string raw = readHttpResponseBody(fd, ssl);
+        tls.cleanup();
         http_internal::closeSocketFd(fd);
         fd = -1;
         return parseHttpResponse(raw, "upload");
     } catch (...) {
+        tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
         throw;
     }
@@ -340,9 +359,12 @@ std::string randomDigits(std::size_t digits) {
 
 std::size_t writeAllSsl(ssl_st* sslHandle, const void* data, std::size_t size) {
     SSL* ssl = static_cast<SSL*>(sslHandle);
+    if (!ssl || SSL_get_fd(ssl) < 0)
+        throw std::runtime_error("SSL_write: conexao invalida.");
     const unsigned char* ptr = static_cast<const unsigned char*>(data);
     std::size_t offset = 0;
     while (offset < size) {
+        ERR_clear_error();
         const int n = SSL_write(ssl, ptr + static_cast<std::ptrdiff_t>(offset), static_cast<int>(size - offset));
         if (n <= 0) {
             const int err = SSL_get_error(ssl, n);

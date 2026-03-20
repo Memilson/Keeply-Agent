@@ -70,7 +70,7 @@ std::string normWinPath(std::string s) {
     for (char& c : s) if (c == '/') c = '\\';
     if (s.rfind("\\\\?\\", 0) == 0) s = s.substr(4);
     while (!s.empty() && s.back() == '\\') s.pop_back();
-    return toLowerAscii(std::move(s));
+    return keeply::lowerAscii(std::move(s));
 }
 struct WinHandle {
     HANDLE h = INVALID_HANDLE_VALUE;

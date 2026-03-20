@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -393,13 +394,78 @@ void KeeplyAgentWsClient::run(){
     // excedentes e loga um aviso (não desconecta — pode ser burst legítimo).
     constexpr std::size_t kMaxMsgsPerWindow=60;
     constexpr auto kWindow=std::chrono::minutes(1);
+    constexpr auto kKeepAliveInterval=std::chrono::seconds(25);
+    constexpr auto kKeepAlivePongTimeout=std::chrono::seconds(15);
     std::deque<std::chrono::steady_clock::time_point> msgTimestamps;
     std::size_t droppedCount=0;
+    auto waitForReadable=[this](std::chrono::milliseconds timeout){
+        if(timeout<decltype(timeout)::zero()) timeout=decltype(timeout)::zero();
+        for(;;){
+            int fd=-1;
+            std::shared_ptr<TlsState> tls;
+            bool hasBufferedData=false;
+            {
+                std::lock_guard<std::mutex> lock(mu_);
+                fd=sockfd_;
+                tls=tls_;
+                hasBufferedData=!recvBuffer_.empty();
+            }
+            if(fd<0) return false;
+            if(hasBufferedData||(tls&&tls->ssl&&SSL_pending(tls->ssl)>0)) return true;
+
+#ifdef _WIN32
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            const SOCKET sock=static_cast<SOCKET>(fd);
+            FD_SET(sock,&readfds);
+            TIMEVAL tv{};
+            tv.tv_sec=static_cast<long>(timeout.count()/1000);
+            tv.tv_usec=static_cast<long>((timeout.count()%1000)*1000);
+            const int rc=::select(0,&readfds,nullptr,nullptr,&tv);
+#else
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(fd,&readfds);
+            timeval tv{};
+            tv.tv_sec=static_cast<long>(timeout.count()/1000);
+            tv.tv_usec=static_cast<long>((timeout.count()%1000)*1000);
+            const int rc=::select(fd+1,&readfds,nullptr,nullptr,&tv);
+#endif
+            if(rc>0) return true;
+            if(rc==0) return false;
+            const int err=keeply::http_internal::lastSocketError();
+            if(keeply::http_internal::socketInterrupted(err)) continue;
+            throw std::runtime_error("select falhou: "+keeply::http_internal::socketErrorMessage(err));
+        }
+    };
+    auto nextKeepAliveAt=std::chrono::steady_clock::now()+kKeepAliveInterval;
+    std::optional<std::chrono::steady_clock::time_point> pongDeadline;
 
     for(;;){
+        const auto now=std::chrono::steady_clock::now();
+        auto waitUntil=nextKeepAliveAt;
+        if(pongDeadline&&*pongDeadline<waitUntil) waitUntil=*pongDeadline;
+        const auto waitFor=waitUntil>now
+            ? std::chrono::duration_cast<std::chrono::milliseconds>(waitUntil-now)
+            : std::chrono::milliseconds::zero();
+        if(!waitForReadable(waitFor)){
+            const auto timeoutNow=std::chrono::steady_clock::now();
+            if(pongDeadline&&timeoutNow>=*pongDeadline){
+                throw std::runtime_error("Timeout aguardando pong do servidor websocket.");
+            }
+            if(timeoutNow>=nextKeepAliveAt){
+                sendFrame_(0x9,"keepalive");
+                nextKeepAliveAt=timeoutNow+kKeepAliveInterval;
+                pongDeadline=timeoutNow+kKeepAlivePongTimeout;
+            }
+            continue;
+        }
+
         unsigned char opcode=0;
         std::string payload;
         if(!readFrame_(opcode,payload)) break;
+        nextKeepAliveAt=std::chrono::steady_clock::now()+kKeepAliveInterval;
+        pongDeadline.reset();
 
         if(opcode==0x1){
             // Rate check para mensagens de texto (comandos)
