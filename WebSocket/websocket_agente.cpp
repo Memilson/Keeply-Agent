@@ -737,9 +737,15 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
     std::cout<<" | source="<<api_->state().source<<"\n";
     sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+"}");
     try{
-        const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress](const BackupProgress& progress){
+        auto lastProgressSent=std::chrono::steady_clock::now()-std::chrono::seconds(10);
+        const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress,&lastProgressSent](const BackupProgress& progress){
             latestProgress=progress;
-            sendBackupProgress_(label,progress);
+            const auto now=std::chrono::steady_clock::now();
+            const bool phaseChange=(progress.phase=="discovery"||progress.phase=="commit"||progress.phase=="done");
+            if(phaseChange||now-lastProgressSent>=std::chrono::seconds(2)){
+                sendBackupProgress_(label,progress);
+                lastProgressSent=now;
+            }
         });
         sendBackupFinished_(label,stats);
         if(storagePolicy.uploadCloud) runBackupUpload_(label,storagePolicy);
