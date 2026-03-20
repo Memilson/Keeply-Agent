@@ -369,7 +369,18 @@ std::size_t writeAllSsl(ssl_st* sslHandle, const void* data, std::size_t size) {
         if (n <= 0) {
             const int err = SSL_get_error(ssl, n);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
-            throw std::runtime_error("SSL_write falhou.");
+            std::string detail;
+            if (err == SSL_ERROR_SYSCALL) {
+                int e = errno;
+                detail = "syscall: " + std::string(e ? std::strerror(e) : "EOF inesperado");
+            } else if (err == SSL_ERROR_ZERO_RETURN) {
+                detail = "conexao fechada pelo servidor";
+            } else {
+                unsigned long ecode = ERR_peek_last_error();
+                char buf[256]; ERR_error_string_n(ecode, buf, sizeof(buf));
+                detail = buf;
+            }
+            throw std::runtime_error("SSL_write falhou (ssl_error=" + std::to_string(err) + "): " + detail);
         }
         offset += static_cast<std::size_t>(n);
     }
@@ -384,7 +395,16 @@ std::size_t readSomeSsl(ssl_st* sslHandle, void* data, std::size_t size) {
         const int err = SSL_get_error(ssl, n);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) continue;
         if (err == SSL_ERROR_ZERO_RETURN) return 0;
-        throw std::runtime_error("SSL_read falhou.");
+        std::string detail;
+        if (err == SSL_ERROR_SYSCALL) {
+            int e = errno;
+            detail = "syscall: " + std::string(e ? std::strerror(e) : "EOF inesperado");
+        } else {
+            unsigned long ecode = ERR_peek_last_error();
+            char buf[256]; ERR_error_string_n(ecode, buf, sizeof(buf));
+            detail = buf;
+        }
+        throw std::runtime_error("SSL_read falhou (ssl_error=" + std::to_string(err) + "): " + detail);
     }
 }
 
