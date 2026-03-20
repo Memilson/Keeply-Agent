@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <winsvc.h>
 #include <atomic>
+#include <iostream>
 #include <memory>
 #include <vector>
 #endif
