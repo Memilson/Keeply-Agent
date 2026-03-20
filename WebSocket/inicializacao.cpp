@@ -764,7 +764,8 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     X509_gmtime_adj(X509_get_notAfter(cert.get()), 60L * 60 * 24 * 365 * 5);
     X509_set_pubkey(cert.get(), pkey.get());
 
-    X509_NAME* subjectName = X509_get_subject_name(cert.get());
+    auto* subjectName = X509_get_subject_name(cert.get());
+    if (!subjectName) throw std::runtime_error("Falha ao obter subject do certificado.");
     X509_NAME_add_entry_by_txt(subjectName, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char*>(config.deviceName.c_str()),
                                -1, -1, 0);
