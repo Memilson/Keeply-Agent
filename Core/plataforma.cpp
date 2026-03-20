@@ -1,4 +1,4 @@
-#include "keeply.hpp"
+#include "../keeply.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -15,7 +15,6 @@ namespace keeply {
 
 namespace detail {
 
-// trimAscii removida — usar keeply::trim() de utilitarios_backup.hpp
 inline std::string trimAscii(const std::string& value) { return keeply::trim(value); }
 
 inline std::optional<std::string> envValue(const char* key) {
@@ -303,6 +302,38 @@ int sqlite3_open_path(const fs::path& path, sqlite3** db) {
 
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs) {
     return sqlite3_open_v2(pathToUtf8(path).c_str(), db, flags, vfs);
+}
+
+fs::path normalizeAbsolutePath(const fs::path& p) {
+    if (p.empty()) return {};
+    std::error_code ec;
+    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
+    if (ec) return p.lexically_normal();
+    return abs.lexically_normal();
+}
+
+bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
+    const fs::path normalized = normalizeAbsolutePath(sourceRoot);
+    if (isFilesystemRootPath(normalized)) return true;
+    const fs::path home = homeDirectoryPath();
+    return normalized == normalizeAbsolutePath(home);
+}
+
+bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
+    if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
+    const auto excluded = defaultSystemExcludedRoots();
+    const fs::path normalized = normalizeAbsolutePath(candidatePath);
+    for (const auto& excl : excluded) {
+        if (normalized == excl) return true;
+        auto eit = excl.begin();
+        auto nit = normalized.begin();
+        bool match = true;
+        for (; eit != excl.end(); ++eit, ++nit) {
+            if (nit == normalized.end() || *nit != *eit) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
 }
 
 } // namespace keeply

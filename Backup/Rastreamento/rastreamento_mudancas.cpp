@@ -1,8 +1,6 @@
-// [PROBLEMA 1] — substituído #include "../keeply.cpp" por #include "../keeply.hpp"
-// Incluir um .cpp viola a ODR e causa erros de linker. Use apenas o cabeçalho.
-#include "../keeply.hpp"
+#include "../../keeply.hpp"
 #include "rastreamento_mudancas.hpp"
-#include "sqlite_util.hpp"  // SharedSqlTransaction, SharedSqlStmt, execSqlOrThrow
+#include "../../Core/sqlite_util.hpp"
 #include <sqlite3.h>
 #include <atomic>
 #include <chrono>
@@ -262,27 +260,8 @@ std::vector<fs::path> systemExcludedRoots() {
 
 } // namespace
 
-fs::path normalizeAbsolutePath(const fs::path& p) {
-    std::error_code ec;
-    fs::path abs = p.is_absolute() ? p : fs::absolute(p, ec);
-    if (ec) {
-        throw std::runtime_error("Caminho invalido: " + p.string() + " | " + ec.message());
-    }
-    return abs.lexically_normal();
-}
-
-bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
-    return isFilesystemRootPath(normalizeAbsolutePath(sourceRoot));
-}
-
-bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
-    if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
-    const fs::path candidate = normalizeAbsolutePath(candidatePath);
-    for (const auto& excludedRoot : systemExcludedRoots()) {
-        if (candidate == excludedRoot || isPathWithin(excludedRoot, candidate)) return true;
-    }
-    return false;
-}
+// normalizeAbsolutePath, sourceRootUsesSystemExclusionPolicy, isExcludedBySystemPolicy
+// agora definidos em Core/plataforma.cpp — removidos daqui para eliminar duplicação.
 
 // [ATENÇÃO 3] — Nomes em português mantidos para preservar compatibilidade com
 // o restante do projeto. Caso opte por migrar para inglês, consulte o mapeamento

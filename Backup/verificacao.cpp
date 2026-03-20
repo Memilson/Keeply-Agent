@@ -14,6 +14,7 @@
 //   → retorna VerifyResult com lista de erros encontrados
 // =============================================================================
 
+// verificacao.cpp  —  Verificação de Integridade do Arquivo Keeply
 #include "../keeply.hpp"
 #include <blake3.h>
 #include <cstring>

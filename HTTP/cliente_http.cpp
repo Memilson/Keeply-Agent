@@ -1,6 +1,6 @@
-#include "websocket_interno.hpp"
-#include "../fila_upload_paralela.hpp"
-#include "../http_interno.hpp"
+#include "../WebSocket/websocket_interno.hpp"
+#include "../Cloud/fila_upload.hpp"
+#include "http_util.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>

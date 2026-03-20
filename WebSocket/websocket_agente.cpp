@@ -1,6 +1,6 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
-#include "../http_interno.hpp"
+#include "../HTTP/http_util.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>

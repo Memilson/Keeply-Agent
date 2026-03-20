@@ -24,17 +24,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(blake3_src)
 
-set(KEEPLY_PLATFORM_SOURCES)
-set(KEEPLY_CBT_COMMON_SOURCES)
+# =========================================================================
+# Platform-specific sources
+# =========================================================================
 
 set(KEEPLY_CBT_PLATFORM_SOURCES)
 if(UNIX AND NOT WIN32)
     list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
-        Backup/Linux/daemon_rastreamento_mudancas.cpp
+        Backup/Rastreamento/Linux/daemon.cpp
     )
 elseif(WIN32)
     list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
-        Backup/Windows/daemon_rastreamento_mudancas.cpp
+        Backup/Rastreamento/Windows/daemon.cpp
     )
 endif()
 
@@ -42,44 +43,54 @@ set(KEEPLY_PLATFORM_SOURCES
     ${KEEPLY_CBT_PLATFORM_SOURCES}
 )
 
+# =========================================================================
+# Core — tipos, plataforma, compactação, db
+# =========================================================================
+
 set(KEEPLY_CORE
-    keeply_impl.cpp
+    Core/plataforma.cpp
+    Core/compactacao.cpp
     ${KEEPLY_PLATFORM_SOURCES}
-    HTTP/API/api_agente.cpp
-    Backup/rastreamento_mudancas.cpp
-    Backup/compactacao_e_hash.cpp
-    Backup/verificacao_integridade.cpp
+    API/keeply_api.cpp
+    Backup/Rastreamento/rastreamento_mudancas.cpp
+    Backup/verificacao.cpp
     Backup/restauracao.cpp
-    Backup/varredura_backup.cpp
-    Backup/Armazenamentos/arquivo_armazenamento.cpp
+    Backup/varredura.cpp
+    Storage/arquivo_armazenamento.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
     ${blake3_src_SOURCE_DIR}/c/blake3_portable.c
 )
 
+# =========================================================================
+# Network — HTTP, WebSocket, Cloud upload
+# =========================================================================
+
 set(KEEPLY_API_WS
-    HTTP/http_interno.cpp
-    HTTP/fila_upload_paralela.cpp
-    HTTP/WebSocket/websocket_agente.cpp
-    HTTP/WebSocket/cliente_http_agente.cpp
-    HTTP/WebSocket/inicializacao_websocket_agente.cpp
+    HTTP/http_util.cpp
+    Cloud/fila_upload.cpp
+    WebSocket/websocket_agente.cpp
+    HTTP/cliente_http.cpp
+    WebSocket/inicializacao.cpp
 )
 
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_API_WS
-        HTTP/API/servidor_rest.cpp
+        HTTP/servidor_rest.cpp
     )
 endif()
 
 set(KEEPLY_AGENT_EXTRA_SOURCES)
 if(UNIX OR WIN32)
     list(APPEND KEEPLY_AGENT_EXTRA_SOURCES
-        ${KEEPLY_CBT_COMMON_SOURCES}
         ${KEEPLY_CBT_PLATFORM_SOURCES}
     )
 endif()
 
-set(BLAKE3_SIMD_SOURCES)
+# =========================================================================
+# BLAKE3 SIMD
+# =========================================================================
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$"
    AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     list(APPEND KEEPLY_CORE
@@ -101,18 +112,19 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$"
     )
 endif()
 
-add_executable(keeply
-    keeply.cpp
-    ${KEEPLY_CORE}
-)
-
-set_source_files_properties(keeply.cpp PROPERTIES COMPILE_DEFINITIONS KEEPLY_CLI_IMPLEMENTATION=1)
+# =========================================================================
+# Include directories
+# =========================================================================
 
 set(KEEPLY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core
+    ${CMAKE_CURRENT_SOURCE_DIR}/Storage
+    ${CMAKE_CURRENT_SOURCE_DIR}/Backup
+    ${CMAKE_CURRENT_SOURCE_DIR}/API
     ${CMAKE_CURRENT_SOURCE_DIR}/HTTP
-    ${CMAKE_CURRENT_SOURCE_DIR}/HTTP/API
-    ${CMAKE_CURRENT_SOURCE_DIR}/HTTP/WebSocket
+    ${CMAKE_CURRENT_SOURCE_DIR}/WebSocket
+    ${CMAKE_CURRENT_SOURCE_DIR}/Cloud
     ${blake3_src_SOURCE_DIR}/c
 )
 
@@ -124,6 +136,17 @@ set(KEEPLY_COMMON_LIBS
     ${ZSTD_LIB}
 )
 
+# =========================================================================
+# Target: keeply (CLI)
+# =========================================================================
+
+add_executable(keeply
+    keeply.cpp
+    ${KEEPLY_CORE}
+)
+
+set_source_files_properties(keeply.cpp PROPERTIES COMPILE_DEFINITIONS KEEPLY_CLI_IMPLEMENTATION=1)
+
 target_include_directories(keeply PRIVATE ${KEEPLY_INCLUDE_DIRS})
 
 target_compile_definitions(keeply PRIVATE
@@ -133,8 +156,12 @@ target_compile_definitions(keeply PRIVATE
 
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
 
+# =========================================================================
+# Target: keeply_agent (WebSocket agent)
+# =========================================================================
+
 add_executable(keeply_agent
-    HTTP/WebSocket/agente_websocket_main.cpp
+    agente_main.cpp
     ${KEEPLY_CORE}
     ${KEEPLY_API_WS}
     ${KEEPLY_AGENT_EXTRA_SOURCES}
@@ -149,18 +176,24 @@ target_compile_definitions(keeply_agent PRIVATE
 
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
 
+# =========================================================================
+# Platform link libraries
+# =========================================================================
+
 if(WIN32)
     target_link_libraries(keeply PRIVATE Shell32 Ole32 User32)
     target_link_libraries(keeply_agent PRIVATE ws2_32 Shell32 Ole32 User32)
 endif()
 
+# =========================================================================
+# Target: keeply_cbt_daemon (Change tracking daemon)
+# =========================================================================
+
 if(UNIX AND NOT WIN32)
     add_executable(keeply_cbt_daemon
-        keeply_impl.cpp
-        Backup/rastreamento_mudancas.cpp
-        ${KEEPLY_CBT_COMMON_SOURCES}
+        Core/plataforma.cpp
+        Backup/Rastreamento/rastreamento_mudancas.cpp
         ${KEEPLY_CBT_PLATFORM_SOURCES}
-        ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})
@@ -176,11 +209,9 @@ if(UNIX AND NOT WIN32)
     )
 elseif(WIN32)
     add_executable(keeply_cbt_daemon
-        keeply_impl.cpp
-        Backup/rastreamento_mudancas.cpp
-        ${KEEPLY_CBT_COMMON_SOURCES}
+        Core/plataforma.cpp
+        Backup/Rastreamento/rastreamento_mudancas.cpp
         ${KEEPLY_CBT_PLATFORM_SOURCES}
-        ${KEEPLY_PLATFORM_SOURCES}
     )
 
     target_include_directories(keeply_cbt_daemon PRIVATE ${KEEPLY_INCLUDE_DIRS})

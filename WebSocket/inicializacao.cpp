@@ -716,7 +716,7 @@ std::string computeFingerprint(X509* cert) {
 
     unsigned char digest[SHA256_DIGEST_LENGTH];
     SHA256(der.data(), der.size(), digest);
-    return hexEncode(digest, sizeof(digest));
+    return ws_internal::hexEncode(digest, sizeof(digest));
 }
 
 std::string computeFingerprintFromFile(const fs::path& certPemPath) {

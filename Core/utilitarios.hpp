@@ -1,7 +1,7 @@
 #pragma once
 
 // =============================================================================
-// utilitarios_backup.hpp
+// Core/utilitarios.hpp
 // Utilitários compartilhados — elimina duplicações entre módulos do agente.
 // Todos os módulos devem usar estas funções em vez de implementações locais.
 // NUNCA inclua headers de plataforma aqui.
@@ -88,8 +88,6 @@ inline std::vector<unsigned char> hexDecode(const std::string& hex) {
 
 // -----------------------------------------------------------------------------
 // Typed exceptions — substituem classificação de erros por string matching.
-// Use estas exceções em throw sites novos. No REST handler, o catch pode
-// distinguir por tipo em vez de parsear o texto da mensagem.
 // -----------------------------------------------------------------------------
 
 /// Recurso não encontrado (mapeia para HTTP 404).
@@ -106,30 +104,20 @@ public:
 
 // -----------------------------------------------------------------------------
 // Hash algorithm name constants
-// Centraliza os nomes dos algoritmos para evitar strings mágicas espalhadas.
 // -----------------------------------------------------------------------------
-inline constexpr const char* kAlgoBlake3 = "blake3";   ///< Hash primário de chunks
-inline constexpr const char* kAlgoZstd   = "zstd";     ///< Compressão padrão
-inline constexpr const char* kAlgoZlib   = "zlib";     ///< Compressão legada
-inline constexpr const char* kAlgoRaw    = "raw";      ///< Sem compressão
+inline constexpr const char* kAlgoBlake3 = "blake3";
+inline constexpr const char* kAlgoZstd   = "zstd";
+inline constexpr const char* kAlgoZlib   = "zlib";
+inline constexpr const char* kAlgoRaw    = "raw";
 
 // -----------------------------------------------------------------------------
-// Protocol versioning  — incluso em todas as mensagens JSON do agente.
-// Incrementar a cada mudança incompatível no formato de mensagens.
+// Protocol versioning
 // -----------------------------------------------------------------------------
 inline constexpr int kProtocolVersion = 1;
 
 // -----------------------------------------------------------------------------
 // Schema versioning
-// Incrementar kCurrentSchemaVersion a cada mudança estrutural no banco.
-// O mecanismo de migração em DB::initSchema() aplica as etapas necessárias.
 // -----------------------------------------------------------------------------
 inline constexpr int kCurrentSchemaVersion = 6;
-//  v1 — schema inicial
-//  v2 — ADD COLUMN cbt_token em snapshots
-//  v3 — rename hash_sha256 → chunk_hash (BLAKE3, não SHA-256)
-//  v4 — ADD COLUMN pack_id em chunks
-//  v5 — ADD COLUMN storage_state em chunks
-//  v6 — recreate files table para reparar FKs/migração
 
 } // namespace keeply

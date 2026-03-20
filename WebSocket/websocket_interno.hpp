@@ -1,7 +1,7 @@
 #pragma once
 
 #include "websocket_agente.hpp"
-#include "../http_interno.hpp"
+#include "../HTTP/http_util.hpp"
 
 #include <cstddef>
 #include <functional>

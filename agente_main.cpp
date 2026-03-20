@@ -1,5 +1,5 @@
-#include "websocket_agente.hpp"
-#include "Backup/rastreamento_mudancas.hpp"
+#include "WebSocket/websocket_agente.hpp"
+#include "Backup/Rastreamento/rastreamento_mudancas.hpp"
 #include <filesystem>
 #include <cerrno>
 #include <cctype>

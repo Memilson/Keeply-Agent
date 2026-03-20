@@ -1,4 +1,4 @@
-#include "../keeply.hpp"
+#include "tipos.hpp"
 
 #include <blake3.h>
 #include <zlib.h>
@@ -46,7 +46,7 @@ void Compactador::zlibCompress(
     std::vector<unsigned char>& out // Buffer reaproveitável passado por referência
 ) {
     uLongf bound = compressBound(static_cast<uLong>(len));
-    
+
     // Garante capacidade sem realocar se o buffer já for grande o suficiente
     if (out.capacity() < bound) out.reserve(bound);
     out.resize(bound);
@@ -67,7 +67,7 @@ void Compactador::zlibDecompress(
 ) {
     if (out.capacity() < rawSize) out.reserve(rawSize);
     out.resize(rawSize);
-    
+
     uLongf destLen = static_cast<uLongf>(rawSize);
 
     int rc = uncompress(out.data(), &destLen,
@@ -89,7 +89,7 @@ void Compactador::zstdCompress(
     std::vector<unsigned char>& out // Buffer reaproveitável
 ) {
     const std::size_t bound = ZSTD_compressBound(len);
-    
+
     if (out.capacity() < bound) out.reserve(bound);
     out.resize(bound);
 
@@ -97,7 +97,7 @@ void Compactador::zstdCompress(
     if (ZSTD_isError(rc)) {
         throw std::runtime_error(std::string("Falha ao comprimir chunk (zstd): ") + ZSTD_getErrorName(rc));
     }
-    
+
     out.resize(rc);
 }
 

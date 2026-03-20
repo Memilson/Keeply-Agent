@@ -1,6 +1,6 @@
 #include "backend_armazenamento.hpp"
-#include "../utilitarios_backup.hpp"
-#include "../sqlite_util.hpp"  // SharedSqlTransaction (substitui SqlTxn local)
+#include "../Core/utilitarios.hpp"
+#include "../Core/sqlite_util.hpp"
 #include <algorithm>
 #include <cstring>
 #include <fstream>

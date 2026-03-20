@@ -1,6 +1,6 @@
 #include "servidor_rest.hpp"
-#include "../http_interno.hpp"
-#include "../../Backup/utilitarios_backup.hpp"  // keeply::trim, keeply::KeeplyNotFoundError, etc.
+#include "http_util.hpp"
+#include "../Core/utilitarios.hpp"
 #ifdef _WIN32
 #else
 #include <arpa/inet.h>
