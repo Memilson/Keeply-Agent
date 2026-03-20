@@ -764,11 +764,11 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     X509_gmtime_adj(X509_get_notAfter(cert.get()), 60L * 60 * 24 * 365 * 5);
     X509_set_pubkey(cert.get(), pkey.get());
 
-    X509_NAME* name = X509_get_subject_name(cert.get());
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+    X509_NAME* subjectName = X509_get_subject_name(cert.get());
+    X509_NAME_add_entry_by_txt(subjectName, "CN", MBSTRING_ASC,
                                reinterpret_cast<const unsigned char*>(config.deviceName.c_str()),
                                -1, -1, 0);
-    X509_set_issuer_name(cert.get(), name);
+    X509_set_issuer_name(cert.get(), subjectName);
 
     if (X509_sign(cert.get(), pkey.get(), EVP_sha256()) <= 0) {
         throw std::runtime_error("Falha ao assinar certificado do agente.");
