@@ -69,6 +69,16 @@ struct WsCommand{
     std::string snapshot;
     std::string relPath;
     std::string outRoot;
+    std::string ticketId;
+    std::string downloadPathBase;
+    std::string backupId;
+    std::string backupRef;
+    std::string bundleId;
+    std::string archiveFile;
+    std::string indexFile;
+    std::string packFile;
+    std::string blobFiles;
+    std::string sourceRoot;
     std::string raw;
 };
 
@@ -112,6 +122,7 @@ private:
     void runBackupUpload_(const std::string& label,const ws_internal::BackupStoragePolicy& storagePolicy);
     void runRestoreFileCommand_(const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw);
     void runRestoreSnapshotCommand_(const std::string& snapshot,const std::string& outRootRaw);
+    void runRestoreCloudSnapshotCommand_(const WsCommand& cmd);
     void sendBackupProgress_(const std::string& label,const BackupProgress& progress);
     void sendBackupFinished_(const std::string& label,const BackupStats& stats);
     void sendBackupFailed_(const std::string& label,const BackupProgress& latestProgress,const std::string& message);

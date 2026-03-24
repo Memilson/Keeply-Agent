@@ -69,6 +69,10 @@ struct BackupStoragePolicy{
                                         const std::optional<fs::path>& certPemPath,
                                         const std::optional<fs::path>& keyPemPath,
                                         bool allowInsecureTls);
+[[nodiscard]] HttpResponse httpGet(const std::string& url,
+                                   const std::optional<fs::path>& certPemPath,
+                                   const std::optional<fs::path>& keyPemPath,
+                                   bool allowInsecureTls);
 
 [[nodiscard]] std::map<std::string,std::string> loadIdentityMeta(const fs::path& metaPath);
 void saveIdentityMeta(const AgentIdentity& identity);

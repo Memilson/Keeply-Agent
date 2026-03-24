@@ -107,6 +107,55 @@ std::map<std::string,std::string> parseKeyValueLine(const std::string& line){
     return out;
 }
 
+std::vector<std::string> splitNonEmptyPipe(const std::string& value){
+    std::vector<std::string> out;
+    for(const auto& part : splitPipe(value)){
+        const std::string trimmed = keeply::trim(part);
+        if(!trimmed.empty()) out.push_back(trimmed);
+    }
+    return out;
+}
+
+void ensureDirectory(const fs::path& path){
+    std::error_code ec;
+    fs::create_directories(path, ec);
+    if(ec) throw std::runtime_error("Falha criando diretorio temporario de restore: " + ec.message());
+}
+
+void writeBinaryFile(const fs::path& path,const std::string& bytes){
+    if(!path.parent_path().empty()) ensureDirectory(path.parent_path());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if(!out) throw std::runtime_error("Falha criando arquivo temporario: " + path.string());
+    if(!bytes.empty()) out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if(!out) throw std::runtime_error("Falha gravando arquivo temporario: " + path.string());
+}
+
+void appendFileToStream(std::ofstream& out,const fs::path& path){
+    std::ifstream in(path, std::ios::binary);
+    if(!in) throw std::runtime_error("Falha abrindo parte do bundle: " + path.string());
+    std::array<char, 64 * 1024> buffer{};
+    while(in){
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize got = in.gcount();
+        if(got <= 0) break;
+        out.write(buffer.data(), got);
+        if(!out) throw std::runtime_error("Falha concatenando pack temporario.");
+    }
+    if(!in.eof() && in.fail()) throw std::runtime_error("Falha lendo parte do bundle: " + path.string());
+}
+
+std::string ensureRelativeHttpPath(std::string path){
+    path = keeply::trim(path);
+    if(path.empty()) throw std::runtime_error("downloadPathBase ausente para restore cloud.");
+    if(path.front() != '/') path.insert(path.begin(), '/');
+    while(path.size() > 1 && path.back() == '/') path.pop_back();
+    return path;
+}
+
+std::string buildBundleDownloadPath(const std::string& downloadPathBase,const std::string& fileName){
+    return ensureRelativeHttpPath(downloadPathBase) + "/" + urlEncode(fileName);
+}
+
 bool shouldSkipMountType(const std::string& fsType){
     static const std::set<std::string> skipped={
         "proc","sysfs","tmpfs","devtmpfs","devpts","cgroup","cgroup2","mqueue","overlay","squashfs",
@@ -305,7 +354,17 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     cmd.snapshot=extractJsonStringField(payload,"snapshot");
     cmd.relPath=extractJsonStringField(payload,"relPath");
     if(cmd.relPath.empty()) cmd.relPath=cmd.path;
-    cmd.outRoot=extractJsonStringField(payload,"outRoot");
+k    cmd.outRoot=extractJsonStringField(payload,"outRoot");
+    cmd.ticketId=extractJsonStringField(payload,"ticketId");
+    cmd.downloadPathBase=extractJsonStringField(payload,"downloadPathBase");
+    cmd.backupId=extractJsonStringField(payload,"backupId");
+    cmd.backupRef=extractJsonStringField(payload,"backupRef");
+    cmd.bundleId=extractJsonStringField(payload,"bundleId");
+    cmd.archiveFile=extractJsonStringField(payload,"archiveFile");
+    cmd.indexFile=extractJsonStringField(payload,"indexFile");
+    cmd.packFile=extractJsonStringField(payload,"packFile");
+    cmd.blobFiles=extractJsonStringField(payload,"blobFiles");
+    cmd.sourceRoot=extractJsonStringField(payload,"sourceRoot");
     return cmd;
 }
 
@@ -655,6 +714,7 @@ void KeeplyAgentWsClient::executeCommand_(const WsCommand& cmd){
     if(cmd.type=="backup"){runBackupCommand_(cmd.label,cmd.storage);return;}
     if(cmd.type=="restore.file"){runRestoreFileCommand_(cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
     if(cmd.type=="restore.snapshot"){runRestoreSnapshotCommand_(cmd.snapshot,cmd.outRoot);return;}
+    if(cmd.type=="restore.cloud.snapshot"){runRestoreCloudSnapshotCommand_(cmd);return;}
     throw std::runtime_error("Comando websocket nao suportado: "+(cmd.type.empty()?cmd.raw:cmd.type));
 }
 
@@ -670,6 +730,102 @@ void KeeplyAgentWsClient::runRestoreSnapshotCommand_(const std::string& snapshot
     const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
     api_->restoreSnapshot(snapshot,outRoot);
     sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(snapshot)+"\"}");
+}
+
+void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
+    if(cmd.snapshot.empty()) throw std::runtime_error("restore.cloud.snapshot requer snapshot.");
+    if(cmd.downloadPathBase.empty()) throw std::runtime_error("restore.cloud.snapshot requer downloadPathBase.");
+    if(cmd.archiveFile.empty()) throw std::runtime_error("restore.cloud.snapshot requer archiveFile.");
+
+    const std::vector<std::string> blobFiles = splitNonEmptyPipe(cmd.blobFiles);
+    if(blobFiles.empty()) throw std::runtime_error("restore.cloud.snapshot requer ao menos um blob do pack.");
+
+    const std::string requestId = cmd.requestId.empty() ? randomDigits(12) : cmd.requestId;
+    const std::string packFileName = !cmd.packFile.empty() ? cmd.packFile : blobFiles.front();
+    const std::size_t filesTotal = 1 + (cmd.indexFile.empty() ? 0 : 1) + blobFiles.size();
+    const std::string resolvedOutRoot = !cmd.outRoot.empty() ? cmd.outRoot : api_->state().restoreRoot;
+
+    std::ostringstream startedJson;
+    startedJson<<"{"<<"\"type\":\"restore.cloud.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesTotal\":"<<filesTotal<<"}";
+    sendJson_(startedJson.str());
+
+    const fs::path tempRoot = defaultKeeplyTempDir() / "cloud_restore" / requestId;
+    std::error_code cleanupEc;
+    fs::remove_all(tempRoot, cleanupEc);
+    ensureDirectory(tempRoot);
+
+    try{
+        std::size_t completedDownloads = 0;
+        auto sendProgress = [&](const std::string& phase,const std::string& currentFile){
+            std::ostringstream progressJson;
+            progressJson<<"{"<<"\"type\":\"restore.cloud.progress\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("phase",phase)<<","<<jsonStrField("currentFile",currentFile)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesCompleted\":"<<completedDownloads<<","<<"\"filesTotal\":"<<filesTotal<<"}";
+            sendJson_(progressJson.str());
+        };
+
+        auto downloadOne = [&](const std::string& fileName){
+            sendProgress("downloading", fileName);
+            const std::string path = buildBundleDownloadPath(cmd.downloadPathBase, fileName);
+            const std::string url = httpUrlFromWsUrl_(config_.url, path);
+            const HttpResponse response = httpGet(url, std::nullopt, std::nullopt, config_.allowInsecureTls);
+            if(response.status < 200 || response.status >= 300){
+                throw std::runtime_error(
+                    "Falha baixando arquivo do bundle: HTTP " + std::to_string(response.status) + " | " + fileName
+                );
+            }
+            const fs::path outPath = tempRoot / fileName;
+            writeBinaryFile(outPath, response.body);
+            ++completedDownloads;
+            sendProgress("downloaded", fileName);
+            return outPath;
+        };
+
+        const fs::path archivePath = downloadOne(cmd.archiveFile);
+        if(!cmd.indexFile.empty()) downloadOne(cmd.indexFile);
+
+        std::vector<fs::path> blobPaths;
+        blobPaths.reserve(blobFiles.size());
+        for(const auto& blobFile : blobFiles){
+            blobPaths.push_back(downloadOne(blobFile));
+        }
+
+        const fs::path finalPackPath = tempRoot / packFileName;
+        if(blobPaths.size() == 1 && blobPaths.front().filename() == finalPackPath.filename()){
+            // Pack unico ja esta no nome final esperado.
+        }else{
+            sendProgress("assembling", packFileName);
+            if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
+            std::ofstream packOut(finalPackPath, std::ios::binary | std::ios::trunc);
+            if(!packOut) throw std::runtime_error("Falha criando pack temporario para restore cloud.");
+            for(const auto& partPath : blobPaths){
+                appendFileToStream(packOut, partPath);
+            }
+            packOut.close();
+            if(!packOut) throw std::runtime_error("Falha finalizando pack temporario para restore cloud.");
+        }
+
+        sendProgress("restoring", cmd.snapshot);
+        const std::optional<fs::path> outRoot = resolvedOutRoot.empty()
+            ? std::nullopt
+            : std::optional<fs::path>(fs::path(resolvedOutRoot));
+
+        StorageArchive archive(archivePath);
+        const sqlite3_int64 snapshotId = archive.resolveSnapshotId(cmd.snapshot);
+        RestoreEngine::restoreSnapshot(archivePath, snapshotId, outRoot.value_or(pathFromUtf8(api_->state().restoreRoot)));
+
+        std::ostringstream finishedJson;
+        finishedJson<<"{"<<"\"type\":\"restore.cloud.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+        sendJson_(finishedJson.str());
+
+        sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(cmd.snapshot)+"\",\"requestId\":\""+escapeJson_(requestId)+"\",\"outRoot\":\""+escapeJson_(resolvedOutRoot)+"\"}");
+    }catch(const std::exception& e){
+        std::ostringstream failedJson;
+        failedJson<<"{"<<"\"type\":\"restore.cloud.failed\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("message",e.what())<<"}";
+        sendJson_(failedJson.str());
+        fs::remove_all(tempRoot, cleanupEc);
+        throw;
+    }
+
+    fs::remove_all(tempRoot, cleanupEc);
 }
 
 void KeeplyAgentWsClient::sendBackupProgress_(const std::string& label,const BackupProgress& progress){

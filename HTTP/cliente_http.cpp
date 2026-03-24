@@ -224,6 +224,45 @@ HttpResponse httpPostJson(const std::string& url,
     }
 }
 
+HttpResponse httpGet(const std::string& url,
+                     const std::optional<fs::path>& certPemPath,
+                     const std::optional<fs::path>& keyPemPath,
+                     bool allowInsecureTls) {
+    const ParsedUrl parsed = parseUrlCommon(url);
+    if (parsed.scheme != "http" && parsed.scheme != "https") {
+        throw std::runtime_error("Download HTTP suporta apenas http:// ou https://");
+    }
+
+    int fd = openTcpSocket(parsed.host, parsed.port);
+    HttpTls tls;
+    SSL* ssl = nullptr;
+    try {
+        if (parsed.scheme == "https") {
+            tls = connectTls(fd, parsed, certPemPath, keyPemPath, allowInsecureTls);
+            ssl = tls.ssl;
+        }
+
+        std::ostringstream req;
+        req << "GET " << parsed.target << " HTTP/1.1\r\n";
+        req << "Host: " << parsed.host << ":" << parsed.port << "\r\n";
+        req << "Accept: application/octet-stream\r\n";
+        req << "Connection: close\r\n\r\n";
+        const std::string request = req.str();
+        if (ssl) static_cast<void>(writeAllSsl(ssl, request.data(), request.size()));
+        else static_cast<void>(writeAllFd(fd, request.data(), request.size()));
+
+        std::string raw = readHttpResponseBody(fd, ssl);
+        tls.cleanup();
+        http_internal::closeSocketFd(fd);
+        fd = -1;
+        return parseHttpResponse(raw, "download");
+    } catch (...) {
+        tls.cleanup();
+        if (fd >= 0) http_internal::closeSocketFd(fd);
+        throw;
+    }
+}
+
 namespace {
 
 HttpResponse httpPostMultipartFile(const std::string& url,
