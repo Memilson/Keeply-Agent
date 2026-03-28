@@ -2,9 +2,13 @@
 #include "Rastreamento/rastreamento_mudancas.hpp"
 #include "../Core/utilitarios.hpp"
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace keeply {
 namespace {
@@ -39,6 +43,26 @@ static void setFileMtime(const fs::path& p, sqlite3_int64 unixSecs) {
 static void progressEmit(const std::function<void(const BackupProgress&)>& cb, const BackupProgress& p) {
     if (cb) cb(p);
 }
+
+static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_point& lastEmit,
+                                        std::size_t discoveredFiles) {
+    if (discoveredFiles <= 1) return true;
+    if ((discoveredFiles % 200u) == 0u) return true;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - lastEmit).count() >= 1200;
+}
+
+#ifdef _WIN32
+static DWORD windowsFileAttributes(const fs::path& path) {
+    const DWORD attrs = GetFileAttributesW(path.wstring().c_str());
+    return attrs == INVALID_FILE_ATTRIBUTES ? 0 : attrs;
+}
+
+static bool isWindowsOfflinePlaceholder(const fs::path& path) {
+    const DWORD attrs = windowsFileAttributes(path);
+    if (attrs == 0) return false;
+    return (attrs & FILE_ATTRIBUTE_OFFLINE) != 0;
+}
+#endif
 
 static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue) {
     std::string value = trim(rawValue);
@@ -86,6 +110,7 @@ static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, 
 static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress& progress, const std::function<void(const BackupProgress&)>& cb) {
     std::vector<fs::path> files;
     std::error_code ec;
+    auto lastEmit = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
     for (; it != end; it.increment(ec)) {
         if (ec) {
@@ -102,6 +127,13 @@ static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress&
         std::error_code tec;
         if (!it->is_regular_file(tec) || tec) continue;
         files.push_back(it->path());
+        progress.currentFile = currentPath.string();
+        progress.filesQueued = files.size();
+        progress.phase = "discovery";
+        if (shouldEmitDiscoveryProgress(lastEmit, files.size())) {
+            progressEmit(cb, progress);
+            lastEmit = std::chrono::steady_clock::now();
+        }
     }
     progress.filesQueued = files.size();
     progress.discoveryComplete = true;
@@ -271,6 +303,16 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 progressEmit(progressCallback, progress);
                 continue;
             }
+
+#ifdef _WIN32
+            if (isWindowsOfflinePlaceholder(filePath)) {
+                ++progress.stats.warnings;
+                ++progress.filesCompleted;
+                progress.phase = "backup";
+                progressEmit(progressCallback, progress);
+                continue;
+            }
+#endif
 
             const auto prevIt = prevMap.find(rel);
             if (prevIt != prevMap.end() && prevIt->second.size == size && prevIt->second.mtime == mtime) {

@@ -918,14 +918,17 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
     sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+"}");
     try{
         auto lastProgressSent=std::chrono::steady_clock::now()-std::chrono::seconds(10);
-        const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress,&lastProgressSent](const BackupProgress& progress){
+        std::string lastPhase;
+        const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress,&lastProgressSent,&lastPhase](const BackupProgress& progress){
             latestProgress=progress;
             const auto now=std::chrono::steady_clock::now();
-            const bool phaseChange=(progress.phase=="discovery"||progress.phase=="commit"||progress.phase=="done");
-            if(phaseChange||now-lastProgressSent>=std::chrono::seconds(2)){
+            const bool phaseChanged=progress.phase!=lastPhase;
+            const bool forceSend=phaseChanged||progress.phase=="discovery"||progress.phase=="commit"||progress.phase=="done";
+            if(forceSend||now-lastProgressSent>=std::chrono::seconds(2)){
                 sendBackupProgress_(label,progress);
                 lastProgressSent=now;
             }
+            lastPhase=progress.phase;
         });
         sendBackupFinished_(label,stats);
         if(storagePolicy.uploadCloud) runBackupUpload_(label,storagePolicy);
