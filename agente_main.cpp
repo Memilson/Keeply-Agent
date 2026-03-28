@@ -706,11 +706,14 @@ int main(int argc,char** argv){
             auto existing = keeply::KeeplyAgentBootstrap::loadPersistedIdentity(config);
             if (existing.deviceId.empty()) {
                 // Primeira vez: faz pareamento (popup aparece automaticamente)
-                keeply::KeeplyAgentBootstrap::ensureRegistered(config);
-                MessageBoxW(nullptr,
-                    L"Dispositivo registrado!\nO Keeply Agent esta rodando em background.",
-                    L"Keeply",
-                    MB_OK | MB_ICONINFORMATION);
+                try {
+                    keeply::KeeplyAgentBootstrap::ensureRegistered(config);
+                } catch (const std::exception& ex) {
+                    std::wstring msg = L"Falha ao registrar dispositivo:\n";
+                    msg += std::wstring(ex.what(), ex.what() + ::strlen(ex.what()));
+                    MessageBoxW(nullptr, msg.c_str(), L"Keeply - Erro", MB_OK | MB_ICONERROR);
+                    return 1;
+                }
             }
         }
 
