@@ -427,6 +427,7 @@ struct AgentRuntimeOptions{
     bool allowInsecureTls=true;
     bool installService=false;
     bool uninstallService=false;
+    bool background=false;  // modo daemon interno: roda loop WS sem UI
 #else
     bool allowInsecureTls=false;
 #endif
@@ -447,38 +448,59 @@ static fs::path agentCurrentExePath(){
 static constexpr const wchar_t* kRunKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 static constexpr const wchar_t* kRunValue = L"KeeplyAgent";
 
-static void agentInstallService(const AgentRuntimeOptions& opts){
+static void agentLaunchBackground(const AgentRuntimeOptions& opts){
     const fs::path exe=agentCurrentExePath();
-
-    // Monta o comando: "C:\...\keeply_all.exe" agent [--url ...] [--device ...] [--root ...]
-    std::wstring cmd=L"\""+exe.wstring()+L"\" agent";
+    std::wstring cmd=L"\""+exe.wstring()+L"\" agent --background";
     if(!opts.url.empty())        cmd+=L" --url \""+std::wstring(opts.url.begin(),opts.url.end())+L"\"";
     if(!opts.deviceName.empty()) cmd+=L" --device \""+std::wstring(opts.deviceName.begin(),opts.deviceName.end())+L"\"";
     if(!opts.watchRoot.empty())  cmd+=L" --root \""+opts.watchRoot.wstring()+L"\"";
 
-    HKEY hkey=nullptr;
-    LONG res=RegOpenKeyExW(HKEY_CURRENT_USER,kRunKey,0,KEY_SET_VALUE,&hkey);
-    if(res!=ERROR_SUCCESS) throw std::runtime_error("Falha abrindo chave de registro. Erro="+std::to_string(res));
-
-    res=RegSetValueExW(hkey,kRunValue,0,REG_SZ,
-        reinterpret_cast<const BYTE*>(cmd.c_str()),
-        static_cast<DWORD>((cmd.size()+1)*sizeof(wchar_t)));
-    RegCloseKey(hkey);
-    if(res!=ERROR_SUCCESS) throw std::runtime_error("Falha gravando registro. Erro="+std::to_string(res));
-
-    // Inicia imediatamente em background (processo detached)
     STARTUPINFOW si{}; si.cb=sizeof(si);
     PROCESS_INFORMATION pi{};
-    std::wstring cmdMut=cmd; // CreateProcessW precisa de buffer mutavel
+    std::wstring cmdMut=cmd;
     if(CreateProcessW(nullptr,cmdMut.data(),nullptr,nullptr,FALSE,
                       DETACHED_PROCESS|CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
     }
+}
 
-    std::cout<<"Keeply Agent instalado com sucesso!\n";
-    std::cout<<"O agent vai iniciar automaticamente em cada login do Windows.\n";
-    std::cout<<"Na primeira execucao o codigo de pareamento aparece em uma janela.\n";
+static void agentRegisterAutorun(const AgentRuntimeOptions& opts){
+    // Registra no autorun apontando para modo --background (sem popup no login)
+    const fs::path exe=agentCurrentExePath();
+    std::wstring cmd=L"\""+exe.wstring()+L"\" agent --background";
+    if(!opts.url.empty())        cmd+=L" --url \""+std::wstring(opts.url.begin(),opts.url.end())+L"\"";
+    if(!opts.deviceName.empty()) cmd+=L" --device \""+std::wstring(opts.deviceName.begin(),opts.deviceName.end())+L"\"";
+    if(!opts.watchRoot.empty())  cmd+=L" --root \""+opts.watchRoot.wstring()+L"\"";
+
+    HKEY hkey=nullptr;
+    if(RegOpenKeyExW(HKEY_CURRENT_USER,kRunKey,0,KEY_SET_VALUE,&hkey)==ERROR_SUCCESS){
+        RegSetValueExW(hkey,kRunValue,0,REG_SZ,
+            reinterpret_cast<const BYTE*>(cmd.c_str()),
+            static_cast<DWORD>((cmd.size()+1)*sizeof(wchar_t)));
+        RegCloseKey(hkey);
+    }
+}
+
+static void agentInstallService(const AgentRuntimeOptions& opts){
+    agentRegisterAutorun(opts);
+
+    // Lanca imediatamente em background (processo detached) e sai
+    const fs::path exe=agentCurrentExePath();
+    std::wstring cmd=L"\""+exe.wstring()+L"\" agent";
+    if(!opts.url.empty())        cmd+=L" --url \""+std::wstring(opts.url.begin(),opts.url.end())+L"\"";
+    if(!opts.deviceName.empty()) cmd+=L" --device \""+std::wstring(opts.deviceName.begin(),opts.deviceName.end())+L"\"";
+    if(!opts.watchRoot.empty())  cmd+=L" --root \""+opts.watchRoot.wstring()+L"\"";
+
+    STARTUPINFOW si{}; si.cb=sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::wstring cmdMut=cmd;
+    if(CreateProcessW(nullptr,cmdMut.data(),nullptr,nullptr,FALSE,
+                      DETACHED_PROCESS|CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    std::cout<<"Keeply Agent instalado! O codigo de pareamento vai aparecer em instantes.\n";
 }
 
 static void agentUninstallService(){
@@ -515,7 +537,12 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
     options.watchRoot=pickWatchRoot();
     options.enableLocalCbt=!envTruthyAny({"KEEPLY_DISABLE_CBT","KEEPly_DISABLE_CBT"});
     options.enableTray=!envTruthyAny({"KEEPLY_DISABLE_TRAY","KEEPly_DISABLE_TRAY"});
+#ifdef _WIN32
+    options.allowInsecureTls=true; // MinGW nao usa cert store do Windows
+    if(envTruthyAny({"KEEPLY_INSECURE_TLS","KEEPly_INSECURE_TLS"})) options.allowInsecureTls=true;
+#else
     options.allowInsecureTls=envTruthyAny({"KEEPLY_INSECURE_TLS","KEEPly_INSECURE_TLS"});
+#endif
 
     int positionalIndex=0;
     for(int i=1;i<argc;++i){
@@ -537,6 +564,7 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
 #ifdef _WIN32
         if(arg=="--install-service"){ options.installService=true; continue; }
         if(arg=="--uninstall-service"){ options.uninstallService=true; continue; }
+        if(arg=="--background"){ options.background=true; continue; }
 #endif
         if(!arg.empty()&&arg[0]=='-') throw std::runtime_error("Argumento invalido: "+arg);
         if(positionalIndex==0) options.url=arg;
@@ -648,6 +676,47 @@ int main(int argc,char** argv){
             agentUninstallService();
             return 0;
         }
+        // Modo background: processo filho que roda o loop WS sem UI
+        if(options.background){
+            runAgentLoop(options);
+            return 0;
+        }
+
+        // Modo normal (clique duplo):
+        // 1. Registra autorun no registro
+        // 2. Faz pareamento se necessario (mostra popup)
+        // 3. Lanca processo background com loop WS
+        // 4. Fecha esta janela
+        agentRegisterAutorun(options);
+
+        {
+            auto dataDir = pickDataDir();
+            std::error_code ec;
+            fs::create_directories(dataDir, ec);
+
+            keeply::WsClientConfig config;
+            config.url              = options.url;
+            config.allowInsecureTls = options.allowInsecureTls;
+            config.hostName         = detectHostName();
+            config.deviceName       = config.hostName;
+            if (!options.deviceName.empty()) config.deviceName = options.deviceName;
+            config.osName           = detectOsName();
+            config.identityDir      = dataDir / "agent_identity";
+
+            auto existing = keeply::KeeplyAgentBootstrap::loadPersistedIdentity(config);
+            if (existing.deviceId.empty()) {
+                // Primeira vez: faz pareamento (popup aparece automaticamente)
+                keeply::KeeplyAgentBootstrap::ensureRegistered(config);
+                MessageBoxW(nullptr,
+                    L"Dispositivo registrado!\nO Keeply Agent esta rodando em background.",
+                    L"Keeply",
+                    MB_OK | MB_ICONINFORMATION);
+            }
+        }
+
+        // Lanca o loop WS em background e fecha
+        agentLaunchBackground(options);
+        return 0;
 #endif
 #ifdef __linux__
         if(!options.foreground) daemonizeProcess();

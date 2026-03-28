@@ -51,6 +51,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Qualquer outro caso cai no CLI
-    return keeply_cli_main(argc, argv);
+    // Sem argumentos ou argumento desconhecido: roda o agent diretamente
+    return keeply_agent_main(argc, argv);
 }

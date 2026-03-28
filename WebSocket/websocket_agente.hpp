@@ -86,6 +86,7 @@ struct WsCommand{
 class KeeplyAgentBootstrap final{
 public:
     static AgentIdentity ensureRegistered(const WsClientConfig& config);
+    static AgentIdentity loadPersistedIdentity(const WsClientConfig& config);
 };
 
 class KeeplyAgentWsClient final{

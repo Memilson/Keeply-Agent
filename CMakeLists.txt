@@ -140,6 +140,15 @@ set(KEEPLY_COMMON_LIBS
     ${ZSTD_LIB}
 )
 
+# Libs estaticas para o target keeply_all (exe unico sem DLLs externas)
+set(KEEPLY_ALL_STATIC_LIBS
+    C:/msys64/mingw64/lib/libssl.a
+    C:/msys64/mingw64/lib/libcrypto.a
+    C:/msys64/mingw64/lib/libz.a
+    C:/msys64/mingw64/lib/libsqlite3.a
+    C:/msys64/mingw64/lib/libzstd.a
+)
+
 function(keeply_stage_windows_runtime_deps target_name)
     if(NOT WIN32)
         return()
@@ -289,9 +298,21 @@ target_compile_definitions(keeply_all PRIVATE
     BLAKE3_NO_AVX512
 )
 
-target_link_libraries(keeply_all PRIVATE ${KEEPLY_COMMON_LIBS})
-
-if(WIN32)
-    target_link_libraries(keeply_all PRIVATE ws2_32 Shell32 Ole32 User32 Advapi32)
-    keeply_stage_windows_runtime_deps(keeply_all)
+if(WIN32 AND MINGW)
+    # Linka tudo estaticamente: sem DLLs externas, exe unico portavel
+    target_link_options(keeply_all PRIVATE
+        -static
+        -static-libgcc
+        -static-libstdc++
+    )
+    target_link_libraries(keeply_all PRIVATE
+        ${KEEPLY_ALL_STATIC_LIBS}
+        ws2_32 Shell32 Ole32 User32 Advapi32 Crypt32
+    )
+else()
+    target_link_libraries(keeply_all PRIVATE ${KEEPLY_COMMON_LIBS})
+    if(WIN32)
+        target_link_libraries(keeply_all PRIVATE ws2_32 Shell32 Ole32 User32 Advapi32)
+        keeply_stage_windows_runtime_deps(keeply_all)
+    endif()
 endif()

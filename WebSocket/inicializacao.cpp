@@ -909,4 +909,8 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     return identity;
 }
 
+AgentIdentity KeeplyAgentBootstrap::loadPersistedIdentity(const WsClientConfig& config) {
+    return ::keeply::loadPersistedIdentity(config);
+}
+
 }
