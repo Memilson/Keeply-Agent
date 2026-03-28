@@ -1,10 +1,5 @@
 #pragma once
 
-
-
-
-
-
 #include "../Core/tipos.hpp"
 
 namespace keeply {
@@ -57,4 +52,4 @@ private:
     AppState state_;
 };
 
-} 
+}

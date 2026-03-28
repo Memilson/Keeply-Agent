@@ -1,10 +1,5 @@
 #pragma once
 
-
-
-
-
-
 #include "../Core/tipos.hpp"
 
 namespace keeply {
@@ -42,4 +37,4 @@ public:
     static VerifyResult verifyArchive(const fs::path& archivePath, bool verbose = false);
 };
 
-} 
+}

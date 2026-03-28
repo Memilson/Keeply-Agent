@@ -44,7 +44,6 @@ using SocketLen =
     socklen_t;
 #endif
 
-
 static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
@@ -259,17 +258,9 @@ public:
     std::shared_ptr<KeeplyApi> api;
     std::shared_ptr<IWsNotifier> ws;
 
-    
-    
-    
-    
-    
-    
-    
-    
-    std::mutex mu;          
-    std::mutex jobsMu;      
-    std::mutex workersMu;   
+    std::mutex mu;
+    std::mutex jobsMu;
+    std::mutex workersMu;
     std::unordered_map<std::string,BackupJob> jobs;
     std::vector<std::thread> workers;
     std::atomic<std::uint64_t> seq{1};
@@ -323,15 +314,13 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
         if(startsWith(req.path,"/api/v1/")) return jsonMethodNotAllowed("Metodo HTTP nao suportado para esta rota.");
         return jsonNotFound("Rota nao encontrada.");
     }catch(const KeeplyNotFoundError& e){
-        
+
         return jsonNotFound(e.what());
     }catch(const KeeplyValidationError& e){
-        
+
         return jsonBadRequest(e.what());
     }catch(const std::exception& e){
-        
-        
-        
+
         const std::string msg=e.what();
         if(
             containsText(msg,"nao encontrado")||
@@ -535,18 +524,11 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     return jsonOk(R"({"ok":true})");
 }
 
-
-
-
-
-
-
-
 static const std::string kVersionPrefix=std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+",";
 
 RestResponse KeeplyRestApi::jsonOk(const std::string& json){
     RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8";
-    
+
     if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
     else r.body=json;
     return r;
@@ -593,12 +575,6 @@ std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,c
     return fullPath.substr(prefix.size());
 }
 
-
-
-
-
-
-
 class RequestRateLimiter{
     std::deque<std::chrono::steady_clock::time_point> timestamps_;
     std::size_t maxRequests_;
@@ -607,10 +583,9 @@ public:
     RequestRateLimiter(std::size_t maxRequests,std::chrono::milliseconds window)
         :maxRequests_(maxRequests),window_(window){}
 
-    
     bool allow(){
         const auto now=std::chrono::steady_clock::now();
-        
+
         while(!timestamps_.empty()&&(now-timestamps_.front())>window_)
             timestamps_.pop_front();
         if(timestamps_.size()>=maxRequests_) return false;
@@ -626,8 +601,6 @@ int runRestHttpServer(const RestHttpServerConfig& config){
         KeeplyRestApi rest(config.api,config.wsNotifier);
         int listenFd=createListenSocket(config.port);
 
-        
-        
         RequestRateLimiter rateLimiter(120,std::chrono::minutes(1));
 
         std::cout<<"Keeply REST HTTP listening on http://127.0.0.1:"<<config.port<<"\n";
@@ -645,7 +618,7 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             }
             setSocketTimeouts(cfd,8000,8000);
             try{
-                
+
                 if(!rateLimiter.allow()){
                     sendHttpError(cfd,429,"Rate limit excedido. Tente novamente em alguns segundos.");
                     closeSocketFd(cfd);
@@ -675,4 +648,4 @@ int runRestHttpServer(const RestHttpServerConfig& config){
     }
 }
 
-} 
+}

@@ -18,7 +18,7 @@ struct QueueItem{
     std::size_t attempt=1;
 };
 
-} 
+}
 
 void runParallelUploadQueue(
     std::size_t taskCount,
@@ -97,4 +97,4 @@ void runParallelUploadQueue(
     if(fatalError) std::rethrow_exception(fatalError);
 }
 
-} 
+}

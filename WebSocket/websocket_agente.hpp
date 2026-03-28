@@ -146,4 +146,4 @@ private:
     void ensureConnected_() const;
 };
 
-} 
+}

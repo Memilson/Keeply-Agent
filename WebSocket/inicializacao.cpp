@@ -31,10 +31,6 @@
 
 namespace keeply {
 
-
-
-
-
 namespace {
 
 using namespace ws_internal;
@@ -60,25 +56,19 @@ using UniquePkeyCtx = std::unique_ptr<EVP_PKEY_CTX, EvpPkeyCtxDeleter>;
 using UniqueX509    = std::unique_ptr<X509, X509Deleter>;
 using UniqueFile    = std::unique_ptr<std::FILE, FileDeleter>;
 
-
-
-
-
 namespace ui {
-
 
 constexpr const char* kBrandBlue     = "#1E88E5";
 constexpr const char* kBrandBlueDark = "#1565C0";
 constexpr const char* kBrandWhite    = "#FFFFFF";
 constexpr const char* kTextMuted     = "#64748B";
 constexpr const char* kTextDark      = "#1E293B";
-constexpr const char* kCodeBg        = "#EFF6FF";  
+constexpr const char* kCodeBg        = "#EFF6FF";
 constexpr const char* kBorderLight   = "#BFDBFE";
 
 constexpr const char* kFallbackDevice = "Keeply Agent";
 constexpr const char* kFallbackHost   = "desconhecido";
 constexpr const char* kWindowTitle    = "Keeply";
-
 
 constexpr int kWindowWidth  = 460;
 constexpr int kWindowHeight = 340;
@@ -94,14 +84,12 @@ constexpr COLORREF kWinTextDark  = RGB(0x1E, 0x29, 0x3B);
 constexpr COLORREF kWinTextMuted = RGB(0x64, 0x74, 0x8B);
 #endif
 
-
 inline std::string buildHtmlPopup(const std::string& code,
                                   const std::string& deviceName,
                                   const std::string& hostName) {
     const std::string dev  = deviceName.empty() ? kFallbackDevice : deviceName;
     const std::string host = hostName.empty()   ? kFallbackHost   : hostName;
 
-    
     std::string codeFormatted;
     for (std::size_t i = 0; i < code.size(); ++i) {
         if (i > 0 && i % 4 == 0) codeFormatted += ' ';
@@ -156,7 +144,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     return html.str();
 }
 
-
 inline std::string buildPlainMessage(const std::string& code,
                                      const std::string& deviceName,
                                      const std::string& hostName) {
@@ -171,11 +158,7 @@ inline std::string buildPlainMessage(const std::string& code,
     return out.str();
 }
 
-} 
-
-
-
-
+}
 
 struct PairingStatusResponse {
     std::string status;
@@ -187,10 +170,6 @@ struct PairingStatusResponse {
     bool isExpired() const noexcept { return status == "expired" || status == "missing"; }
     bool isConflict() const noexcept { return status == "code_conflict"; }
 };
-
-
-
-
 
 class PairingPopupHandle {
 public:
@@ -231,7 +210,6 @@ private:
     std::string shownDevice_;
     std::string shownHost_;
 
-    
     static std::string formatCode(const std::string& code) {
         std::string out;
         for (std::size_t i = 0; i < code.size(); ++i) {
@@ -240,10 +218,6 @@ private:
         }
         return out;
     }
-
-    
-    
-    
 
 #ifdef _WIN32
     HWND   hwnd_         = nullptr;
@@ -274,18 +248,15 @@ private:
         GetClientRect(hwnd, &rc);
         const int W = rc.right;
 
-        
         HBRUSH whiteBrush = CreateSolidBrush(ui::kWinWhite);
         FillRect(hdc, &rc, whiteBrush);
         DeleteObject(whiteBrush);
 
-        
         RECT topBar = {0, 0, W, 48};
         HBRUSH blueBrush = CreateSolidBrush(ui::kWinBrandBlue);
         FillRect(hdc, &topBar, blueBrush);
         DeleteObject(blueBrush);
 
-        
         SetBkMode(hdc, TRANSPARENT);
         HFONT titleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                        DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
@@ -298,7 +269,6 @@ private:
 
         int y = 68;
 
-        
         HFONT subtitleFont = CreateFontW(-13, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
                                           DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         SelectObject(hdc, subtitleFont);
@@ -310,7 +280,6 @@ private:
         DeleteObject(subtitleFont);
         y += 32;
 
-        
         const int boxMargin = 40;
         const int boxH = 64;
         RECT codeBox = {boxMargin, y, W - boxMargin, y + boxH};
@@ -325,7 +294,6 @@ private:
         SelectObject(hdc, oldPen);
         DeleteObject(borderPen);
 
-        
         if (ctx) {
             HFONT codeFont = CreateFontW(-32, 0, 0, 0, FW_EXTRABOLD, FALSE, FALSE, FALSE,
                                           DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
@@ -338,7 +306,6 @@ private:
         }
         y += boxH + 24;
 
-        
         if (ctx) {
             HFONT infoFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                           DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
@@ -358,14 +325,12 @@ private:
             DeleteObject(infoFont);
         }
 
-        
         RECT divider = {(W - 48) / 2, y, (W + 48) / 2, y + 3};
         HBRUSH divBrush = CreateSolidBrush(ui::kWinBrandBlue);
         FillRect(hdc, &divider, divBrush);
         DeleteObject(divBrush);
         y += 16;
 
-        
         HFONT hintFont = CreateFontW(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         SelectObject(hdc, hintFont);
@@ -391,7 +356,7 @@ private:
             paintWindow(hwnd, ctx);
             return 0;
         case WM_ERASEBKGND:
-            return 1;  
+            return 1;
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
@@ -412,7 +377,7 @@ private:
         wc.hInstance      = GetModuleHandleW(nullptr);
         wc.lpszClassName  = className;
         wc.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground  = nullptr;  
+        wc.hbrBackground  = nullptr;
         RegisterClassW(&wc);
 
         const auto title = toWide(ui::kWindowTitle);
@@ -450,7 +415,7 @@ private:
 
         threadHandle_ = CreateThread(nullptr, 0, popupThread, ctx.get(), 0, &threadId_);
         if (threadHandle_) {
-            ctx.release();   
+            ctx.release();
         }
     }
 
@@ -464,10 +429,6 @@ private:
         }
         hwnd_ = nullptr;
     }
-
-    
-    
-    
 
 #elif defined(__linux__) || defined(__APPLE__)
     pid_t pid_ = -1;
@@ -679,10 +640,6 @@ root.mainloop()
 #endif
 };
 
-
-
-
-
 void tightenPermissions(const fs::path& path, bool executable) {
 #if defined(__linux__) || defined(__APPLE__)
     const mode_t mode = executable ? mode_t{0700} : mode_t{0600};
@@ -699,10 +656,6 @@ void ensureIdentityPermissions(const AgentIdentity& id) {
     if (fs::exists(id.keyPemPath))  tightenPermissions(id.keyPemPath,  false);
     if (fs::exists(id.metaPath))    tightenPermissions(id.metaPath,    false);
 }
-
-
-
-
 
 std::string computeFingerprint(X509* cert) {
     const int derLen = i2d_X509(cert, nullptr);
@@ -729,10 +682,6 @@ std::string computeFingerprintFromFile(const fs::path& certPemPath) {
     return computeFingerprint(cert.get());
 }
 
-
-
-
-
 AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     AgentIdentity identity;
     identity.certPemPath = config.identityDir / "agent-cert.pem";
@@ -744,7 +693,6 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     if (ec) throw std::runtime_error("Falha ao criar diretorio de identidade: " + ec.message());
     tightenPermissions(config.identityDir, true);
 
-    
     UniquePkeyCtx pkeyCtx(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr));
     if (!pkeyCtx) throw std::runtime_error("Falha ao criar contexto da chave.");
     if (EVP_PKEY_keygen_init(pkeyCtx.get()) <= 0)                  throw std::runtime_error("Falha ao inicializar keygen.");
@@ -754,7 +702,6 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     if (EVP_PKEY_keygen(pkeyCtx.get(), &rawKey) <= 0) throw std::runtime_error("Falha ao gerar chave privada.");
     UniquePkey pkey(rawKey);
 
-    
     UniqueX509 cert(X509_new());
     if (!cert) throw std::runtime_error("Falha ao criar certificado X509.");
 
@@ -775,7 +722,6 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
         throw std::runtime_error("Falha ao assinar certificado do agente.");
     }
 
-    
     {
         UniqueFile fp(fopenPath(identity.keyPemPath, "wb"));
         if (!fp) throw std::runtime_error("Falha ao criar chave PEM do agente.");
@@ -785,7 +731,6 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     }
     tightenPermissions(identity.keyPemPath, false);
 
-    
     {
         UniqueFile fp(fopenPath(identity.certPemPath, "wb"));
         if (!fp) throw std::runtime_error("Falha ao criar cert PEM do agente.");
@@ -798,10 +743,6 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     identity.fingerprintSha256 = computeFingerprint(cert.get());
     return identity;
 }
-
-
-
-
 
 PairingStatusResponse parsePairingResponse(const ws_internal::HttpResponse& resp) {
     PairingStatusResponse out;
@@ -859,10 +800,6 @@ PairingStatusResponse pollPairingStatus(const WsClientConfig& config,
     return parsePairingResponse(resp);
 }
 
-
-
-
-
 AgentIdentity loadPersistedIdentity(const WsClientConfig& config) {
     AgentIdentity identity;
     identity.metaPath = config.identityDir / "identity.meta";
@@ -888,10 +825,6 @@ AgentIdentity loadPersistedIdentity(const WsClientConfig& config) {
     return identity;
 }
 
-
-
-
-
 bool awaitPairingConfirmation(const WsClientConfig& config,
                               AgentIdentity& identity)
 {
@@ -915,11 +848,7 @@ bool awaitPairingConfirmation(const WsClientConfig& config,
     }
 }
 
-} 
-
-
-
-
+}
 
 AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& config) {
     if (trim(config.url).empty()) {
@@ -932,7 +861,6 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     PairingPopupHandle popup;
     AgentIdentity identity = loadPersistedIdentity(config);
 
-    
     if (!fs::exists(identity.certPemPath) || !fs::exists(identity.keyPemPath)) {
         identity = generateSelfSignedIdentity(config);
     } else if (identity.fingerprintSha256.empty()) {
@@ -941,7 +869,6 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
 
     ensureIdentityPermissions(identity);
 
-    
     for (;;) {
         if (identity.pairingCode.empty()) identity.pairingCode = trim(config.pairingCode);
         if (identity.pairingCode.empty()) identity.pairingCode = ws_internal::randomDigits(8);
@@ -961,7 +888,6 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
             break;
         }
 
-        
         ws_internal::saveIdentityMeta(identity);
         popup.show(identity.pairingCode, config.deviceName, config.hostName);
 
@@ -983,4 +909,4 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     return identity;
 }
 
-} 
+}

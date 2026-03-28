@@ -53,7 +53,6 @@ long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
 
-
 using SqlTransaction = keeply::SharedSqlTransaction;
 using SqlStmt = keeply::SharedSqlStmt;
 
@@ -95,7 +94,7 @@ struct WinHandle {
     bool valid() const { return h != INVALID_HANDLE_VALUE; }
 };
 #endif
-} 
+}
 
 class EventStore::Db {
     sqlite3* db_ = nullptr;
@@ -258,13 +257,7 @@ std::vector<fs::path> systemExcludedRoots() {
     return defaultSystemExcludedRoots();
 }
 
-} 
-
-
-
-
-
-
+}
 
 namespace rastreamento_eventos_base {
 
@@ -283,7 +276,7 @@ const char* toStoreEventType(TipoEventoMonitorado eventType) {
     return "modify";
 }
 
-} 
+}
 
 MotorMonitorBase::MotorMonitorBase(const fs::path& rootPath, bool respectSystemExclusionPolicy)
     : respectSystemExclusionPolicy_(respectSystemExclusionPolicy) {
@@ -431,7 +424,7 @@ void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath
     rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";
 }
 
-} 
+}
 
 class BackgroundCbtWatcher::Impl {
 public:
@@ -466,8 +459,6 @@ private:
     std::thread worker_;
     std::unique_ptr<rastreamento_eventos_base::MonitorRunner> runner_;
 };
-
-
 
 BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(std::make_unique<Impl>()) {}
 BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
@@ -715,8 +706,7 @@ public:
         const auto previousFiles = loadTrackedFiles();
         const auto currentFiles = scanCurrentLinuxFiles(root_);
         std::vector<ChangedFile> changes;
-        
-        
+
         for (const auto& [relPath, info] : currentFiles) {
             const auto prevIt = previousFiles.find(relPath);
             if (prevIt == previousFiles.end() || prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false});
@@ -824,4 +814,4 @@ public:
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
     return std::make_unique<CompositeChangeTracker>();
 }
-} 
+}

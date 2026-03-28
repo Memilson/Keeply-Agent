@@ -40,4 +40,4 @@ void ensureArchiveStorageParent(const fs::path& archivePath);
 std::shared_ptr<StorageBackend> makeLocalStorageBackend(const fs::path& archivePath);
 std::unique_ptr<StorageCloudExporter> makeLocalCloudExporter(const fs::path& archivePath);
 
-} 
+}

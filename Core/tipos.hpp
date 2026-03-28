@@ -1,11 +1,5 @@
 #pragma once
 
-
-
-
-
-
-
 #include "utilitarios.hpp"
 
 #include <array>
@@ -29,10 +23,6 @@
 namespace keeply {
 
 namespace fs = std::filesystem;
-
-
-
-
 
 enum class KnownDirectory {
     Home,
@@ -68,10 +58,6 @@ fs::path pathFromUtf8(const std::string& utf8Path);
 FILE* fopenPath(const fs::path& path, const char* mode);
 int sqlite3_open_path(const fs::path& path, sqlite3** db);
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs);
-
-
-
-
 
 inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
@@ -117,10 +103,6 @@ private:
     std::array<Shard, NUM_SHARDS> shards_;
 };
 
-
-
-
-
 std::string nowIsoLocal();
 long long fileTimeToUnixSeconds(const fs::file_time_type& ftp);
 std::string hexOfBytes(const unsigned char* bytes, std::size_t n);
@@ -130,10 +112,6 @@ fs::path normalizeAbsolutePath(const fs::path& p);
 bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot);
 bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath);
 void ensureDefaults();
-
-
-
-
 
 class Compactador {
 public:
@@ -167,10 +145,6 @@ public:
         std::vector<unsigned char>& out
     );
 };
-
-
-
-
 
 class SqliteError : public std::runtime_error {
 public:
@@ -224,10 +198,6 @@ private:
 
     sqlite3* db_{nullptr};
 };
-
-
-
-
 
 struct FileInfo {
     sqlite3_int64 fileId{};
@@ -288,4 +258,4 @@ struct BackupProgress {
     std::string currentFile;
 };
 
-} 
+}

@@ -159,7 +159,7 @@ HttpTls connectTls(int fd,
     }
     tls.ssl = SSL_new(tls.ctx);
     if (!tls.ssl) throw std::runtime_error("Falha ao criar SSL.");
-    
+
     SSL_set_mode(tls.ssl, SSL_MODE_AUTO_RETRY | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
     SSL_set_fd(tls.ssl, fd);
     SSL_set_tlsext_host_name(tls.ssl, url.host.c_str());
@@ -182,7 +182,7 @@ std::string readHttpResponseBody(int fd, SSL* ssl) {
     return data;
 }
 
-} 
+}
 
 HttpResponse httpPostJson(const std::string& url,
                           const std::string& body,
@@ -358,7 +358,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
     }
 }
 
-} 
+}
 
 std::string hexEncode(const unsigned char* data, std::size_t size) {
     static const char* h = "0123456789abcdef";
@@ -698,4 +698,4 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
     return result;
 }
 
-} 
+}

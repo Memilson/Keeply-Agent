@@ -106,7 +106,7 @@ inline fs::path fallbackCurrentPath() {
     return ec ? fs::path(".") : cwd.lexically_normal();
 }
 
-} 
+}
 
 std::string pathToUtf8(const fs::path& path) {
     return path.u8string();
@@ -336,4 +336,4 @@ bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candid
     return false;
 }
 
-} 
+}

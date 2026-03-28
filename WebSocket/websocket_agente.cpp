@@ -376,7 +376,7 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     return cmd;
 }
 
-} 
+}
 
 namespace keeply {
 
@@ -440,7 +440,7 @@ KeeplyAgentWsClient::KeeplyAgentWsClient(std::shared_ptr<KeeplyApi> api,AgentIde
     if(!api_) throw std::runtime_error("KeeplyAgentWsClient requer KeeplyApi.");
 }
 
-KeeplyAgentWsClient::~KeeplyAgentWsClient(){try{close();}catch(...){}} 
+KeeplyAgentWsClient::~KeeplyAgentWsClient(){try{close();}catch(...){}}
 
 void KeeplyAgentWsClient::connect(const WsClientConfig& config){
     close();
@@ -456,9 +456,7 @@ void KeeplyAgentWsClient::connect(const WsClientConfig& config){
 }
 
 void KeeplyAgentWsClient::run(){
-    
-    
-    
+
     constexpr std::size_t kMaxMsgsPerWindow=60;
     constexpr auto kWindow=std::chrono::minutes(1);
     constexpr auto kKeepAliveInterval=std::chrono::seconds(25);
@@ -535,7 +533,7 @@ void KeeplyAgentWsClient::run(){
         pongDeadline.reset();
 
         if(opcode==0x1){
-            
+
             const auto now=std::chrono::steady_clock::now();
             while(!msgTimestamps.empty()&&(now-msgTimestamps.front())>kWindow)
                 msgTimestamps.pop_front();
@@ -548,7 +546,7 @@ void KeeplyAgentWsClient::run(){
             }
             msgTimestamps.push_back(now);
             if(droppedCount>0){
-                
+
                 std::cerr<<"[keeply][ws][info] rate limit normalizado após "<<droppedCount<<" mensagens ignoradas.\n";
                 droppedCount=0;
             }
@@ -568,7 +566,7 @@ void KeeplyAgentWsClient::run(){
 void KeeplyAgentWsClient::close(){
     bool shouldSendClose=false;
     {std::lock_guard<std::mutex> lock(mu_);shouldSendClose=connected_&&!closeSent_&&sockfd_>=0;}
-    if(shouldSendClose){try{sendClose_(1000,"client.shutdown");}catch(...){}} 
+    if(shouldSendClose){try{sendClose_(1000,"client.shutdown");}catch(...){}}
     int fd=-1;
     std::shared_ptr<TlsState> tls;
     {
@@ -798,7 +796,7 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
 
         const fs::path finalPackPath = tempRoot / packFileName;
         if(blobPaths.size() == 1 && blobPaths.front().filename() == finalPackPath.filename()){
-            
+
         }else{
             sendProgress("assembling", packFileName);
             if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
@@ -964,9 +962,7 @@ void KeeplyAgentWsClient::sendHello_(){
 }
 
 void KeeplyAgentWsClient::sendJson_(const std::string& payload){
-    
-    
-    
+
     if(!payload.empty()&&payload.front()=='{'){
         sendText(std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+","+payload.substr(1));
     }else{
@@ -1223,4 +1219,4 @@ void KeeplyAgentWsClient::ensureConnected_() const{
     if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");
 }
 
-} 
+}

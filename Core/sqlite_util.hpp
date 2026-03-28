@@ -1,18 +1,10 @@
 #pragma once
 
-
-
-
-
-
-
 #include <sqlite3.h>
 #include <stdexcept>
 #include <string>
 
 namespace keeply {
-
-
 
 class SharedSqlTransaction {
     sqlite3* db_ = nullptr;
@@ -48,7 +40,6 @@ public:
     bool committed() const noexcept { return committed_; }
 };
 
-
 class SharedSqlStmt {
     sqlite3_stmt* st_ = nullptr;
 
@@ -68,7 +59,6 @@ public:
     sqlite3_stmt* get() const noexcept { return st_; }
 };
 
-
 inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullptr) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
@@ -79,4 +69,4 @@ inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullp
     }
 }
 
-} 
+}

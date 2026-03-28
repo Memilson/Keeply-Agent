@@ -1,10 +1,5 @@
 #pragma once
 
-
-
-
-
-
 #include "../Core/tipos.hpp"
 
 namespace keeply {
@@ -123,4 +118,4 @@ private:
                                           const std::string& expectedAlgo) const;
 };
 
-} 
+}

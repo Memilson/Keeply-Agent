@@ -251,9 +251,8 @@ void KeeplyApi::setArchiveSplitMaxBytes(std::uint64_t maxBytes) {
         disableArchiveSplit();
         return;
     }
-    
-    
-    constexpr std::uint64_t kMinSplitBytes = 64ull * 1024ull * 1024ull; 
+
+    constexpr std::uint64_t kMinSplitBytes = 64ull * 1024ull * 1024ull;
     if (maxBytes < kMinSplitBytes) {
         throw std::runtime_error("Tamanho de divisao muito pequeno (minimo: 64 MiB).");
     }
@@ -268,8 +267,7 @@ bool KeeplyApi::archiveExists() const {
     return fs::exists(pathFromUtf8(state_.archive));}
 BackupStats KeeplyApi::runBackup(const std::string& label,
                                  const std::function<void(const BackupProgress&)>& progressCallback) {
-    
-    
+
     return ScanEngine::backupFolderToKply(pathFromUtf8(state_.source), pathFromUtf8(state_.archive), label, progressCallback);}
 std::vector<SnapshotRow> KeeplyApi::listSnapshots() {
     StorageArchive arc(pathFromUtf8(state_.archive));

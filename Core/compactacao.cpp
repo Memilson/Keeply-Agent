@@ -43,11 +43,10 @@ void Compactador::zlibCompress(
     const unsigned char* data,
     std::size_t len,
     int level,
-    std::vector<unsigned char>& out 
+    std::vector<unsigned char>& out
 ) {
     uLongf bound = compressBound(static_cast<uLong>(len));
 
-    
     if (out.capacity() < bound) out.reserve(bound);
     out.resize(bound);
 
@@ -56,14 +55,14 @@ void Compactador::zlibCompress(
         throw std::runtime_error("Falha ao comprimir chunk (zlib)");
     }
 
-    out.resize(bound); 
+    out.resize(bound);
 }
 
 void Compactador::zlibDecompress(
     const void* compData,
     std::size_t compLen,
     std::size_t rawSize,
-    std::vector<unsigned char>& out 
+    std::vector<unsigned char>& out
 ) {
     if (out.capacity() < rawSize) out.reserve(rawSize);
     out.resize(rawSize);
@@ -86,7 +85,7 @@ void Compactador::zstdCompress(
     const unsigned char* data,
     std::size_t len,
     int level,
-    std::vector<unsigned char>& out 
+    std::vector<unsigned char>& out
 ) {
     const std::size_t bound = ZSTD_compressBound(len);
 
@@ -105,7 +104,7 @@ void Compactador::zstdDecompress(
     const void* compData,
     std::size_t compLen,
     std::size_t rawSize,
-    std::vector<unsigned char>& out 
+    std::vector<unsigned char>& out
 ) {
     if (out.capacity() < rawSize) out.reserve(rawSize);
     out.resize(rawSize);
@@ -119,4 +118,4 @@ void Compactador::zstdDecompress(
     }
 }
 
-} 
+}

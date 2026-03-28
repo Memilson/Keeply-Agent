@@ -150,7 +150,7 @@ std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path& rootPath
     return std::make_unique<MotorMonitorWindows>(rootPath, respectSystemExclusionPolicy);
 }
 
-} 
+}
 
 namespace {
 
@@ -290,7 +290,7 @@ void uninstallService() {
     CloseServiceHandle(scm);
 }
 
-} 
+}
 
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
@@ -349,7 +349,7 @@ std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path&, bool) {
     throw std::runtime_error("Motor Windows disponivel apenas no Windows.");
 }
 
-} 
+}
 
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main() {

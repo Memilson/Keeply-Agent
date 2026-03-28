@@ -155,6 +155,6 @@ void appendMonitoredEvent(EventStore& store,
 void writeMonitorPidFile(const fs::path& pidPath, const std::string& pidValue);
 void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath);
 
-} 
+}
 
-} 
+}
