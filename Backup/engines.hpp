@@ -1,9 +1,9 @@
 #pragma once
 
-// =============================================================================
-// Backup/engines.hpp
-// Engines de backup, restore e verificação de integridade.
-// =============================================================================
+
+
+
+
 
 #include "../Core/tipos.hpp"
 
@@ -42,4 +42,4 @@ public:
     static VerifyResult verifyArchive(const fs::path& archivePath, bool verbose = false);
 };
 
-} // namespace keeply
+} 

@@ -40,7 +40,7 @@ DecodedToken decodeToken(std::uint64_t token) {
     if (rawBackend == static_cast<std::uint64_t>(TokenBackend::Daemon)) return {TokenBackend::Daemon, token & kTokenValueMask};
     return {TokenBackend::Native, token & kTokenValueMask};
 }
-// toLowerAscii removida — usar keeply::lowerAscii() de utilitarios_backup.hpp
+
 std::string normalizeEventType(std::string type) {
     return keeply::lowerAscii(std::move(type));
 }
@@ -52,8 +52,8 @@ long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     const auto sctp = time_point_cast<system_clock::duration>(ftp - fs::file_time_type::clock::now() + system_clock::now());
     return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
-// SqlTransaction / SqlStmt locais substituídos por SharedSqlTransaction / SharedSqlStmt
-// de sqlite_util.hpp. Aliases mantidos para compatibilidade com código existente.
+
+
 using SqlTransaction = keeply::SharedSqlTransaction;
 using SqlStmt = keeply::SharedSqlStmt;
 
@@ -95,7 +95,7 @@ struct WinHandle {
     bool valid() const { return h != INVALID_HANDLE_VALUE; }
 };
 #endif
-} // namespace
+} 
 
 class EventStore::Db {
     sqlite3* db_ = nullptr;
@@ -258,14 +258,14 @@ std::vector<fs::path> systemExcludedRoots() {
     return defaultSystemExcludedRoots();
 }
 
-} // namespace
+} 
 
-// normalizeAbsolutePath, sourceRootUsesSystemExclusionPolicy, isExcludedBySystemPolicy
-// agora definidos em Core/plataforma.cpp — removidos daqui para eliminar duplicação.
 
-// [ATENÇÃO 3] — Nomes em português mantidos para preservar compatibilidade com
-// o restante do projeto. Caso opte por migrar para inglês, consulte o mapeamento
-// no arquivo keeply_corrigido.cpp (seção ATENÇÃO 3).
+
+
+
+
+
 namespace rastreamento_eventos_base {
 
 namespace {
@@ -283,7 +283,7 @@ const char* toStoreEventType(TipoEventoMonitorado eventType) {
     return "modify";
 }
 
-} // namespace
+} 
 
 MotorMonitorBase::MotorMonitorBase(const fs::path& rootPath, bool respectSystemExclusionPolicy)
     : respectSystemExclusionPolicy_(respectSystemExclusionPolicy) {
@@ -431,7 +431,7 @@ void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath
     rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";
 }
 
-} // namespace rastreamento_eventos_base
+} 
 
 class BackgroundCbtWatcher::Impl {
 public:
@@ -467,8 +467,8 @@ private:
     std::unique_ptr<rastreamento_eventos_base::MonitorRunner> runner_;
 };
 
-// [PROBLEMA 2] — BackgroundCbtWatcher usa make_unique; destrutor = default.
-// O header (.hpp) deve declarar: std::unique_ptr<Impl> impl_;
+
+
 BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(std::make_unique<Impl>()) {}
 BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
 void BackgroundCbtWatcher::start(const fs::path& rootPath) { impl_->start(rootPath); }
@@ -715,8 +715,8 @@ public:
         const auto previousFiles = loadTrackedFiles();
         const auto currentFiles = scanCurrentLinuxFiles(root_);
         std::vector<ChangedFile> changes;
-        // [ATENÇÃO 4] — reserve removido: alocação sob demanda evita desperdício
-        // em diretórios grandes com poucas alterações.
+        
+        
         for (const auto& [relPath, info] : currentFiles) {
             const auto prevIt = previousFiles.find(relPath);
             if (prevIt == previousFiles.end() || prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false});
@@ -824,4 +824,4 @@ public:
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
     return std::make_unique<CompositeChangeTracker>();
 }
-} // namespace keeply
+} 

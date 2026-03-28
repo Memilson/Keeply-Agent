@@ -64,8 +64,8 @@ static Blob colBlob(sqlite3_stmt* st, int idx) {
     return Blob(b, b + n);
 }
 
-// SqlTxn local substituída por SharedSqlTransaction de sqlite_util.hpp.
-// Alias mantido para compatibilidade com código existente neste arquivo.
+
+
 using SqlTxn = keeply::SharedSqlTransaction;
 
 static bool tableHasColumn(sqlite3* db, const char* table, const char* colName) {
@@ -342,7 +342,7 @@ StorageArchive::CloudBundleFile LocalCloudExporter::materializeBlob(const Storag
     return f;
 }
 
-} // namespace
+} 
 
 ArchiveStoragePaths describeArchiveStorage(const fs::path& archivePath) {
     ArchiveStoragePaths paths;
@@ -935,4 +935,4 @@ StorageArchive::CloudBundleFile StorageArchive::materializeCloudBundleBlob(const
     return makeLocalCloudExporter(path_)->materializeBlob(bundle, partIndex);
 }
 
-} // namespace keeply
+} 

@@ -155,7 +155,7 @@ static fs::path currentExecutablePath(){
         buffer.resize(buffer.size()*2,'\0');
     }
 }
-// trimCopy removida — usar keeply::trim() de utilitarios_backup.hpp
+
 static inline std::string trimCopy(const std::string& value){ return keeply::trim(value); }
 static std::string readSmallTextFile(const fs::path& path){
     std::ifstream in(path);
@@ -427,7 +427,7 @@ struct AgentRuntimeOptions{
 
 static AgentRuntimeOptions parseArgs(int argc,char** argv){
     AgentRuntimeOptions options;
-    // Default websocket URL (matches installer script default)
+    
     static const std::string kDefaultWsUrl = "wss://backend.keeply.app.br/ws/agent";
     options.url=envOrEmptyAny({"KEEPLY_WS_URL","KEEPly_WS_URL"});
     options.deviceName=envOrEmptyAny({"KEEPLY_DEVICE_NAME","KEEPly_DEVICE_NAME"});
@@ -459,7 +459,7 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
         else throw std::runtime_error("Argumentos posicionais demais.");
         ++positionalIndex;
     }
-    // If no URL was provided via env/arg, use the default backend URL.
+    
     if(options.url.empty()) options.url = kDefaultWsUrl;
     return options;
 }
@@ -531,9 +531,9 @@ int main(int argc,char** argv){
 
         bool printedStartup=false;
 
-        // Exponential backoff com jitter para reconexão WebSocket.
-        // Começa em 1s e dobra a cada falha até o teto de 60s.
-        // Após conexão bem-sucedida, reseta para o valor inicial.
+        
+        
+        
         constexpr int kBackoffInitialMs=1000;
         constexpr int kBackoffMaxMs=60000;
         constexpr double kBackoffJitterFactor=0.25;
@@ -552,7 +552,7 @@ int main(int argc,char** argv){
                 }
                 keeply::KeeplyAgentWsClient client(api,identity);
                 client.connect(config);
-                // Conexão bem-sucedida — resetar backoff
+                
                 backoffMs=kBackoffInitialMs;
                 client.run();
                 std::cerr<<"Conexao websocket encerrada. Reconectando em "<<backoffMs<<"ms...\n";
@@ -561,13 +561,13 @@ int main(int argc,char** argv){
                 std::cerr<<"Reconectando em "<<backoffMs<<"ms...\n";
             }
 
-            // Jitter: ±25% do backoff atual para evitar thundering herd
+            
             const int jitterRange=static_cast<int>(backoffMs*kBackoffJitterFactor);
             const int jitter=jitterRange>0?(std::rand()%(jitterRange*2+1))-jitterRange:0;
             const int sleepMs=std::max(100,backoffMs+jitter);
             std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
 
-            // Dobra o backoff para a próxima falha, até o teto
+            
             backoffMs=std::min(backoffMs*2,kBackoffMaxMs);
         }
         return 0;

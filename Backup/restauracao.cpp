@@ -110,7 +110,7 @@ struct TempFileCleanup {
     }
 };
 
-} // namespace
+} 
 
 static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, const std::string& relPath, const fs::path& outRoot) {
     const std::string rp = normalizeRelPath(relPath);
@@ -201,4 +201,4 @@ void RestoreEngine::restoreSnapshot(const fs::path& archivePath, sqlite3_int64 s
     }
 }
 
-} // namespace keeply
+} 

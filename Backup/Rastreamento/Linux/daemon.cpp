@@ -177,14 +177,14 @@ void daemonizeProcess() {
     }
 }
 
-} // namespace
+} 
 
 std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path& rootPath,
                                                       bool respectSystemExclusionPolicy) {
     return std::make_unique<MotorMonitorLinux>(rootPath, respectSystemExclusionPolicy);
 }
 
-} // namespace keeply::rastreamento_eventos_base
+} 
 
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
@@ -227,7 +227,7 @@ std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path&, bool) {
     throw std::runtime_error("Motor Linux disponivel apenas no Linux.");
 }
 
-} // namespace keeply::rastreamento_eventos_base
+} 
 
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main() {

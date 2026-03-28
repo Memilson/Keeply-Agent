@@ -376,7 +376,7 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     return cmd;
 }
 
-} // namespace
+} 
 
 namespace keeply {
 
@@ -456,9 +456,9 @@ void KeeplyAgentWsClient::connect(const WsClientConfig& config){
 }
 
 void KeeplyAgentWsClient::run(){
-    // Rate limiter para mensagens recebidas: max 60 mensagens de texto por minuto.
-    // Ping/pong não contam. Se o servidor exceder, o agente ignora mensagens
-    // excedentes e loga um aviso (não desconecta — pode ser burst legítimo).
+    
+    
+    
     constexpr std::size_t kMaxMsgsPerWindow=60;
     constexpr auto kWindow=std::chrono::minutes(1);
     constexpr auto kKeepAliveInterval=std::chrono::seconds(25);
@@ -535,7 +535,7 @@ void KeeplyAgentWsClient::run(){
         pongDeadline.reset();
 
         if(opcode==0x1){
-            // Rate check para mensagens de texto (comandos)
+            
             const auto now=std::chrono::steady_clock::now();
             while(!msgTimestamps.empty()&&(now-msgTimestamps.front())>kWindow)
                 msgTimestamps.pop_front();
@@ -548,7 +548,7 @@ void KeeplyAgentWsClient::run(){
             }
             msgTimestamps.push_back(now);
             if(droppedCount>0){
-                // Reset counter quando voltou ao normal
+                
                 std::cerr<<"[keeply][ws][info] rate limit normalizado após "<<droppedCount<<" mensagens ignoradas.\n";
                 droppedCount=0;
             }
@@ -798,7 +798,7 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
 
         const fs::path finalPackPath = tempRoot / packFileName;
         if(blobPaths.size() == 1 && blobPaths.front().filename() == finalPackPath.filename()){
-            // Pack unico ja esta no nome final esperado.
+            
         }else{
             sendProgress("assembling", packFileName);
             if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
@@ -964,9 +964,9 @@ void KeeplyAgentWsClient::sendHello_(){
 }
 
 void KeeplyAgentWsClient::sendJson_(const std::string& payload){
-    // Injeta versão do protocolo em todas as mensagens JSON de saída.
-    // O backend pode usar "v" para decidir como interpretar a mensagem
-    // e manter compatibilidade com agentes de versões diferentes.
+    
+    
+    
     if(!payload.empty()&&payload.front()=='{'){
         sendText(std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+","+payload.substr(1));
     }else{
@@ -1223,4 +1223,4 @@ void KeeplyAgentWsClient::ensureConnected_() const{
     if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");
 }
 
-} // namespace keeply
+} 

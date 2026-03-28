@@ -1,20 +1,20 @@
-// =============================================================================
-// verificacao_integridade.cpp  —  Verificação de Integridade do Arquivo Keeply
-//
-// Implementa o comando 'verify' que estava ausente no projeto.
-// Verifica 4 camadas de integridade:
-//
-//  [V1] Consistência interna do SQLite (PRAGMA integrity_check)
-//  [V2] Todos os pack_offsets do DB apontam para registros válidos no pack
-//  [V3] Hash BLAKE3 de cada chunk no pack bate com o registrado no DB
-//  [V4] Todos os file_chunks referenciam chunks existentes em chunks (FK)
-//
-// Uso:
-//   VerifyEngine::verifyArchive(archivePath, verbose)
-//   → retorna VerifyResult com lista de erros encontrados
-// =============================================================================
 
-// verificacao.cpp  —  Verificação de Integridade do Arquivo Keeply
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "../keeply.hpp"
 #include <blake3.h>
 #include <cstring>
@@ -26,14 +26,14 @@ namespace keeply {
 
 namespace {
 
-// Lê exatamente `len` bytes; retorna false em EOF/erro sem lançar exceção.
+
 static bool tryReadExact(std::istream& is, void* data, std::size_t len) {
     if (len == 0) return true;
     is.read(reinterpret_cast<char*>(data), static_cast<std::streamsize>(len));
     return static_cast<std::size_t>(is.gcount()) == len;
 }
 
-// Calcula BLAKE3 de um buffer
+
 static ChunkHash blake3Of(const unsigned char* data, std::size_t len) {
     ChunkHash out{};
     blake3_hasher h;
@@ -57,11 +57,11 @@ struct PackRecHeader {
 };
 #pragma pack(pop)
 
-} // anonymous namespace
+} 
 
-// =============================================================================
-// VerifyEngine::verifyArchive
-// =============================================================================
+
+
+
 VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbose) {
     VerifyResult result;
     result.ok = true;
@@ -75,9 +75,9 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
         if (verbose) std::cout << "[INFO] " << msg << "\n";
     };
 
-    // -------------------------------------------------------------------------
-    // [V1] Integridade do SQLite
-    // -------------------------------------------------------------------------
+    
+    
+    
     info("V1: Verificando integridade do SQLite...");
     {
         sqlite3* rawDb = nullptr;
@@ -86,7 +86,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
             fail("Nao foi possivel abrir o banco SQLite: " +
                  std::string(sqlite3_errmsg(rawDb)));
             if (rawDb) sqlite3_close(rawDb);
-            return result; // sem banco, não podemos continuar
+            return result; 
         }
 
         sqlite3_stmt* stmt = nullptr;
@@ -110,9 +110,9 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
         sqlite3_close(rawDb);
     }
 
-    // -------------------------------------------------------------------------
-    // Abre StorageArchive para as verificações seguintes
-    // -------------------------------------------------------------------------
+    
+    
+    
     StorageArchive arc(archivePath);
     fs::path packPath = archivePath;
     packPath.replace_extension(".klyp");
@@ -128,7 +128,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
         return result;
     }
 
-    // Valida magic do pack
+    
     char fileMagic[8]{};
     if (!tryReadExact(pack, fileMagic, sizeof(fileMagic)) ||
         std::memcmp(fileMagic, kChunkPackFileMagic, sizeof(fileMagic)) != 0) {
@@ -137,17 +137,17 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     }
     info("Magic do pack: OK");
 
-    // -------------------------------------------------------------------------
-    // [V2 + V3] Verifica cada chunk registrado no DB
-    // -------------------------------------------------------------------------
+    
+    
+    
     info("V2+V3: Verificando offsets e hashes dos chunks...");
 
     std::size_t chunksChecked = 0;
     std::size_t chunksOk      = 0;
 
-    // Lê todos os chunks do DB
+    
     {
-        DB db(archivePath); // leitura direta para não usar begin()
+        DB db(archivePath); 
         Stmt st(db.raw(),
             "SELECT chunk_hash, raw_size, comp_size, comp_algo, pack_offset "
             "FROM chunks ORDER BY pack_offset ASC;");
@@ -157,7 +157,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
         while (st.stepRow()) {
             ++chunksChecked;
 
-            // Lê metadados do DB
+            
             const void* hashPtr   = sqlite3_column_blob(st.get(), 0);
             const int   hashBytes = sqlite3_column_bytes(st.get(), 0);
             const auto  rawSize   = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
@@ -177,7 +177,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
             ChunkHash dbHash{};
             std::memcpy(dbHash.data(), hashPtr, dbHash.size());
 
-            // [V2] Verifica se o offset aponta para um registro válido
+            
             pack.clear();
             pack.seekg(static_cast<std::streamoff>(packOffset), std::ios::beg);
             if (!pack) {
@@ -205,21 +205,21 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
                 continue;
             }
 
-            // Pula algoLen bytes (nome do algoritmo)
+            
             if (hdr.algoLen > 64) {
                 fail("algoLen suspeito no offset " + std::to_string(packOffset));
                 continue;
             }
             pack.seekg(static_cast<std::streamoff>(hdr.algoLen), std::ios::cur);
 
-            // Lê dados comprimidos
+            
             compBuf.resize(compSize);
             if (!tryReadExact(pack, compBuf.data(), compSize)) {
                 fail("Dados do chunk truncados no offset " + std::to_string(packOffset));
                 continue;
             }
 
-            // [V3] Descomprime e recalcula o hash BLAKE3
+            
             std::vector<unsigned char> rawBuf;
             rawBuf.reserve(rawSize);
             bool decompOk = true;
@@ -258,16 +258,16 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
          ", OK: " + std::to_string(chunksOk));
 
     if (chunksChecked != chunksOk) {
-        // erros já registrados acima
+        
     }
 
-    // -------------------------------------------------------------------------
-    // [V4] Referências de file_chunks → chunks (integridade referencial)
-    // -------------------------------------------------------------------------
+    
+    
+    
     info("V4: Verificando integridade referencial file_chunks→chunks...");
     {
         DB db(archivePath);
-        // Conta file_chunks que apontam para chunk_hash inexistente
+        
         Stmt st(db.raw(),
             "SELECT COUNT(*) FROM file_chunks fc "
             "LEFT JOIN chunks c ON c.chunk_hash = fc.chunk_hash "
@@ -295,4 +295,4 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     return result;
 }
 
-} // namespace keeply
+} 

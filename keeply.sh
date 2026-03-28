@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+
 set -Eeuo pipefail
 umask 022
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +49,7 @@ build_installer() {
     install -m 755 "${BUILD_DIR}/keeply_agent" "${stage_dir}/Agente/build/keeply_agent"
     install -m 755 "${BUILD_DIR}/keeply_cbt_daemon" "${stage_dir}/Agente/build/keeply_cbt_daemon"
     cat > "${stage_dir}/install_systemd_services.sh" <<'EOF'
-#!/usr/bin/env bash
+
 set -Eeuo pipefail
 umask 022
 die(){ echo "Erro: $*" >&2; exit 1; }
@@ -622,7 +622,7 @@ EOF
     tar -C "${stage_dir}" -czf "${payload_tgz}" .
     payload_hash="$(sha256sum "${payload_tgz}" | awk '{print $1}')"
     cat > "${tmp_dir}/installer.sh" <<'EOF'
-#!/usr/bin/env bash
+
 set -Eeuo pipefail
 [[ "${EUID}" -eq 0 ]] || { echo "Execute como root: sudo $0" >&2; exit 1; }
 WATCH_ROOT="${1:-/}"

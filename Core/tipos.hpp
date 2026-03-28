@@ -1,10 +1,10 @@
 #pragma once
 
-// =============================================================================
-// Core/tipos.hpp
-// Tipos fundamentais, constantes e declarações de funções utilitárias.
-// Este header é a base de todo o agente Keeply.
-// =============================================================================
+
+
+
+
+
 
 #include "utilitarios.hpp"
 
@@ -30,9 +30,9 @@ namespace keeply {
 
 namespace fs = std::filesystem;
 
-// -----------------------------------------------------------------------------
-// Known directories
-// -----------------------------------------------------------------------------
+
+
+
 
 enum class KnownDirectory {
     Home,
@@ -69,9 +69,9 @@ FILE* fopenPath(const fs::path& path, const char* mode);
 int sqlite3_open_path(const fs::path& path, sqlite3** db);
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs);
 
-// -----------------------------------------------------------------------------
-// Chunk types and constants
-// -----------------------------------------------------------------------------
+
+
+
 
 inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
@@ -117,9 +117,9 @@ private:
     std::array<Shard, NUM_SHARDS> shards_;
 };
 
-// -----------------------------------------------------------------------------
-// Free function declarations
-// -----------------------------------------------------------------------------
+
+
+
 
 std::string nowIsoLocal();
 long long fileTimeToUnixSeconds(const fs::file_time_type& ftp);
@@ -131,9 +131,9 @@ bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot);
 bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath);
 void ensureDefaults();
 
-// -----------------------------------------------------------------------------
-// Compactador — BLAKE3 hashing + zstd/zlib compression
-// -----------------------------------------------------------------------------
+
+
+
 
 class Compactador {
 public:
@@ -168,9 +168,9 @@ public:
     );
 };
 
-// -----------------------------------------------------------------------------
-// SQLite helpers
-// -----------------------------------------------------------------------------
+
+
+
 
 class SqliteError : public std::runtime_error {
 public:
@@ -225,9 +225,9 @@ private:
     sqlite3* db_{nullptr};
 };
 
-// -----------------------------------------------------------------------------
-// Data structs
-// -----------------------------------------------------------------------------
+
+
+
 
 struct FileInfo {
     sqlite3_int64 fileId{};
@@ -288,4 +288,4 @@ struct BackupProgress {
     std::string currentFile;
 };
 
-} // namespace keeply
+} 

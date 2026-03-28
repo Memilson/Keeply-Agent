@@ -1,10 +1,10 @@
 #pragma once
 
-// =============================================================================
-// Core/sqlite_util.hpp
-// RAII wrappers compartilhados para SQLite — elimina SqlTxn/SqlTransaction
-// duplicados em arquivo_armazenamento.cpp e rastreamento_mudancas.cpp.
-// =============================================================================
+
+
+
+
+
 
 #include <sqlite3.h>
 #include <stdexcept>
@@ -12,8 +12,8 @@
 
 namespace keeply {
 
-/// RAII transaction wrapper para SQLite.
-/// Faz ROLLBACK automático no destrutor se commit() não foi chamado.
+
+
 class SharedSqlTransaction {
     sqlite3* db_ = nullptr;
     bool committed_ = false;
@@ -48,7 +48,7 @@ public:
     bool committed() const noexcept { return committed_; }
 };
 
-/// RAII wrapper para sqlite3_stmt prepared statements.
+
 class SharedSqlStmt {
     sqlite3_stmt* st_ = nullptr;
 
@@ -68,7 +68,7 @@ public:
     sqlite3_stmt* get() const noexcept { return st_; }
 };
 
-/// Executa SQL arbitrário, lançando exceção com contexto em caso de falha.
+
 inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullptr) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
@@ -79,4 +79,4 @@ inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullp
     }
 }
 
-} // namespace keeply
+} 

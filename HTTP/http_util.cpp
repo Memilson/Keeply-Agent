@@ -32,7 +32,7 @@ struct WinsockInit {
 };
 #endif
 
-} // namespace
+} 
 
 std::string toLower(std::string value) {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -210,4 +210,4 @@ std::size_t readSomeFd(int fd, void* data, std::size_t size) {
     }
 }
 
-} // namespace keeply::http_internal
+} 

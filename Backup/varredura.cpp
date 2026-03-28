@@ -9,7 +9,7 @@
 namespace keeply {
 namespace {
 
-// hexNibble/hexToBlob removidos — usar keeply::hexNibble/keeply::hexDecode de utilitarios_backup.hpp
+
 
 static Blob hexToBlob(const std::string& hex) {
     return keeply::hexDecode(hex);
@@ -211,7 +211,7 @@ static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const
     }
 }
 
-} // namespace
+} 
 
 BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label, const std::function<void(const BackupProgress&)>& progressCallback) {
     ensureDefaults();
@@ -383,4 +383,4 @@ std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     if (out.empty()) out.push_back(defaultSourceRootPath().string());
     return out;
 }
-} // namespace keeply
+} 

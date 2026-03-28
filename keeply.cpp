@@ -469,7 +469,7 @@ int runMenu(KeeplyApi& api) {
     }
 }
 
-} // namespace
+} 
 
 int main(int argc, char* argv[]) {
     try {

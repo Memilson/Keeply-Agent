@@ -1,9 +1,9 @@
 #pragma once
 
-// =============================================================================
-// Storage/arquivo_armazenamento.hpp
-// Classe StorageArchive — persistência do archive .kply (SQLite + pack file).
-// =============================================================================
+
+
+
+
 
 #include "../Core/tipos.hpp"
 
@@ -123,4 +123,4 @@ private:
                                           const std::string& expectedAlgo) const;
 };
 
-} // namespace keeply
+} 

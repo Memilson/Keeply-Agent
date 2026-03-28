@@ -251,9 +251,9 @@ void KeeplyApi::setArchiveSplitMaxBytes(std::uint64_t maxBytes) {
         disableArchiveSplit();
         return;
     }
-    // Placeholder de configuracao: ainda nao conectado ao write path do storage.
-    // Limite minimo para evitar configuracoes absurdas (muito overhead de volumes).
-    constexpr std::uint64_t kMinSplitBytes = 64ull * 1024ull * 1024ull; // 64 MiB
+    
+    
+    constexpr std::uint64_t kMinSplitBytes = 64ull * 1024ull * 1024ull; 
     if (maxBytes < kMinSplitBytes) {
         throw std::runtime_error("Tamanho de divisao muito pequeno (minimo: 64 MiB).");
     }
@@ -268,8 +268,8 @@ bool KeeplyApi::archiveExists() const {
     return fs::exists(pathFromUtf8(state_.archive));}
 BackupStats KeeplyApi::runBackup(const std::string& label,
                                  const std::function<void(const BackupProgress&)>& progressCallback) {
-    // TODO: state_.archiveSplitEnabled / state_.archiveSplitMaxBytes ainda nao sao aplicados
-    // no storage. Esta configuracao foi criada para futura implementacao de volumes.
+    
+    
     return ScanEngine::backupFolderToKply(pathFromUtf8(state_.source), pathFromUtf8(state_.archive), label, progressCallback);}
 std::vector<SnapshotRow> KeeplyApi::listSnapshots() {
     StorageArchive arc(pathFromUtf8(state_.archive));

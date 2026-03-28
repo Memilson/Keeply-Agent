@@ -1,9 +1,9 @@
 #pragma once
 
-// =============================================================================
-// API/keeply_api.hpp
-// KeeplyApi — lógica de negócio de alto nível (independente de transporte).
-// =============================================================================
+
+
+
+
 
 #include "../Core/tipos.hpp"
 
@@ -57,4 +57,4 @@ private:
     AppState state_;
 };
 
-} // namespace keeply
+} 
