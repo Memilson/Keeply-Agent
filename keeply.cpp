@@ -1,524 +1,650 @@
-#include "keeply.hpp"
+// keeply.cpp
+// Ponto de entrada unico: Agent WebSocket + CBT Daemon.
+// Toda interacao ocorre via WebSocket — sem menu interativo.
+//
+// Uso:
+//   keeply.exe [--url <ws-url>] [--device <nome>] [--root <dir>] ...
+//   keeply.exe cbt --root <dir> ...
 
-#include <algorithm>
-#include <cstddef>
+// --- inclui implementacao do CBT Daemon ---------------------------------
+#define KEEPLY_DAEMON_PROGRAM 1
+#define main keeply_cbt_main
+#include "Backup/Rastreamento/Windows/daemon.cpp"
+#undef main
+#undef KEEPLY_DAEMON_PROGRAM
+
+// --- implementacao do Agent ---------------------------------------------
+#include "WebSocket/websocket_agente.hpp"
+#include "Backup/Rastreamento/rastreamento_mudancas.hpp"
 #include <filesystem>
-#include <iomanip>
+#include <cerrno>
+#include <cctype>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
-#include <optional>
+#include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <system_error>
+#include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#include <tlhelp32.h>
+#endif
+#if defined(__linux__) || defined(__APPLE__)
+#include <csignal>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+#ifdef __linux__
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#endif
 
-#ifdef KEEPLY_CLI_IMPLEMENTATION
+namespace fs = std::filesystem;
+namespace eventos = keeply::rastreamento_eventos_base;
 
-namespace {
+static std::string envOrEmptyAny(std::initializer_list<const char*> keys) {
+    for (const char* key : keys) {
+        auto value = eventos::envOrEmpty(key);
+        if (!value.empty()) return value;
+    }
+    return {};
+}
+static bool envTruthyAny(std::initializer_list<const char*> keys) {
+    auto value = envOrEmptyAny(keys);
+    for (auto& c : value) c = char(std::tolower((unsigned char)c));
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+static std::string detectOsName() {
+#if defined(__linux__)
+    return "linux";
+#elif defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "macos";
+#else
+    return "unknown";
+#endif
+}
+static std::string detectHostName() {
+#if defined(_WIN32)
+    auto v = eventos::envOrEmpty("COMPUTERNAME");
+    return v.empty() ? "keeply-host" : v;
+#else
+    char buf[256]{};
+    if (::gethostname(buf, sizeof(buf) - 1) == 0 && buf[0]) return std::string(buf);
+    auto v = eventos::envOrEmpty("HOSTNAME");
+    return v.empty() ? "keeply-host" : v;
+#endif
+}
+static std::string argOrEmpty(int argc, char** argv, int i) {
+    return (i < argc && argv[i]) ? std::string(argv[i]) : std::string();
+}
+static fs::path pickDataDir() {
+    auto fromEnv = envOrEmptyAny({"KEEPLY_DATA_DIR", "KEEPly_DATA_DIR"});
+    if (!fromEnv.empty()) return fs::path(fromEnv);
+    return keeply::defaultKeeplyDataDir();
+}
+static fs::path pickWatchRoot() {
+    auto fromEnv = envOrEmptyAny({"KEEPLY_ROOT", "KEEPly_ROOT"});
+    if (!fromEnv.empty()) return fs::path(fromEnv);
+    return keeply::defaultSourceRootPath();
+}
+static fs::path pickPidFilePath(const fs::path& dataDir) {
+    auto fromEnv = envOrEmptyAny({"KEEPLY_AGENT_PID_FILE", "KEEPly_AGENT_PID_FILE"});
+    if (!fromEnv.empty()) return fs::path(fromEnv);
+    return dataDir / "keeply_agent.pid";
+}
+static std::string findExecutableOnPath(const char* name) {
+    auto pathEnv = eventos::envOrEmpty("PATH");
+    if (pathEnv.empty()) return {};
+    const char separator =
+#ifdef _WIN32
+        ';';
+#else
+        ':';
+#endif
+    std::vector<std::string> candidates;
+    candidates.emplace_back(name);
+#ifdef _WIN32
+    const std::string baseName = name ? std::string(name) : std::string();
+    if (baseName.find('.') == std::string::npos) {
+        candidates.push_back(baseName + ".exe");
+        candidates.push_back(baseName + ".cmd");
+        candidates.push_back(baseName + ".bat");
+    }
+#endif
+    std::size_t start = 0;
+    while (start <= pathEnv.size()) {
+        const std::size_t end = pathEnv.find(separator, start);
+        const std::string entry = pathEnv.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (!entry.empty()) {
+            for (const auto& candidateName : candidates) {
+                fs::path candidate = fs::path(entry) / candidateName;
+                std::error_code ec;
+                if (!fs::exists(candidate, ec) || ec) continue;
+#ifdef _WIN32
+                if (fs::is_regular_file(candidate, ec) && !ec) return candidate.string();
+#else
+                const auto perms = fs::status(candidate, ec).permissions();
+                if (!ec && (perms & fs::perms::owner_exec) != fs::perms::none) return candidate.string();
+#endif
+            }
+        }
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return {};
+}
+static void writePidFile(const fs::path& pidFile) {
+    std::error_code ec;
+    fs::create_directories(pidFile.parent_path(), ec);
+    if (ec) throw std::runtime_error("Falha criando diretorio do PID file: " + ec.message());
+    std::ofstream out(pidFile, std::ios::trunc);
+    if (!out) throw std::runtime_error("Falha criando PID file: " + pidFile.string());
+#ifdef _WIN32
+    out << GetCurrentProcessId() << "\n";
+#else
+    out << getpid() << "\n";
+#endif
+}
 
-using keeply::KeeplyApi;
-using keeply::SnapshotRow;
+#ifdef __linux__
+static fs::path currentExecutablePath() {
+    std::vector<char> buffer(4096, '\0');
+    for (;;) {
+        const ssize_t n = ::readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+        if (n < 0) throw std::runtime_error("Falha resolvendo /proc/self/exe.");
+        if (static_cast<std::size_t>(n) < buffer.size() - 1) {
+            buffer[static_cast<std::size_t>(n)] = '\0';
+            return fs::path(buffer.data());
+        }
+        buffer.resize(buffer.size() * 2, '\0');
+    }
+}
+static inline std::string trimCopy(const std::string& value) { return keeply::trim(value); }
+static std::string readSmallTextFile(const fs::path& path) {
+    std::ifstream in(path);
+    if (!in) return {};
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    return trimCopy(oss.str());
+}
+static std::optional<pid_t> readDaemonPid() {
+    const auto text = readSmallTextFile(keeply::defaultEventStorePidPath());
+    if (text.empty()) return std::nullopt;
+    try {
+        const long long value = std::stoll(text);
+        if (value <= 0) return std::nullopt;
+        return static_cast<pid_t>(value);
+    } catch (...) { return std::nullopt; }
+}
+static bool isPidAlive(pid_t pid) {
+    if (pid <= 0) return false;
+    if (::kill(pid, 0) == 0) return true;
+    return errno == EPERM;
+}
+static std::string daemonRootValue() {
+    return readSmallTextFile(keeply::defaultEventStoreRootPath());
+}
+static std::string normalizeGenericPath(const fs::path& path) {
+    return fs::absolute(path).lexically_normal().generic_string();
+}
+static void removeStaleDaemonMetadata() {
+    std::error_code ec;
+    fs::remove(keeply::defaultEventStorePidPath(), ec);
+    ec.clear();
+    fs::remove(keeply::defaultEventStoreRootPath(), ec);
+}
+static void stopDaemonProcess(pid_t pid) {
+    if (pid <= 0) return;
+    ::kill(pid, SIGTERM);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        if (!isPidAlive(pid)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ::kill(pid, SIGKILL);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        if (!isPidAlive(pid)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+static std::string locateCbtDaemonExecutable() {
+    const auto fromEnv = envOrEmptyAny({"KEEPLY_CBT_DAEMON", "KEEPly_CBT_DAEMON"});
+    if (!fromEnv.empty()) return fromEnv;
+    try {
+        const fs::path currentExe = currentExecutablePath();
+        const fs::path sibling = currentExe.parent_path() / "keeply_cbt_daemon";
+        std::error_code ec;
+        const auto perms = fs::status(sibling, ec).permissions();
+        if (!ec && fs::exists(sibling, ec) && !ec && (perms & fs::perms::owner_exec) != fs::perms::none)
+            return sibling.string();
+    } catch (...) {}
+    return findExecutableOnPath("keeply_cbt_daemon");
+}
+static bool systemdAvailable() {
+    std::error_code ec;
+    return fs::exists("/run/systemd/system", ec) && !ec && !findExecutableOnPath("systemctl").empty();
+}
+static int runDetachedCommand(const fs::path& executable, std::initializer_list<const char*> args) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        const int nullFd = open("/dev/null", O_RDWR);
+        if (nullFd >= 0) {
+            dup2(nullFd, STDOUT_FILENO);
+            dup2(nullFd, STDERR_FILENO);
+            if (nullFd > STDERR_FILENO) close(nullFd);
+        }
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 2);
+        argv.push_back(const_cast<char*>(executable.c_str()));
+        for (const char* arg : args) argv.push_back(const_cast<char*>(arg));
+        argv.push_back(nullptr);
+        execv(executable.c_str(), argv.data());
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return -1;
+}
+static bool tryEnsureDaemonViaSystemd(const std::string& expectedRoot) {
+    if (!systemdAvailable()) return false;
+    const std::string systemctl = findExecutableOnPath("systemctl");
+    if (systemctl.empty()) return false;
+    if (runDetachedCommand(systemctl, {"start", "keeply-cbt-daemon.service"}) != 0) return false;
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const auto daemonPid = readDaemonPid();
+        if (daemonPid && isPidAlive(*daemonPid) && daemonRootValue() == expectedRoot) return true;
+    }
+    return false;
+}
+static bool ensureLinuxCbtDaemon(const fs::path& watchRoot) {
+    const std::string expectedRoot = normalizeGenericPath(watchRoot);
+    if (auto existingPid = readDaemonPid(); existingPid && isPidAlive(*existingPid)) {
+        if (daemonRootValue() == expectedRoot) return true;
+        if (!systemdAvailable()) {
+            stopDaemonProcess(*existingPid);
+            removeStaleDaemonMetadata();
+        }
+    } else {
+        removeStaleDaemonMetadata();
+    }
+    if (tryEnsureDaemonViaSystemd(expectedRoot)) return true;
+    const std::string daemonExe = locateCbtDaemonExecutable();
+    if (daemonExe.empty()) throw std::runtime_error("Executavel keeply_cbt_daemon nao encontrado.");
+    pid_t pid = fork();
+    if (pid < 0) throw std::runtime_error("fork falhou ao iniciar daemon CBT.");
+    if (pid == 0) {
+        execl(daemonExe.c_str(), daemonExe.c_str(), "--root", expectedRoot.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const auto daemonPid = readDaemonPid();
+        if (daemonPid && isPidAlive(*daemonPid) && daemonRootValue() == expectedRoot) return true;
+        int status = 0;
+        const pid_t waitResult = waitpid(pid, &status, WNOHANG);
+        if (waitResult == pid) break;
+    }
+    throw std::runtime_error("Daemon CBT nao confirmou inicializacao.");
+}
+static void daemonizeProcess() {
+    pid_t pid = fork();
+    if (pid < 0) throw std::runtime_error("fork falhou.");
+    if (pid > 0) std::exit(0);
+    if (setsid() < 0) throw std::runtime_error("setsid falhou.");
+    pid = fork();
+    if (pid < 0) throw std::runtime_error("fork 2 falhou.");
+    if (pid > 0) std::exit(0);
+    umask(077);
+    if (chdir("/") != 0) throw std::runtime_error("chdir falhou.");
+    const int nullFd = open("/dev/null", O_RDWR);
+    if (nullFd >= 0) {
+        dup2(nullFd, STDIN_FILENO);
+        dup2(nullFd, STDOUT_FILENO);
+        dup2(nullFd, STDERR_FILENO);
+        if (nullFd > STDERR_FILENO) close(nullFd);
+    }
+}
+class OptionalTrayIndicator {
+public:
+    void start() {
+        const std::string zenity = findExecutableOnPath("zenity");
+        if (zenity.empty()) return;
+        pid_ = fork();
+        if (pid_ < 0) { pid_ = -1; return; }
+        if (pid_ == 0) {
+            execlp(zenity.c_str(), zenity.c_str(), "--notification",
+                   "--text=Keeply Agent ativo", "--window-icon=network-workgroup",
+                   static_cast<char*>(nullptr));
+            _exit(127);
+        }
+    }
+    void stop() noexcept {
+        if (pid_ > 0) {
+            kill(pid_, SIGTERM);
+            int status = 0;
+            waitpid(pid_, &status, 0);
+            pid_ = -1;
+        }
+    }
+    ~OptionalTrayIndicator() { stop(); }
+private:
+    pid_t pid_ = -1;
+};
+#else
+class OptionalTrayIndicator {
+public:
+    void start() {}
+    void stop() noexcept {}
+};
+#endif
 
-constexpr std::size_t kFilePageSize = 25;
-
-struct BrowserEntry {
-    bool isDir{};
-    std::string name;
-    std::string relPath;
+struct AgentRuntimeOptions {
+    std::string url;
+    std::string deviceName;
+    fs::path watchRoot;
+    bool foreground = false;
+    bool enableLocalCbt = true;
+    bool enableTray = true;
+#ifdef _WIN32
+    bool allowInsecureTls = true;
+    bool installService = false;
+    bool uninstallService = false;
+    bool background = false;
+#else
+    bool allowInsecureTls = false;
+#endif
 };
 
-int cmdRestoreSnapshot(KeeplyApi& api, const std::string& snapshot);
-int cmdRestoreFile(KeeplyApi& api, const std::string& relPath, const std::string& snapshot);
-
-KeeplyApi makeCliApi() {
-    KeeplyApi api;
-    api.setScanScope("home");
-    api.setArchive(keeply::pathToUtf8(keeply::defaultArchivePath()));
-    api.setRestoreRoot(keeply::pathToUtf8(keeply::defaultRestoreRootPath()));
-    return api;
-}
-
-std::string readLine(const std::string& prompt) {
-    std::cout << prompt;
-    std::cout.flush();
-    std::string s;
-    std::getline(std::cin, s);
-    return keeply::trim(s);
-}
-
-std::optional<std::size_t> parseIndex1(const std::string& s, std::size_t max) {
-    if (s.empty()) return std::nullopt;
-    try {
-        const long long v = std::stoll(s);
-        if (v < 1) return std::nullopt;
-        const std::size_t idx = static_cast<std::size_t>(v);
-        if (idx > max) return std::nullopt;
-        return idx - 1;
-    } catch (...) {
-        return std::nullopt;
+#ifdef _WIN32
+static fs::path agentCurrentExePath() {
+    std::wstring buf(MAX_PATH, L'\0');
+    for (;;) {
+        DWORD n = GetModuleFileNameW(nullptr, buf.data(), (DWORD)buf.size());
+        if (n == 0) throw std::runtime_error("Falha resolvendo executavel.");
+        if (n < buf.size() - 1) { buf.resize(n); return fs::path(buf); }
+        buf.resize(buf.size() * 2, L'\0');
     }
 }
+static constexpr const wchar_t* kRunKey   = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+static constexpr const wchar_t* kRunValue = L"KeeplyAgent";
 
-std::string snapshotTypeLabel(std::size_t idx, std::size_t total) {
-    if (total == 0) return "-";
-    if (total == 1) return "Completo (atual)";
-    if (idx == 0) return "Completo (base)";
-    if (idx + 1 == total) return "Incremental (atual)";
-    return "Incremental";
-}
-
-std::vector<SnapshotRow> loadTimelineSnapshots(KeeplyApi& api) {
-    auto snapshots = api.listSnapshots();
-    std::reverse(snapshots.begin(), snapshots.end());
-    return snapshots;
-}
-
-void printConfig(const KeeplyApi& api) {
-    const auto& st = api.state();
-    std::cout << "Origem (scan): " << st.source << "\n";
-    std::cout << "Arquivo backup: " << st.archive << "  [DB com chunks compactados]\n";
-    std::cout << "Restore root  : " << st.restoreRoot << "\n";
-    std::cout << "Split archive : " << (st.archiveSplitEnabled ? "ON" : "OFF");
-    if (st.archiveSplitEnabled) {
-        std::cout << " (maxBytes=" << st.archiveSplitMaxBytes << ")";
+static void agentLaunchBackground(const AgentRuntimeOptions& opts) {
+    const fs::path exe = agentCurrentExePath();
+    std::wstring cmd = L"\"" + exe.wstring() + L"\" --background";
+    if (!opts.url.empty())        cmd += L" --url \"" + std::wstring(opts.url.begin(), opts.url.end()) + L"\"";
+    if (!opts.deviceName.empty()) cmd += L" --device \"" + std::wstring(opts.deviceName.begin(), opts.deviceName.end()) + L"\"";
+    if (!opts.watchRoot.empty())  cmd += L" --root \"" + opts.watchRoot.wstring() + L"\"";
+    STARTUPINFOW si{}; si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::wstring cmdMut = cmd;
+    if (CreateProcessW(nullptr, cmdMut.data(), nullptr, nullptr, FALSE,
+                       DETACHED_PROCESS | CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
     }
-    std::cout << "\n";
 }
-
-void printUsage(const char* argv0) {
-    std::cout
-        << "Keeply CLI (basico)\n\n"
-        << "Uso:\n"
-        << "  " << argv0 << "                 # menu interativo\n"
-        << "  " << argv0 << " menu\n"
-        << "  " << argv0 << " config\n"
-        << "  " << argv0 << " backup\n"
-        << "  " << argv0 << " backup-source <diretorio> [arquivo_backup]\n"
-        << "  " << argv0 << " timeline\n"
-        << "  " << argv0 << " reset [--force]\n"
-        << "  " << argv0 << " restore-ui\n"
-        << "  " << argv0 << " restore [snapshot]\n"
-        << "  " << argv0 << " files [snapshot]\n"
-        << "  " << argv0 << " restore-file <arquivo_relativo> [snapshot]\n\n"
-        << "Defaults:\n"
-        << "  - Scan origem: pasta Home do usuario\n"
-        << "  - Backup DB   : " << keeply::pathToUtf8(keeply::defaultArchivePath()) << "\n"
-        << "  - Restore root: " << keeply::pathToUtf8(keeply::defaultRestoreRootPath()) << "\n";
-}
-
-int cmdConfig(KeeplyApi& api) {
-    printConfig(api);
-    return 0;
-}
-
-int cmdBackup(KeeplyApi& api) {
-    printConfig(api);
-    std::cout << "Executando backup da origem '" << api.state().source << "' (pode demorar)...\n";
-    const keeply::BackupStats stats = api.runBackup("");
-    std::cout
-        << "Backup concluido"
-        << " | scanned=" << stats.scanned
-        << " added=" << stats.added
-        << " reused=" << stats.reused
-        << " chunks=" << stats.chunks
-        << " uniq_chunks=" << stats.uniqueChunksInserted
-        << " bytes=" << stats.bytesRead
-        << " warnings=" << stats.warnings
-        << "\n";
-    return 0;
-}
-
-int cmdBackupSource(KeeplyApi& api, const std::string& source, const std::optional<std::string>& archivePath) {
-    api.setSource(source);
-    if (archivePath && !archivePath->empty()) api.setArchive(*archivePath);
-    return cmdBackup(api);
-}
-
-int cmdTimeline(KeeplyApi& api) {
-    const auto snapshots = loadTimelineSnapshots(api);
-    if (snapshots.empty()) {
-        std::cout << "Historico vazio.\n";
-        return 0;
+static void agentRegisterAutorun(const AgentRuntimeOptions& opts) {
+    const fs::path exe = agentCurrentExePath();
+    std::wstring cmd = L"\"" + exe.wstring() + L"\" --background";
+    if (!opts.url.empty())        cmd += L" --url \"" + std::wstring(opts.url.begin(), opts.url.end()) + L"\"";
+    if (!opts.deviceName.empty()) cmd += L" --device \"" + std::wstring(opts.deviceName.begin(), opts.deviceName.end()) + L"\"";
+    if (!opts.watchRoot.empty())  cmd += L" --root \"" + opts.watchRoot.wstring() + L"\"";
+    HKEY hkey = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
+        RegSetValueExW(hkey, kRunValue, 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(cmd.c_str()),
+            static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(hkey);
     }
-    std::cout << "Historico de backups (" << snapshots.size() << ")\n";
-    std::cout << std::left
-              << std::setw(5)  << "N"
-              << std::setw(6)  << "ID"
-              << std::setw(22) << "Criado em"
-              << std::setw(22) << "Tipo"
-              << std::setw(10) << "Arquivos"
-              << "Origem\n";
-    for (std::size_t i = 0; i < snapshots.size(); ++i) {
-        const auto& s = snapshots[i];
-        std::cout << std::left
-                  << std::setw(5)  << (i + 1)
-                  << std::setw(6)  << s.id
-                  << std::setw(22) << s.createdAt
-                  << std::setw(22) << snapshotTypeLabel(i, snapshots.size())
-                  << std::setw(10) << s.fileCount
-                  << s.sourceRoot
-                  << "\n";
-    }
-    return 0;
 }
-
-int cmdReset(KeeplyApi& api, bool force) {
-    const auto& st = api.state();
-    const std::string root = keeply::pathToUtf8(keeply::defaultKeeplyDataDir());
-    if (!force) {
-        std::cout << "ATENCAO: isso vai apagar TUDO em " << root << "\n";
-        std::cout << "Inclui backup DB e restauracoes de teste.\n";
-        const std::string confirm = readLine("Digite APAGAR para confirmar: ");
-        if (confirm != "APAGAR") {
-            std::cout << "Cancelado.\n";
-            return 0;
+static void agentInstallService(const AgentRuntimeOptions& opts) {
+    agentRegisterAutorun(opts);
+    agentLaunchBackground(opts);
+    std::cout << "Keeply Agent instalado e iniciado em background.\n";
+}
+static void agentUninstallService() {
+    HKEY hkey = nullptr;
+    LONG res = RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &hkey);
+    if (res != ERROR_SUCCESS) throw std::runtime_error("Falha abrindo chave de registro. Erro=" + std::to_string(res));
+    RegDeleteValueW(hkey, kRunValue);
+    RegCloseKey(hkey);
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe{}; pe.dwSize = sizeof(pe);
+        if (Process32FirstW(snap, &pe)) {
+            do {
+                if (std::wstring(pe.szExeFile).find(L"keeply") != std::wstring::npos) {
+                    HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+                    if (h) { TerminateProcess(h, 0); CloseHandle(h); }
+                }
+            } while (Process32NextW(snap, &pe));
         }
+        CloseHandle(snap);
     }
+    std::cout << "Keeply Agent removido do inicio automatico.\n";
+}
+#endif
+
+static AgentRuntimeOptions parseArgs(int argc, char** argv) {
+    AgentRuntimeOptions options;
+    static const std::string kDefaultWsUrl = "wss://backend.keeply.app.br/ws/agent";
+    options.url        = envOrEmptyAny({"KEEPLY_WS_URL", "KEEPly_WS_URL"});
+    options.deviceName = envOrEmptyAny({"KEEPLY_DEVICE_NAME", "KEEPly_DEVICE_NAME"});
+    options.watchRoot  = pickWatchRoot();
+    options.enableLocalCbt = !envTruthyAny({"KEEPLY_DISABLE_CBT", "KEEPly_DISABLE_CBT"});
+    options.enableTray     = !envTruthyAny({"KEEPLY_DISABLE_TRAY", "KEEPly_DISABLE_TRAY"});
+#ifdef _WIN32
+    options.allowInsecureTls = true;
+#else
+    options.allowInsecureTls = envTruthyAny({"KEEPLY_INSECURE_TLS", "KEEPly_INSECURE_TLS"});
+#endif
+
+    int positionalIndex = 0;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argOrEmpty(argc, argv, i);
+        if (arg == "--help") {
+            std::cout
+                << "Uso: keeply [--url <ws-url>] [--device <nome>] [--root <dir>]\n"
+                << "            [--foreground] [--no-cbt] [--no-tray] [--insecure-tls]\n"
+                << "     keeply cbt --root <dir> ...\n";
+            std::exit(0);
+        }
+        if (arg == "--url"    && i + 1 < argc) { options.url        = argOrEmpty(argc, argv, ++i); continue; }
+        if (arg == "--device" && i + 1 < argc) { options.deviceName = argOrEmpty(argc, argv, ++i); continue; }
+        if (arg == "--root"   && i + 1 < argc) { options.watchRoot  = fs::path(argOrEmpty(argc, argv, ++i)); continue; }
+        if (arg == "--foreground")   { options.foreground     = true; continue; }
+        if (arg == "--no-cbt")       { options.enableLocalCbt = false; continue; }
+        if (arg == "--no-tray")      { options.enableTray     = false; continue; }
+        if (arg == "--insecure-tls") { options.allowInsecureTls = true; continue; }
+#ifdef _WIN32
+        if (arg == "--install-service")   { options.installService   = true; continue; }
+        if (arg == "--uninstall-service") { options.uninstallService = true; continue; }
+        if (arg == "--background")        { options.background       = true; continue; }
+#endif
+        if (!arg.empty() && arg[0] == '-') throw std::runtime_error("Argumento invalido: " + arg);
+        if (positionalIndex == 0) options.url = arg;
+        else if (positionalIndex == 1) options.deviceName = arg;
+        else throw std::runtime_error("Argumentos posicionais demais.");
+        ++positionalIndex;
+    }
+    if (options.url.empty()) options.url = kDefaultWsUrl;
+    return options;
+}
+
+static void runAgentLoop(const AgentRuntimeOptions& options) {
+    auto verbose   = envTruthyAny({"KEEPLY_VERBOSE", "KEEPly_VERBOSE"});
+    auto dataDir   = pickDataDir();
+    auto watchRoot = options.watchRoot.empty() ? pickWatchRoot() : options.watchRoot;
+    auto pidFile   = pickPidFilePath(dataDir);
+
+    keeply::WsClientConfig config;
+    config.url              = options.url;
+    config.allowInsecureTls = options.allowInsecureTls;
+    config.hostName         = detectHostName();
+    config.deviceName       = config.hostName;
+    if (!options.deviceName.empty()) config.deviceName = options.deviceName;
+    config.osName           = detectOsName();
+    config.identityDir      = dataDir / "agent_identity";
+
     std::error_code ec;
-    std::filesystem::remove_all(root, ec);
-    if (ec) {
-        throw std::runtime_error("Falha ao apagar " + root + ": " + ec.message());
-    }
-    keeply::ensureDefaults();
-    std::cout << "Reset concluido.\n";
-    std::cout << "Backup DB   : " << st.archive << "\n";
-    std::cout << "Restore root: " << st.restoreRoot << "\n";
-    return 0;
-}
+    fs::create_directories(dataDir, ec);
+    if (ec) throw std::runtime_error("Falha ao criar dataDir: " + dataDir.string() + " | " + ec.message());
 
-std::optional<std::string> chooseSnapshotInteractive(KeeplyApi& api) {
-    const auto snapshots = loadTimelineSnapshots(api);
-    if (snapshots.empty()) {
-        std::cout << "Nenhum snapshot disponivel.\n";
-        return std::nullopt;
+    writePidFile(pidFile);
+
+    auto api = std::make_shared<keeply::KeeplyApi>();
+    api->setArchive(keeply::pathToUtf8(dataDir / "keeply.kipy"));
+    api->setRestoreRoot(keeply::pathToUtf8(dataDir / "restore_agent_ws"));
+    api->setSource(keeply::pathToUtf8(watchRoot));
+
+    OptionalTrayIndicator tray;
+    if (options.enableTray) tray.start();
+
+    keeply::BackgroundCbtWatcher watcher;
+    bool cbtStarted = false;
+#ifdef __linux__
+    if (options.enableLocalCbt) {
+        try {
+            cbtStarted = ensureLinuxCbtDaemon(watchRoot);
+        } catch (const std::exception& ex) {
+            std::cerr << "[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: " << ex.what() << "\n";
+            try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
+            catch (const std::exception& wx) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << wx.what() << "\n"; }
+        }
     }
-    std::cout << "\nSnapshots (linha do tempo)\n";
-    for (std::size_t i = 0; i < snapshots.size(); ++i) {
-        const auto& s = snapshots[i];
-        std::cout << "  [" << (i + 1) << "] "
-                  << "#" << s.id
-                  << " | " << s.createdAt
-                  << " | " << snapshotTypeLabel(i, snapshots.size())
-                  << " | arquivos=" << s.fileCount
-                  << "\n";
+#else
+    if (options.enableLocalCbt) {
+        try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
+        catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
     }
+#endif
+
+    constexpr int kBackoffInitialMs = 1000;
+    constexpr int kBackoffMaxMs     = 60000;
+    constexpr double kBackoffJitterFactor = 0.25;
+    int backoffMs = kBackoffInitialMs;
+    bool printedStartup = false;
+
     for (;;) {
-        const std::string in = readLine("Selecione o snapshot pelo numero (0 cancela): ");
-        if (in == "0" || in == "q" || in == "Q") return std::nullopt;
-        const auto idx = parseIndex1(in, snapshots.size());
-        if (!idx) {
-            std::cout << "Numero invalido.\n";
-            continue;
-        }
-        return std::to_string(static_cast<long long>(snapshots[*idx].id));
-    }
-}
+        try {
+            keeply::AgentIdentity identity = keeply::KeeplyAgentBootstrap::ensureRegistered(config);
+            config.agentId = identity.deviceId;
 
-bool hasPathPrefix(const std::string& path, const std::string& prefix) {
-    if (prefix.empty()) return true;
-    return path.size() >= prefix.size() && path.compare(0, prefix.size(), prefix) == 0;
-}
-
-std::string parentPrefix(const std::string& prefix) {
-    if (prefix.empty()) return {};
-    std::string p = prefix;
-    if (!p.empty() && p.back() == '/') p.pop_back();
-    const auto pos = p.find_last_of('/');
-    if (pos == std::string::npos) return {};
-    return p.substr(0, pos + 1);
-}
-
-std::vector<BrowserEntry> listBrowserEntries(const std::vector<std::string>& paths, const std::string& prefix) {
-    std::vector<BrowserEntry> dirs;
-    std::vector<BrowserEntry> files;
-    std::unordered_set<std::string> seenDirs;
-    for (const auto& path : paths) {
-        if (!hasPathPrefix(path, prefix)) continue;
-        const std::string rest = path.substr(prefix.size());
-        if (rest.empty()) continue;
-        const auto slash = rest.find('/');
-        if (slash == std::string::npos) {
-            files.push_back(BrowserEntry{false, rest, path});
-            continue;
-        }
-        const std::string dirName = rest.substr(0, slash);
-        if (!seenDirs.insert(dirName).second) continue;
-        dirs.push_back(BrowserEntry{true, dirName, prefix + dirName});
-    }
-    std::sort(dirs.begin(), dirs.end(), [](const BrowserEntry& a, const BrowserEntry& b) { return a.name < b.name; });
-    std::sort(files.begin(), files.end(), [](const BrowserEntry& a, const BrowserEntry& b) { return a.name < b.name; });
-    std::vector<BrowserEntry> out;
-    out.reserve(dirs.size() + files.size());
-    out.insert(out.end(), dirs.begin(), dirs.end());
-    out.insert(out.end(), files.begin(), files.end());
-    return out;
-}
-
-std::size_t countPathsInDir(const std::vector<std::string>& paths, const std::string& dirPrefix) {
-    std::size_t n = 0;
-    for (const auto& p : paths) {
-        if (hasPathPrefix(p, dirPrefix)) ++n;
-    }
-    return n;
-}
-
-int restorePathsMatchingPrefix(KeeplyApi& api,
-                               const std::vector<std::string>& paths,
-                               const std::string& snapshot,
-                               const std::string& dirPrefix) {
-    std::size_t total = 0;
-    for (const auto& p : paths) {
-        if (hasPathPrefix(p, dirPrefix)) ++total;
-    }
-    if (total == 0) {
-        std::cout << "Nenhum arquivo encontrado para restore.\n";
-        return 0;
-    }
-    std::cout << "Restaurando " << total << " arquivo(s) de '" << (dirPrefix.empty() ? "/" : dirPrefix) << "'...\n";
-    std::size_t done = 0;
-    for (const auto& p : paths) {
-        if (!hasPathPrefix(p, dirPrefix)) continue;
-        api.restoreFile(snapshot, p, std::nullopt);
-        ++done;
-        if (done % 100 == 0 || done == total) {
-            std::cout << "RESTORE " << done << "/" << total << " path=" << p << "\n";
-        }
-    }
-    std::cout << "Restore concluido em: " << api.state().restoreRoot << "\n";
-    return 0;
-}
-
-int cmdRestoreBrowse(KeeplyApi& api, const std::string& snapshot) {
-    const auto paths = api.listSnapshotPaths(snapshot);
-    if (paths.empty()) {
-        std::cout << "Esse snapshot nao tem arquivos.\n";
-        return 0;
-    }
-    std::string prefix;
-    std::size_t page = 0;
-    for (;;) {
-        const auto entries = listBrowserEntries(paths, prefix);
-        const std::size_t pages = std::max<std::size_t>(1, (entries.size() + kFilePageSize - 1) / kFilePageSize);
-        if (page >= pages) page = pages - 1;
-        const std::size_t start = page * kFilePageSize;
-        const std::size_t end = std::min(entries.size(), start + kFilePageSize);
-        std::cout << "\nNavegando snapshot #" << snapshot << " em /" << prefix
-                  << " (itens=" << entries.size()
-                  << ", arquivos_no_dir=" << countPathsInDir(paths, prefix)
-                  << ", pagina " << (page + 1) << "/" << pages << ")\n";
-        if (entries.empty()) {
-            std::cout << "  (vazio)\n";
-        } else {
-            for (std::size_t i = start; i < end; ++i) {
-                const auto& e = entries[i];
-                std::cout << "  [" << (i + 1) << "] " << (e.isDir ? "[D] " : "[F] ") << e.name;
-                if (e.isDir) {
-                    const std::string dirPrefix = e.relPath + "/";
-                    std::cout << " (" << countPathsInDir(paths, dirPrefix) << " arqs)";
+            if (options.foreground && !printedStartup) {
+                std::cout
+                    << "============================================================\n"
+                    << " Keeply Agent Online\n"
+                    << "============================================================\n"
+                    << "  WebSocket : " << config.url        << "\n"
+                    << "  Device ID : " << config.agentId    << "\n"
+                    << "  Hostname  : " << config.hostName   << "\n"
+                    << "  Device    : " << config.deviceName << "\n"
+                    << "  Data Dir  : " << dataDir           << "\n"
+                    << "  Watch Root: " << watchRoot         << "\n"
+                    << "  CBT Local : " << (cbtStarted ? "enabled" : "disabled") << "\n"
+                    << "  TLS Verify: " << (config.allowInsecureTls ? "disabled" : "enabled") << "\n";
+                if (!identity.pairingCode.empty())
+                    std::cout << "  Pairing   : " << identity.pairingCode << "\n";
+                if (verbose) {
+                    std::cout
+                        << "  OS        : " << config.osName << "\n"
+                        << "  Fingerprint SHA-256 : " << identity.fingerprintSha256 << "\n";
                 }
-                std::cout << "\n";
+                std::cout << "============================================================\n";
+                printedStartup = true;
             }
+
+            if (config.allowInsecureTls)
+                std::cerr << "[keeply][tls][warn] verificacao TLS desabilitada por configuracao explicita.\n";
+
+            keeply::KeeplyAgentWsClient client(api, identity);
+            client.connect(config);
+            backoffMs = kBackoffInitialMs;
+            client.run();
+            std::cerr << "Conexao websocket encerrada. Reconectando em " << backoffMs << "ms...\n";
+        } catch (const std::exception& loopEx) {
+            std::cerr << "Loop websocket falhou: " << loopEx.what() << "\n";
+            std::cerr << "Reconectando em " << backoffMs << "ms...\n";
         }
-        std::cout << "Comandos: numero=entrar/restaurar | a=restaurar pasta atual | u=subir | r=raiz | n/p=pagina | q=sair\n";
-        const std::string in = readLine("> ");
-        if (in == "q" || in == "Q" || in == "0") return 0;
-        if (in == "n" || in == "N") {
-            if (page + 1 < pages) ++page;
-            continue;
-        }
-        if (in == "p" || in == "P") {
-            if (page > 0) --page;
-            continue;
-        }
-        if (in == "u" || in == "U") {
-            prefix = parentPrefix(prefix);
-            page = 0;
-            continue;
-        }
-        if (in == "r" || in == "R") {
-            prefix.clear();
-            page = 0;
-            continue;
-        }
-        if (in == "a" || in == "A") {
-            if (prefix.empty()) {
-                const std::string confirm = readLine("Restaurar snapshot completo? (digite RESTAURAR): ");
-                if (confirm == "RESTAURAR") return cmdRestoreSnapshot(api, snapshot);
-                std::cout << "Cancelado.\n";
-                continue;
-            }
-            const std::string confirm = readLine("Restaurar pasta atual '" + prefix + "'? (s/N): ");
-            if (confirm == "s" || confirm == "S") {
-                return restorePathsMatchingPrefix(api, paths, snapshot, prefix);
-            }
-            std::cout << "Cancelado.\n";
-            continue;
-        }
-        const auto idx = parseIndex1(in, entries.size());
-        if (!idx) {
-            std::cout << "Entrada invalida.\n";
-            continue;
-        }
-        const auto& e = entries[*idx];
-        if (e.isDir) {
-            std::cout << "  [1] Entrar na pasta\n";
-            std::cout << "  [2] Restaurar essa pasta (recursivo)\n";
-            std::cout << "  [0] Voltar\n";
-            const std::string op = readLine("Opcao: ");
-            if (op == "1") {
-                prefix = e.relPath + "/";
-                page = 0;
-                continue;
-            }
-            if (op == "2") {
-                const std::string dirPrefix = e.relPath + "/";
-                const std::string confirm = readLine("Restaurar '" + dirPrefix + "'? (s/N): ");
-                if (confirm == "s" || confirm == "S") {
-                    return restorePathsMatchingPrefix(api, paths, snapshot, dirPrefix);
-                }
-                std::cout << "Cancelado.\n";
-                continue;
-            }
-            continue;
-        }
-        return cmdRestoreFile(api, e.relPath, snapshot);
+        const int jitterRange = static_cast<int>(backoffMs * kBackoffJitterFactor);
+        const int jitter = jitterRange > 0 ? (std::rand() % (jitterRange * 2 + 1)) - jitterRange : 0;
+        const int sleepMs = std::max(100, backoffMs + jitter);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+        backoffMs = std::min(backoffMs * 2, kBackoffMaxMs);
     }
 }
 
-int cmdRestoreSnapshot(KeeplyApi& api, const std::string& snapshot) {
-    api.restoreSnapshot(snapshot, std::nullopt);
-    std::cout << "Snapshot restaurado em: " << api.state().restoreRoot << "\n";
-    return 0;
-}
-
-int cmdFiles(KeeplyApi& api, const std::string& snapshot) {
-    const auto paths = api.listSnapshotPaths(snapshot);
-    std::cout << "Arquivos no snapshot '" << snapshot << "': " << paths.size() << "\n";
-    for (std::size_t i = 0; i < paths.size(); ++i) {
-        std::cout << "  [" << (i + 1) << "] " << paths[i] << "\n";
-    }
-    return 0;
-}
-
-int cmdRestoreFile(KeeplyApi& api, const std::string& relPath, const std::string& snapshot) {
-    api.restoreFile(snapshot, relPath, std::nullopt);
-    const auto target = std::filesystem::path(api.state().restoreRoot) / relPath;
-    std::cout << "Arquivo restaurado em: " << target.string() << "\n";
-    return 0;
-}
-
-int cmdRestoreUi(KeeplyApi& api) {
-    const auto snapshot = chooseSnapshotInteractive(api);
-    if (!snapshot) {
-        std::cout << "Restore cancelado.\n";
-        return 0;
-    }
-    for (;;) {
-        std::cout << "\nRestore do snapshot #" << *snapshot << "\n";
-        std::cout << "  [1] Restaurar snapshot completo\n";
-        std::cout << "  [2] Navegar e restaurar (arquivo/pasta)\n";
-        std::cout << "  [0] Cancelar\n";
-        const std::string mode = readLine("Opcao: ");
-        if (mode == "0") {
-            std::cout << "Restore cancelado.\n";
-            return 0;
-        }
-        if (mode == "1") {
-            return cmdRestoreSnapshot(api, *snapshot);
-        }
-        if (mode == "2") {
-            return cmdRestoreBrowse(api, *snapshot);
-        }
-        std::cout << "Opcao invalida.\n";
-    }
-}
-
-int runMenu(KeeplyApi& api) {
-    for (;;) {
-        std::cout << "\n=== KEEPLY CLI (BASICO) ===\n";
-        printConfig(api);
-        std::cout << "\n";
-        std::cout << "  [1] Executar backup (scan em " << api.state().source << ")\n";
-        std::cout << "  [2] Ver historico (completo/incremental)\n";
-        std::cout << "  [3] Restaurar (selecionar snapshot e arquivo)\n";
-        std::cout << "  [4] Apagar tudo em " << keeply::pathToUtf8(keeply::defaultKeeplyDataDir()) << " (teste)\n";
-        std::cout << "  [5] Listar arquivos do ultimo snapshot\n";
-        std::cout << "  [0] Sair\n";
-        const std::string op = readLine("Opcao: ");
-        if (op == "0") return 0;
-        if (op == "1") {
-            try { cmdBackup(api); } catch (const std::exception& e) { std::cout << "Erro: " << e.what() << "\n"; }
-            continue;
-        }
-        if (op == "2") {
-            try { cmdTimeline(api); } catch (const std::exception& e) { std::cout << "Erro: " << e.what() << "\n"; }
-            continue;
-        }
-        if (op == "3") {
-            try { cmdRestoreUi(api); } catch (const std::exception& e) { std::cout << "Erro: " << e.what() << "\n"; }
-            continue;
-        }
-        if (op == "4") {
-            try { cmdReset(api, false); } catch (const std::exception& e) { std::cout << "Erro: " << e.what() << "\n"; }
-            continue;
-        }
-        if (op == "5") {
-            try { cmdFiles(api, "latest"); } catch (const std::exception& e) { std::cout << "Erro: " << e.what() << "\n"; }
-            continue;
-        }
-        std::cout << "Opcao invalida.\n";
-    }
-}
-
-}
-
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
     try {
-        KeeplyApi api = makeCliApi();
-        if (argc < 2) {
-            return runMenu(api);
+#if defined(__linux__) || defined(__APPLE__)
+        std::signal(SIGPIPE, SIG_IGN);
+#endif
+        // Subcomando "cbt": repassa para o daemon CBT
+        if (argc >= 2 && std::string(argv[1]) == "cbt") {
+            argv[1] = argv[0];
+            return keeply_cbt_main(argc - 1, argv + 1);
         }
-        const std::string cmd = argv[1];
-        if (cmd == "help" || cmd == "-h" || cmd == "--help") {
-            printUsage(argv[0]);
+
+        const AgentRuntimeOptions options = parseArgs(argc, argv);
+
+#ifdef _WIN32
+        if (options.installService)   { agentInstallService(options); return 0; }
+        if (options.uninstallService) { agentUninstallService(); return 0; }
+
+        if (options.background) {
+            runAgentLoop(options);
             return 0;
         }
-        if (cmd == "menu") return runMenu(api);
-        if (cmd == "config") return cmdConfig(api);
-        if (cmd == "backup") return cmdBackup(api);
-        if (cmd == "backup-source") {
-            if (argc < 3) throw std::runtime_error("Uso: backup-source <diretorio> [arquivo_backup]");
-            const std::optional<std::string> archive = (argc >= 4) ? std::optional<std::string>(argv[3]) : std::nullopt;
-            return cmdBackupSource(api, argv[2], archive);
+
+        agentRegisterAutorun(options);
+        {
+            auto dataDir = pickDataDir();
+            std::error_code ec;
+            fs::create_directories(dataDir, ec);
+
+            keeply::WsClientConfig config;
+            config.url              = options.url;
+            config.allowInsecureTls = options.allowInsecureTls;
+            config.hostName         = detectHostName();
+            config.deviceName       = config.hostName;
+            if (!options.deviceName.empty()) config.deviceName = options.deviceName;
+            config.osName           = detectOsName();
+            config.identityDir      = dataDir / "agent_identity";
+
+            auto existing = keeply::KeeplyAgentBootstrap::loadPersistedIdentity(config);
+            if (existing.deviceId.empty()) {
+                try {
+                    keeply::KeeplyAgentBootstrap::ensureRegistered(config);
+                } catch (const std::exception& ex) {
+                    std::wstring msg = L"Falha ao registrar dispositivo:\n";
+                    msg += std::wstring(ex.what(), ex.what() + ::strlen(ex.what()));
+                    MessageBoxW(nullptr, msg.c_str(), L"Keeply - Erro", MB_OK | MB_ICONERROR);
+                    return 1;
+                }
+            }
         }
-        if (cmd == "timeline" || cmd == "list") return cmdTimeline(api);
-        if (cmd == "restore-ui") return cmdRestoreUi(api);
-        if (cmd == "restore-browse") {
-            const std::string snapshot = (argc >= 3) ? argv[2] : "latest";
-            return cmdRestoreBrowse(api, snapshot);
-        }
-        if (cmd == "reset") {
-            const bool force = (argc >= 3 && std::string(argv[2]) == "--force");
-            return cmdReset(api, force);
-        }
-        if (cmd == "restore" || cmd == "restore-snapshot") {
-            const std::string snapshot = (argc >= 3) ? argv[2] : "latest";
-            return cmdRestoreSnapshot(api, snapshot);
-        }
-        if (cmd == "files" || cmd == "paths") {
-            const std::string snapshot = (argc >= 3) ? argv[2] : "latest";
-            return cmdFiles(api, snapshot);
-        }
-        if (cmd == "restore-file") {
-            if (argc < 3) throw std::runtime_error("Uso: restore-file <arquivo_relativo> [snapshot]");
-            const std::string relPath = argv[2];
-            const std::string snapshot = (argc >= 4) ? argv[3] : "latest";
-            return cmdRestoreFile(api, relPath, snapshot);
-        }
-        throw std::runtime_error("Comando invalido: " + cmd);
+        agentLaunchBackground(options);
+        return 0;
+#endif
+
+#ifdef __linux__
+        if (!options.foreground) daemonizeProcess();
+#endif
+        runAgentLoop(options);
+        return 0;
     } catch (const std::exception& e) {
-        std::cerr << "Erro: " << e.what() << "\n";
+        std::cerr << "Falha no agente Keeply: " << e.what() << "\n";
         return 1;
     }
 }
-
-#endif
