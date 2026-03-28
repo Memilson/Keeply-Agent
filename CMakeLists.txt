@@ -19,7 +19,7 @@ include(FetchContent)
 FetchContent_Declare(
     blake3_src
     GIT_REPOSITORY https://github.com/BLAKE3-team/BLAKE3.git
-    GIT_TAG 6eebbbd67935cc6b8fe24da164ae968a2e3973cb
+    GIT_TAG 1.5.1
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(blake3_src)

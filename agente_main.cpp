@@ -427,6 +427,8 @@ struct AgentRuntimeOptions{
 
 static AgentRuntimeOptions parseArgs(int argc,char** argv){
     AgentRuntimeOptions options;
+    // Default websocket URL (matches installer script default)
+    static const std::string kDefaultWsUrl = "wss://backend.keeply.app.br/ws/agent";
     options.url=envOrEmptyAny({"KEEPLY_WS_URL","KEEPly_WS_URL"});
     options.deviceName=envOrEmptyAny({"KEEPLY_DEVICE_NAME","KEEPly_DEVICE_NAME"});
     options.watchRoot=pickWatchRoot();
@@ -457,7 +459,8 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
         else throw std::runtime_error("Argumentos posicionais demais.");
         ++positionalIndex;
     }
-    if(options.url.empty()) throw std::runtime_error("URL websocket vazia. Use --url, argv[1] ou env KEEPLY_WS_URL.");
+    // If no URL was provided via env/arg, use the default backend URL.
+    if(options.url.empty()) options.url = kDefaultWsUrl;
     return options;
 }
 

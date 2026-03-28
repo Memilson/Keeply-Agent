@@ -156,6 +156,13 @@ std::string buildBundleDownloadPath(const std::string& downloadPathBase,const st
     return ensureRelativeHttpPath(downloadPathBase) + "/" + urlEncode(fileName);
 }
 
+bool hasSnapshotPathPrefix(const std::string& path,const std::string& prefix){
+    if(prefix.empty()) return true;
+    if(path == prefix) return true;
+    if(path.size() <= prefix.size()) return false;
+    return path.rfind(prefix + "/", 0) == 0;
+}
+
 bool shouldSkipMountType(const std::string& fsType){
     static const std::set<std::string> skipped={
         "proc","sysfs","tmpfs","devtmpfs","devpts","cgroup","cgroup2","mqueue","overlay","squashfs",
@@ -354,7 +361,7 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     cmd.snapshot=extractJsonStringField(payload,"snapshot");
     cmd.relPath=extractJsonStringField(payload,"relPath");
     if(cmd.relPath.empty()) cmd.relPath=cmd.path;
-k    cmd.outRoot=extractJsonStringField(payload,"outRoot");
+    cmd.outRoot=extractJsonStringField(payload,"outRoot");
     cmd.ticketId=extractJsonStringField(payload,"ticketId");
     cmd.downloadPathBase=extractJsonStringField(payload,"downloadPathBase");
     cmd.backupId=extractJsonStringField(payload,"backupId");
@@ -365,6 +372,7 @@ k    cmd.outRoot=extractJsonStringField(payload,"outRoot");
     cmd.packFile=extractJsonStringField(payload,"packFile");
     cmd.blobFiles=extractJsonStringField(payload,"blobFiles");
     cmd.sourceRoot=extractJsonStringField(payload,"sourceRoot");
+    cmd.entryType=extractJsonStringField(payload,"entryType");
     return cmd;
 }
 
@@ -810,16 +818,34 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
 
         StorageArchive archive(archivePath);
         const sqlite3_int64 snapshotId = archive.resolveSnapshotId(cmd.snapshot);
-        RestoreEngine::restoreSnapshot(archivePath, snapshotId, outRoot.value_or(pathFromUtf8(api_->state().restoreRoot)));
+        const fs::path finalOutRoot = outRoot.value_or(pathFromUtf8(api_->state().restoreRoot));
+        const std::string normalizedRelPath = normalizeRelPath(cmd.relPath);
+        const std::string normalizedEntryType = trim(cmd.entryType);
+        if(normalizedRelPath.empty()){
+            RestoreEngine::restoreSnapshot(archivePath, snapshotId, finalOutRoot);
+        }else if(normalizedEntryType == "folder"){
+            const auto paths = archive.listSnapshotPaths(snapshotId);
+            std::size_t restoredCount = 0;
+            for(const auto& path : paths){
+                if(!hasSnapshotPathPrefix(path, normalizedRelPath)) continue;
+                RestoreEngine::restoreFile(archivePath, snapshotId, path, finalOutRoot);
+                ++restoredCount;
+            }
+            if(restoredCount == 0){
+                throw std::runtime_error("Nenhum arquivo encontrado para a pasta selecionada: " + normalizedRelPath);
+            }
+        }else{
+            RestoreEngine::restoreFile(archivePath, snapshotId, normalizedRelPath, finalOutRoot);
+        }
 
         std::ostringstream finishedJson;
-        finishedJson<<"{"<<"\"type\":\"restore.cloud.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+        finishedJson<<"{"<<"\"type\":\"restore.cloud.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("path",normalizedRelPath)<<","<<jsonStrField("entryType",normalizedEntryType)<<"}";
         sendJson_(finishedJson.str());
 
-        sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(cmd.snapshot)+"\",\"requestId\":\""+escapeJson_(requestId)+"\",\"outRoot\":\""+escapeJson_(resolvedOutRoot)+"\"}");
+        sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(cmd.snapshot)+"\",\"requestId\":\""+escapeJson_(requestId)+"\",\"outRoot\":\""+escapeJson_(resolvedOutRoot)+"\",\"path\":\""+escapeJson_(normalizedRelPath)+"\",\"entryType\":\""+escapeJson_(normalizedEntryType)+"\"}");
     }catch(const std::exception& e){
         std::ostringstream failedJson;
-        failedJson<<"{"<<"\"type\":\"restore.cloud.failed\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("message",e.what())<<"}";
+        failedJson<<"{"<<"\"type\":\"restore.cloud.failed\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("path",cmd.relPath)<<","<<jsonStrField("entryType",cmd.entryType)<<","<<jsonStrField("message",e.what())<<"}";
         sendJson_(failedJson.str());
         fs::remove_all(tempRoot, cleanupEc);
         throw;

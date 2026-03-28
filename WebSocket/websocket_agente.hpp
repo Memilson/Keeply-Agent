@@ -79,6 +79,7 @@ struct WsCommand{
     std::string packFile;
     std::string blobFiles;
     std::string sourceRoot;
+    std::string entryType;
     std::string raw;
 };
 
