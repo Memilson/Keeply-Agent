@@ -146,10 +146,11 @@ function(keeply_stage_windows_runtime_deps target_name)
     endif()
 
     add_custom_command(TARGET ${target_name} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_RUNTIME_DLLS:${target_name}>
-            $<TARGET_FILE_DIR:${target_name}>
-        COMMAND_EXPAND_LISTS
+        COMMAND ${CMAKE_COMMAND}
+            -DKEEPLY_RUNTIME_TARGET=$<TARGET_FILE:${target_name}>
+            -DKEEPLY_RUNTIME_OUTPUT_DIR=$<TARGET_FILE_DIR:${target_name}>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_runtime_deps.cmake
+        VERBATIM
     )
 endfunction()
 
