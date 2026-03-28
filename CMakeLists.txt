@@ -4,6 +4,10 @@ project(keeply LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MINGW)
+    add_link_options(-static-libgcc -static-libstdc++)
+endif()
+
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
@@ -136,6 +140,19 @@ set(KEEPLY_COMMON_LIBS
     ${ZSTD_LIB}
 )
 
+function(keeply_stage_windows_runtime_deps target_name)
+    if(NOT WIN32)
+        return()
+    endif()
+
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_RUNTIME_DLLS:${target_name}>
+            $<TARGET_FILE_DIR:${target_name}>
+        COMMAND_EXPAND_LISTS
+    )
+endfunction()
+
 # =========================================================================
 # Target: keeply (CLI)
 # =========================================================================
@@ -155,6 +172,7 @@ target_compile_definitions(keeply PRIVATE
 )
 
 target_link_libraries(keeply PRIVATE ${KEEPLY_COMMON_LIBS})
+keeply_stage_windows_runtime_deps(keeply)
 
 # =========================================================================
 # Target: keeply_agent (WebSocket agent)
@@ -175,6 +193,7 @@ target_compile_definitions(keeply_agent PRIVATE
 )
 
 target_link_libraries(keeply_agent PRIVATE ${KEEPLY_COMMON_LIBS})
+keeply_stage_windows_runtime_deps(keeply_agent)
 
 # =========================================================================
 # Platform link libraries
@@ -228,4 +247,8 @@ elseif(WIN32)
         Shell32
         Ole32
     )
+endif()
+
+if(WIN32)
+    keeply_stage_windows_runtime_deps(keeply_cbt_daemon)
 endif()
