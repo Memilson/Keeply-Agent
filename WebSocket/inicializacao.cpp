@@ -759,6 +759,8 @@ std::string buildPairingStartBody(const WsClientConfig& config, const AgentIdent
          << "\",\"deviceName\":\""          << escapeJson(config.deviceName)
          << "\",\"hostName\":\""            << escapeJson(config.hostName)
          << "\",\"os\":\""                  << escapeJson(config.osName)
+         << "\",\"deviceId\":\""            << escapeJson(identity.deviceId)
+         << "\",\"userId\":\""              << escapeJson(identity.userId)
          << "\",\"certFingerprintSha256\":\"" << escapeJson(identity.fingerprintSha256)
          << "\"}";
     return json.str();
@@ -789,6 +791,8 @@ PairingStatusResponse pollPairingStatus(const WsClientConfig& config,
 
     std::ostringstream json;
     json << "{\"code\":\"" << escapeJson(code)
+         << "\",\"deviceId\":\"" << escapeJson(identity.deviceId)
+         << "\",\"userId\":\"" << escapeJson(identity.userId)
          << "\",\"certFingerprintSha256\":\"" << escapeJson(identity.fingerprintSha256)
          << "\"}";
 
