@@ -253,3 +253,45 @@ endif()
 if(WIN32)
     keeply_stage_windows_runtime_deps(keeply_cbt_daemon)
 endif()
+
+# =========================================================================
+# Target: keeply_all  (CLI + Agent + CBT Daemon em um unico .exe)
+# =========================================================================
+
+# Sources do keeply_all: KEEPLY_CORE sem daemon.cpp (ja incluido via #include
+# em main_unified.cpp), mais keeply.cpp e agente_main.cpp que tambem sao
+# incluidos via #include — portanto o target so precisa dos .cpp que o
+# main_unified.cpp NAO inclui diretamente.
+set(KEEPLY_CORE_NO_PLATFORM)
+foreach(src IN LISTS KEEPLY_CORE)
+    # Exclui os platform sources (daemon.cpp) que sao incluidos via #include
+    set(_is_platform FALSE)
+    foreach(plat IN LISTS KEEPLY_CBT_PLATFORM_SOURCES)
+        if(src STREQUAL plat)
+            set(_is_platform TRUE)
+        endif()
+    endforeach()
+    if(NOT _is_platform)
+        list(APPEND KEEPLY_CORE_NO_PLATFORM ${src})
+    endif()
+endforeach()
+
+add_executable(keeply_all
+    main_unified.cpp
+    ${KEEPLY_CORE_NO_PLATFORM}
+    ${KEEPLY_API_WS}
+)
+
+target_include_directories(keeply_all PRIVATE ${KEEPLY_INCLUDE_DIRS})
+
+target_compile_definitions(keeply_all PRIVATE
+    BLAKE3_USE_NEON=0
+    BLAKE3_NO_AVX512
+)
+
+target_link_libraries(keeply_all PRIVATE ${KEEPLY_COMMON_LIBS})
+
+if(WIN32)
+    target_link_libraries(keeply_all PRIVATE ws2_32 Shell32 Ole32 User32 Advapi32)
+    keeply_stage_windows_runtime_deps(keeply_all)
+endif()

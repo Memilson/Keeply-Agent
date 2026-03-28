@@ -32,3 +32,5 @@ keeply-all.bin
 Thumbs.db
 .idea/
 .vscode/
+/build_win
+/cmake

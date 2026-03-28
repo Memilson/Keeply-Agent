@@ -14,6 +14,7 @@
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
+#include <tlhelp32.h>
 #endif
 #if defined(__linux__) || defined(__APPLE__)
 #include <csignal>
@@ -422,8 +423,88 @@ struct AgentRuntimeOptions{
     bool foreground=false;
     bool enableLocalCbt=true;
     bool enableTray=true;
+#ifdef _WIN32
+    bool allowInsecureTls=true;
+    bool installService=false;
+    bool uninstallService=false;
+#else
     bool allowInsecureTls=false;
+#endif
 };
+
+#ifdef _WIN32
+static fs::path agentCurrentExePath(){
+    std::wstring buf(MAX_PATH,L'\0');
+    for(;;){
+        DWORD n=GetModuleFileNameW(nullptr,buf.data(),(DWORD)buf.size());
+        if(n==0) throw std::runtime_error("Falha resolvendo executavel.");
+        if(n<buf.size()-1){ buf.resize(n); return fs::path(buf); }
+        buf.resize(buf.size()*2,L'\0');
+    }
+}
+
+// Chave do registro onde ficam os programas que iniciam com o login do usuario
+static constexpr const wchar_t* kRunKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+static constexpr const wchar_t* kRunValue = L"KeeplyAgent";
+
+static void agentInstallService(const AgentRuntimeOptions& opts){
+    const fs::path exe=agentCurrentExePath();
+
+    // Monta o comando: "C:\...\keeply_all.exe" agent [--url ...] [--device ...] [--root ...]
+    std::wstring cmd=L"\""+exe.wstring()+L"\" agent";
+    if(!opts.url.empty())        cmd+=L" --url \""+std::wstring(opts.url.begin(),opts.url.end())+L"\"";
+    if(!opts.deviceName.empty()) cmd+=L" --device \""+std::wstring(opts.deviceName.begin(),opts.deviceName.end())+L"\"";
+    if(!opts.watchRoot.empty())  cmd+=L" --root \""+opts.watchRoot.wstring()+L"\"";
+
+    HKEY hkey=nullptr;
+    LONG res=RegOpenKeyExW(HKEY_CURRENT_USER,kRunKey,0,KEY_SET_VALUE,&hkey);
+    if(res!=ERROR_SUCCESS) throw std::runtime_error("Falha abrindo chave de registro. Erro="+std::to_string(res));
+
+    res=RegSetValueExW(hkey,kRunValue,0,REG_SZ,
+        reinterpret_cast<const BYTE*>(cmd.c_str()),
+        static_cast<DWORD>((cmd.size()+1)*sizeof(wchar_t)));
+    RegCloseKey(hkey);
+    if(res!=ERROR_SUCCESS) throw std::runtime_error("Falha gravando registro. Erro="+std::to_string(res));
+
+    // Inicia imediatamente em background (processo detached)
+    STARTUPINFOW si{}; si.cb=sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::wstring cmdMut=cmd; // CreateProcessW precisa de buffer mutavel
+    if(CreateProcessW(nullptr,cmdMut.data(),nullptr,nullptr,FALSE,
+                      DETACHED_PROCESS|CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)){
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+
+    std::cout<<"Keeply Agent instalado com sucesso!\n";
+    std::cout<<"O agent vai iniciar automaticamente em cada login do Windows.\n";
+    std::cout<<"Na primeira execucao o codigo de pareamento aparece em uma janela.\n";
+}
+
+static void agentUninstallService(){
+    HKEY hkey=nullptr;
+    LONG res=RegOpenKeyExW(HKEY_CURRENT_USER,kRunKey,0,KEY_SET_VALUE,&hkey);
+    if(res!=ERROR_SUCCESS) throw std::runtime_error("Falha abrindo chave de registro. Erro="+std::to_string(res));
+    RegDeleteValueW(hkey,kRunValue);
+    RegCloseKey(hkey);
+
+    // Encerra processo se estiver rodando
+    HANDLE snap=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+    if(snap!=INVALID_HANDLE_VALUE){
+        PROCESSENTRY32W pe{}; pe.dwSize=sizeof(pe);
+        if(Process32FirstW(snap,&pe)){
+            do{
+                if(std::wstring(pe.szExeFile).find(L"keeply_all")!=std::wstring::npos){
+                    HANDLE h=OpenProcess(PROCESS_TERMINATE,FALSE,pe.th32ProcessID);
+                    if(h){ TerminateProcess(h,0); CloseHandle(h); }
+                }
+            }while(Process32NextW(snap,&pe));
+        }
+        CloseHandle(snap);
+    }
+    std::cout<<"Keeply Agent removido do inicio automatico.\n";
+}
+#endif
 
 static AgentRuntimeOptions parseArgs(int argc,char** argv){
     AgentRuntimeOptions options;
@@ -453,6 +534,10 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
         if(arg=="--no-cbt"){ options.enableLocalCbt=false; continue; }
         if(arg=="--no-tray"){ options.enableTray=false; continue; }
         if(arg=="--insecure-tls"){ options.allowInsecureTls=true; continue; }
+#ifdef _WIN32
+        if(arg=="--install-service"){ options.installService=true; continue; }
+        if(arg=="--uninstall-service"){ options.uninstallService=true; continue; }
+#endif
         if(!arg.empty()&&arg[0]=='-') throw std::runtime_error("Argumento invalido: "+arg);
         if(positionalIndex==0) options.url=arg;
         else if(positionalIndex==1) options.deviceName=arg;
@@ -464,107 +549,110 @@ static AgentRuntimeOptions parseArgs(int argc,char** argv){
     return options;
 }
 
+
+static void runAgentLoop(const AgentRuntimeOptions& options){
+    auto verbose=envTruthyAny({"KEEPLY_VERBOSE","KEEPly_VERBOSE"});
+    auto dataDir=pickDataDir();
+    auto watchRoot=options.watchRoot.empty()?pickWatchRoot():options.watchRoot;
+    auto pidFile=pickPidFilePath(dataDir);
+
+    keeply::WsClientConfig config;
+    config.url=options.url;
+    config.allowInsecureTls=options.allowInsecureTls;
+    config.hostName=detectHostName();
+    config.deviceName=config.hostName;
+    if(!options.deviceName.empty()) config.deviceName=options.deviceName;
+    config.osName=detectOsName();
+    config.identityDir=dataDir/"agent_identity";
+
+    std::error_code ec;
+    fs::create_directories(dataDir,ec);
+    if(ec) throw std::runtime_error("Falha ao criar dataDir: "+dataDir.string()+" | "+ec.message());
+
+    writePidFile(pidFile);
+
+    auto api=std::make_shared<keeply::KeeplyApi>();
+    api->setArchive(keeply::pathToUtf8(dataDir/"keeply.kipy"));
+    api->setRestoreRoot(keeply::pathToUtf8(dataDir/"restore_agent_ws"));
+    api->setSource(keeply::pathToUtf8(watchRoot));
+
+    OptionalTrayIndicator tray;
+    if(options.enableTray) tray.start();
+
+    keeply::BackgroundCbtWatcher watcher;
+    bool cbtStarted=false;
+#ifdef __linux__
+    if(options.enableLocalCbt){
+        try{
+            cbtStarted=ensureLinuxCbtDaemon(watchRoot);
+        }catch(const std::exception& ex){
+            std::cerr<<"[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: "<<ex.what()<<"\n";
+            try{ watcher.start(watchRoot); cbtStarted=watcher.running(); }
+            catch(const std::exception& wx){ std::cerr<<"[keeply][cbt][warn] watcher local desativado: "<<wx.what()<<"\n"; }
+        }
+    }
+#else
+    if(options.enableLocalCbt){
+        try{ watcher.start(watchRoot); cbtStarted=watcher.running(); }
+        catch(const std::exception& ex){ std::cerr<<"[keeply][cbt][warn] watcher local desativado: "<<ex.what()<<"\n"; }
+    }
+#endif
+
+    bool printedStartup=false;
+    constexpr int kBackoffInitialMs=1000;
+    constexpr int kBackoffMaxMs=60000;
+    constexpr double kBackoffJitterFactor=0.25;
+    int backoffMs=kBackoffInitialMs;
+
+    for(;;){
+        try{
+            keeply::AgentIdentity identity=keeply::KeeplyAgentBootstrap::ensureRegistered(config);
+            config.agentId=identity.deviceId;
+            if(options.foreground&&!printedStartup){
+                printStartupSummary(config,identity,dataDir,watchRoot,cbtStarted,options.enableTray,options.foreground,verbose);
+                printedStartup=true;
+            }
+            if(config.allowInsecureTls){
+                std::cerr<<"[keeply][tls][warn] verificacao TLS desabilitada por configuracao explicita.\n";
+            }
+            keeply::KeeplyAgentWsClient client(api,identity);
+            client.connect(config);
+            backoffMs=kBackoffInitialMs;
+            client.run();
+            std::cerr<<"Conexao websocket encerrada. Reconectando em "<<backoffMs<<"ms...\n";
+        }catch(const std::exception& loopEx){
+            std::cerr<<"Loop websocket falhou: "<<loopEx.what()<<"\n";
+            std::cerr<<"Reconectando em "<<backoffMs<<"ms...\n";
+        }
+        const int jitterRange=static_cast<int>(backoffMs*kBackoffJitterFactor);
+        const int jitter=jitterRange>0?(std::rand()%(jitterRange*2+1))-jitterRange:0;
+        const int sleepMs=std::max(100,backoffMs+jitter);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+        backoffMs=std::min(backoffMs*2,kBackoffMaxMs);
+    }
+}
+
 int main(int argc,char** argv){
     try{
 #if defined(__linux__) || defined(__APPLE__)
         std::signal(SIGPIPE,SIG_IGN);
 #endif
         const AgentRuntimeOptions options=parseArgs(argc,argv);
-        keeply::WsClientConfig config;
-        config.url=options.url;
-        config.allowInsecureTls=options.allowInsecureTls;
 
-        config.hostName=detectHostName();
-        config.deviceName=config.hostName;
-        if(!options.deviceName.empty()) config.deviceName=options.deviceName;
-
-        config.osName=detectOsName();
-
-        auto verbose=envTruthyAny({"KEEPLY_VERBOSE","KEEPly_VERBOSE"});
-        auto dataDir=pickDataDir();
-        auto watchRoot=options.watchRoot.empty()?pickWatchRoot():options.watchRoot;
-        auto pidFile=pickPidFilePath(dataDir);
-        config.identityDir=dataDir/"agent_identity";
-        std::error_code ec;
-        fs::create_directories(dataDir,ec);
-        if(ec) throw std::runtime_error("Falha ao criar dataDir: "+dataDir.string()+" | "+ec.message());
-
+#ifdef _WIN32
+        if(options.installService){
+            agentInstallService(options);
+            return 0;
+        }
+        if(options.uninstallService){
+            agentUninstallService();
+            return 0;
+        }
+#endif
 #ifdef __linux__
         if(!options.foreground) daemonizeProcess();
 #endif
-        writePidFile(pidFile);
-
-        auto api=std::make_shared<keeply::KeeplyApi>();
-        api->setArchive(keeply::pathToUtf8(dataDir/"keeply.kipy"));
-        api->setRestoreRoot(keeply::pathToUtf8(dataDir/"restore_agent_ws"));
-        api->setSource(keeply::pathToUtf8(watchRoot));
-
-        OptionalTrayIndicator tray;
-        if(options.enableTray) tray.start();
-
-        keeply::BackgroundCbtWatcher watcher;
-        bool cbtStarted=false;
-#ifdef __linux__
-        if(options.enableLocalCbt){
-            try{
-                cbtStarted=ensureLinuxCbtDaemon(watchRoot);
-            }catch(const std::exception& ex){
-                std::cerr<<"[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: "<<ex.what()<<"\n";
-                try{
-                    watcher.start(watchRoot);
-                    cbtStarted=watcher.running();
-                }catch(const std::exception& watcherEx){
-                    std::cerr<<"[keeply][cbt][warn] watcher local desativado: "<<watcherEx.what()<<"\n";
-                }
-            }
-        }
-#else
-        if(options.enableLocalCbt){
-            try{
-                watcher.start(watchRoot);
-                cbtStarted=watcher.running();
-            }catch(const std::exception& ex){
-                std::cerr<<"[keeply][cbt][warn] watcher local desativado: "<<ex.what()<<"\n";
-            }
-        }
-#endif
-
-        bool printedStartup=false;
-
-        constexpr int kBackoffInitialMs=1000;
-        constexpr int kBackoffMaxMs=60000;
-        constexpr double kBackoffJitterFactor=0.25;
-        int backoffMs=kBackoffInitialMs;
-
-        for(;;){
-            try{
-                keeply::AgentIdentity identity=keeply::KeeplyAgentBootstrap::ensureRegistered(config);
-                config.agentId=identity.deviceId;
-                if(options.foreground&&!printedStartup){
-                    printStartupSummary(config,identity,dataDir,watchRoot,cbtStarted,options.enableTray,options.foreground,verbose);
-                    printedStartup=true;
-                }
-                if(config.allowInsecureTls){
-                    std::cerr<<"[keeply][tls][warn] verificacao TLS desabilitada por configuracao explicita.\n";
-                }
-                keeply::KeeplyAgentWsClient client(api,identity);
-                client.connect(config);
-
-                backoffMs=kBackoffInitialMs;
-                client.run();
-                std::cerr<<"Conexao websocket encerrada. Reconectando em "<<backoffMs<<"ms...\n";
-            }catch(const std::exception& loopEx){
-                std::cerr<<"Loop websocket falhou: "<<loopEx.what()<<"\n";
-                std::cerr<<"Reconectando em "<<backoffMs<<"ms...\n";
-            }
-
-            const int jitterRange=static_cast<int>(backoffMs*kBackoffJitterFactor);
-            const int jitter=jitterRange>0?(std::rand()%(jitterRange*2+1))-jitterRange:0;
-            const int sleepMs=std::max(100,backoffMs+jitter);
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-
-            backoffMs=std::min(backoffMs*2,kBackoffMaxMs);
-        }
+        runAgentLoop(options);
         return 0;
     }catch(const std::exception& e){
         std::cerr<<"Falha no agente Keeply: "<<e.what()<<"\n";
