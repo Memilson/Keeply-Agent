@@ -352,7 +352,9 @@ std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path&, bool) {
 }
 
 #ifdef KEEPLY_DAEMON_PROGRAM
-int main() {
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
     return 1;
 }
 #endif

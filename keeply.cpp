@@ -9,7 +9,11 @@
 // --- inclui implementacao do CBT Daemon ---------------------------------
 #define KEEPLY_DAEMON_PROGRAM 1
 #define main keeply_cbt_main
-#include "Backup/Rastreamento/Windows/daemon.cpp"
+#ifdef _WIN32
+  #include "Backup/Rastreamento/Windows/daemon.cpp"
+#else
+  #include "Backup/Rastreamento/Linux/daemon.cpp"
+#endif
 #undef main
 #undef KEEPLY_DAEMON_PROGRAM
 

@@ -911,12 +911,37 @@ void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const Backup
 void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::string& storage){
     BackupStoragePolicy storagePolicy;
     BackupProgress latestProgress;
-    if(!storage.empty()) storagePolicy=parseBackupStoragePolicy(storage);
+    if(!storage.empty()) storagePolicy=ws_internal::parseBackupStoragePolicy(storage);
     std::cout<<"[backup] iniciado";
     if(!label.empty()) std::cout<<" | label="<<label;
     std::cout<<" | source="<<api_->state().source<<"\n";
     sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+"}");
     try{
+        if (storagePolicy.uploadCloud && !keeply::fs::exists(keeply::pathFromUtf8(api_->state().archive))) {
+            try {
+                std::string urlStr = ws_internal::httpUrlFromWsUrl(config_.url, "/api/agent/backups/latest-kply");
+                urlStr += "?userId=" + ws_internal::urlEncode(identity_.userId);
+                urlStr += "&agentId=" + ws_internal::urlEncode(identity_.deviceId);
+                urlStr += "&folderName=" + ws_internal::urlEncode(label);
+
+                const ws_internal::HttpResponse latestResp = ws_internal::httpGet(urlStr, std::nullopt, std::nullopt, config_.allowInsecureTls);
+                if (latestResp.status >= 200 && latestResp.status < 300) {
+                    const std::string preSignedUrl = ws_internal::extractJsonStringField(latestResp.body, "url");
+                    if (!preSignedUrl.empty()) {
+                        std::cout << "[backup] Baixando base incremental da nuvem..." << std::endl;
+                        const ws_internal::HttpResponse s3Resp = ws_internal::httpGet(preSignedUrl, std::nullopt, std::nullopt, true);
+                        if (s3Resp.status >= 200 && s3Resp.status < 300) {
+                            std::ofstream out(keeply::pathFromUtf8(api_->state().archive), std::ios::binary);
+                            out.write(s3Resp.body.data(), s3Resp.body.size());
+                            std::cout << "[backup] Base incremental baixada com sucesso (" << s3Resp.body.size() << " bytes)." << std::endl;
+                        }
+                    }
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[backup] Falha ignorada ao baixar base incremental: " << e.what() << "\n";
+            }
+        }
+
         auto lastProgressSent=std::chrono::steady_clock::now()-std::chrono::seconds(10);
         std::string lastPhase;
         const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress,&lastProgressSent,&lastPhase](const BackupProgress& progress){

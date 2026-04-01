@@ -230,7 +230,9 @@ std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path&, bool) {
 }
 
 #ifdef KEEPLY_DAEMON_PROGRAM
-int main() {
+int main(int argc, char** argv) {
+    (void)argc;
+    (void)argv;
     std::cerr << "keeply_daemon esta disponivel apenas no Linux.\n";
     return 1;
 }
