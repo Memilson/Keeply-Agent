@@ -8,50 +8,41 @@ namespace keeply {
 inline std::string lowerAscii(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
+    return s;}
 inline std::string trim(const std::string& s) {
     const auto front = s.find_first_not_of(" \t\r\n");
     if (front == std::string::npos) return {};
     const auto back = s.find_last_not_of(" \t\r\n");
-    return s.substr(front, back - front + 1);
-}
+    return s.substr(front, back - front + 1);}
 inline std::string normalizeSeparators(std::string p) {
     for (char& c : p)
         if (c == '\\') c = '/';
     while (p.size() > 1 && p.back() == '/')
         p.pop_back();
-    return p;
-}
+    return p;}
 inline bool parseTruthyValue(const std::string& raw) {
     std::string v = lowerAscii(trim(raw));
-    return v == "1" || v == "true" || v == "yes" || v == "on";
-}
+    return v == "1" || v == "true" || v == "yes" || v == "on";}
 inline unsigned hexNibble(char c) {
     if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
     if (c >= 'a' && c <= 'f') return static_cast<unsigned>(10 + c - 'a');
     if (c >= 'A' && c <= 'F') return static_cast<unsigned>(10 + c - 'A');
-    throw std::runtime_error("Hex invalido.");
-}
+    throw std::runtime_error("Hex invalido.");}
 inline std::string hexEncode(const unsigned char* data, std::size_t size) {
     static constexpr char kHex[] = "0123456789abcdef";
     std::string out;
     out.reserve(size * 2);
     for (std::size_t i = 0; i < size; ++i) {
         out.push_back(kHex[(data[i] >> 4) & 0x0F]);
-        out.push_back(kHex[data[i] & 0x0F]);
-    }
-    return out;
-}
+        out.push_back(kHex[data[i] & 0x0F]);}
+    return out;}
 inline std::vector<unsigned char> hexDecode(const std::string& hex) {
     if (hex.size() % 2 != 0) throw std::runtime_error("Hex com tamanho invalido.");
     std::vector<unsigned char> out(hex.size() / 2);
     for (std::size_t i = 0; i < out.size(); ++i) {
         out[i] = static_cast<unsigned char>(
-            (hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));
-    }
-    return out;
-}
+            (hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]));}
+    return out;}
 class KeeplyNotFoundError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
@@ -65,5 +56,4 @@ inline constexpr const char* kAlgoZstd   = "zstd";
 inline constexpr const char* kAlgoZlib   = "zlib";
 inline constexpr const char* kAlgoRaw    = "raw";
 inline constexpr int kProtocolVersion = 1;
-inline constexpr int kCurrentSchemaVersion = 6;
-}
+inline constexpr int kCurrentSchemaVersion = 6;}

@@ -8,8 +8,7 @@
 #include <unordered_map>
 namespace keeply {
 namespace ws_internal {
-struct BackupStoragePolicy;
-}
+struct BackupStoragePolicy;}
 namespace fs = std::filesystem;
 class IWsClientSession{
 public:
@@ -133,5 +132,4 @@ private:
     std::size_t readRaw_(void* data,std::size_t size);
     void configureTls_(const UrlParts& url);
     void ensureConnected_() const;
-};
-}
+};}

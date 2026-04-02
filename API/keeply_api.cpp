@@ -37,8 +37,7 @@ void validateSourceRootAllowed(const fs::path& sourcePath) {
     if (::access(normalized.c_str(), R_OK | X_OK) != 0) {
         throw std::runtime_error(
             "Sem permissao para acessar a origem configurada: " + normalized.string()
-        );
-    }
+        );}
 #endif}
 std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::string& key) {
 #if defined(_WIN32)
@@ -169,8 +168,7 @@ void ensureDefaults() {
     std::error_code ec;
     fs::create_directories(defaultArchivePath().parent_path(), ec);
     ec.clear();
-    fs::create_directories(defaultRestoreRootPath(), ec);
-}
+    fs::create_directories(defaultRestoreRootPath(), ec);}
 KeeplyApi::KeeplyApi() {
     state_.scanScope = resolveScanScope("home");
     state_.source = state_.scanScope.resolvedPath;

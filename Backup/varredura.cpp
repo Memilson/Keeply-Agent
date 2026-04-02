@@ -27,27 +27,22 @@ static Blob buildFileHashFromChunkSequence(const std::vector<ChunkHash>& hashes)
 static void setFileMtime(const fs::path& p, sqlite3_int64 unixSecs) {
     std::error_code ec;
     const auto tp = fs::file_time_type::clock::now() + std::chrono::seconds(unixSecs - fileTimeToUnixSeconds(fs::file_time_type::clock::now()));
-    fs::last_write_time(p, tp, ec);
-}
+    fs::last_write_time(p, tp, ec);}
 static void progressEmit(const std::function<void(const BackupProgress&)>& cb, const BackupProgress& p) {
-    if (cb) cb(p);
-}
+    if (cb) cb(p);}
 static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_point& lastEmit,
                                         std::size_t discoveredFiles) {
     if (discoveredFiles <= 1) return true;
     if ((discoveredFiles % 200u) == 0u) return true;
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - lastEmit).count() >= 1200;
-}
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - lastEmit).count() >= 1200;}
 #ifdef _WIN32
 static DWORD windowsFileAttributes(const fs::path& path) {
     const DWORD attrs = GetFileAttributesW(path.wstring().c_str());
-    return attrs == INVALID_FILE_ATTRIBUTES ? 0 : attrs;
-}
+    return attrs == INVALID_FILE_ATTRIBUTES ? 0 : attrs;}
 static bool isWindowsOfflinePlaceholder(const fs::path& path) {
     const DWORD attrs = windowsFileAttributes(path);
     if (attrs == 0) return false;
-    return (attrs & FILE_ATTRIBUTE_OFFLINE) != 0;
-}
+    return (attrs & FILE_ATTRIBUTE_OFFLINE) != 0;}
 #endif
 static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue) {
     std::string value = trim(rawValue);
@@ -57,8 +52,7 @@ static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue)
     if (value.empty()) return defaultValue;
     if (value == "1" || value == "true" || value == "on" || value == "yes") return true;
     if (value == "0" || value == "false" || value == "off" || value == "no") return false;
-    return defaultValue;
-}
+    return defaultValue;}
 static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, bool defaultValue) {
     sqlite3* rawDb = nullptr;
     const int openRc = sqlite3_open_v2_path(
@@ -69,24 +63,20 @@ static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, 
     );
     if (openRc != SQLITE_OK) {
         if (rawDb) sqlite3_close(rawDb);
-        return defaultValue;
-    }
+        return defaultValue;}
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT v FROM meta WHERE k = ? LIMIT 1;";
     if (sqlite3_prepare_v2(rawDb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         sqlite3_close(rawDb);
-        return defaultValue;
-    }
+        return defaultValue;}
     sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
     bool out = defaultValue;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const unsigned char* text = sqlite3_column_text(stmt, 0);
-        if (text) out = parseBoolConfigValue(reinterpret_cast<const char*>(text), defaultValue);
-    }
+        if (text) out = parseBoolConfigValue(reinterpret_cast<const char*>(text), defaultValue);}
     sqlite3_finalize(stmt);
     sqlite3_close(rawDb);
-    return out;
-}
+    return out;}
 static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress& progress, const std::function<void(const BackupProgress&)>& cb) {
     std::vector<fs::path> files;
     std::error_code ec;
@@ -96,14 +86,12 @@ static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress&
         if (ec) {
             ++progress.stats.warnings;
             ec.clear();
-            continue;
-        }
+            continue;}
         std::error_code pathEc;
         const fs::path currentPath = it->path();
         if (it->is_directory(pathEc) && !pathEc && isExcludedBySystemPolicy(root, currentPath)) {
             it.disable_recursion_pending();
-            continue;
-        }
+            continue;}
         std::error_code tec;
         if (!it->is_regular_file(tec) || tec) continue;
         files.push_back(it->path());
@@ -112,15 +100,12 @@ static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress&
         progress.phase = "discovery";
         if (shouldEmitDiscoveryProgress(lastEmit, files.size())) {
             progressEmit(cb, progress);
-            lastEmit = std::chrono::steady_clock::now();
-        }
-    }
+            lastEmit = std::chrono::steady_clock::now();}}
     progress.filesQueued = files.size();
     progress.discoveryComplete = true;
     progress.phase = "backup";
     progressEmit(cb, progress);
-    return files;
-}
+    return files;}
 static std::vector<fs::path> discoverFilesFromTracker(
     const fs::path& root,
     const std::map<std::string, FileInfo>& prevMap,
@@ -130,12 +115,10 @@ static std::vector<fs::path> discoverFilesFromTracker(
     std::uint64_t lastToken,
     std::uint64_t& newToken,
     BackupProgress& progress,
-    const std::function<void(const BackupProgress&)>& cb)
-{
+    const std::function<void(const BackupProgress&)>& cb){
     auto tracker = createPlatformChangeTracker();
     if (!tracker || !tracker->isAvailable()) {
-        throw std::runtime_error("CBT indisponivel.");
-    }
+        throw std::runtime_error("CBT indisponivel.");}
     tracker->startTracking(root);
     auto changes = tracker->getChanges(lastToken, newToken);
     std::unordered_set<std::string> changedPaths;
@@ -146,21 +129,17 @@ static std::vector<fs::path> discoverFilesFromTracker(
         const std::string rel = normalizeRelPath(change.relPath);
         if (!isSafeRelativePath(rel)) {
             ++progress.stats.warnings;
-            continue;
-        }
+            continue;}
         if (change.isDeleted) deletedPaths.insert(rel);
-        else changedPaths.insert(rel);
-    }
+        else changedPaths.insert(rel);}
     for (const auto& [relPath, prev] : prevMap) {
         if (changedPaths.find(relPath) != changedPaths.end()) continue;
         if (deletedPaths.find(relPath) != deletedPaths.end()) continue;
         if (!snapshotPaths.insert(relPath).second) {
             ++progress.stats.warnings;
-            continue;
-        }
+            continue;}
         arc.cloneFileFromPrevious(snapshotId, relPath, prev);
-        ++progress.stats.reused;
-    }
+        ++progress.stats.reused;}
     std::vector<fs::path> files;
     files.reserve(changedPaths.size());
     for (const auto& relPath : changedPaths) {
@@ -168,16 +147,13 @@ static std::vector<fs::path> discoverFilesFromTracker(
         std::error_code ec;
         if (!fs::exists(fullPath, ec) || !fs::is_regular_file(fullPath, ec) || ec) {
             ++progress.stats.warnings;
-            continue;
-        }
-        files.push_back(fullPath);
-    }
+            continue;}
+        files.push_back(fullPath);}
     progress.filesQueued = files.size();
     progress.discoveryComplete = true;
     progress.phase = "backup";
     progressEmit(cb, progress);
-    return files;
-}
+    return files;}
 static std::optional<std::uint64_t> captureBaselineToken(const fs::path& root) {
     auto tracker = createPlatformChangeTracker();
     if (!tracker || !tracker->isAvailable()) return std::nullopt;
@@ -188,9 +164,7 @@ static std::optional<std::uint64_t> captureBaselineToken(const fs::path& root) {
         if (newToken == 0) return std::nullopt;
         return newToken;
     } catch (...) {
-        return std::nullopt;
-    }
-}
+        return std::nullopt;}}
 static Blob readWholeFile(const fs::path& p) {
     std::ifstream in(p, std::ios::binary);
     if (!in) throw std::runtime_error("Falha abrindo arquivo: " + p.string());
@@ -201,8 +175,7 @@ static Blob readWholeFile(const fs::path& p) {
     Blob out(static_cast<std::size_t>(sz));
     if (!out.empty()) in.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
     if (!in && !out.empty()) throw std::runtime_error("Falha lendo arquivo inteiro: " + p.string());
-    return out;
-}
+    return out;}
 static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const fs::path& outPath) {
     auto chunks = arc.loadFileChunks(fileId);
     std::error_code ec;
@@ -212,10 +185,7 @@ static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const
     if (!out) throw std::runtime_error("Falha criando arquivo restaurado: " + outPath.string());
     for (const auto& c : chunks) {
         if (!c.blob.empty()) out.write(reinterpret_cast<const char*>(c.blob.data()), static_cast<std::streamsize>(c.blob.size()));
-        if (!out) throw std::runtime_error("Falha escrevendo arquivo restaurado: " + outPath.string());
-    }
-}
-}
+        if (!out) throw std::runtime_error("Falha escrevendo arquivo restaurado: " + outPath.string());}}}
 BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label, const std::function<void(const BackupProgress&)>& progressCallback) {
     ensureDefaults();
     if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot)) throw std::runtime_error("sourceRoot invalido.");
@@ -255,11 +225,9 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 arc.begin();
                 snapshotId = arc.createSnapshot(sourceRoot.string(), label);
                 newCbtToken = 0;
-                files = discoverFiles(sourceRoot, progress, progressCallback);
-            }
+                files = discoverFiles(sourceRoot, progress, progressCallback);}
         } else {
-            files = discoverFiles(sourceRoot, progress, progressCallback);
-        }
+            files = discoverFiles(sourceRoot, progress, progressCallback);}
         for (const auto& filePath : files) {
             progress.currentFile = filePath.string();
             ++progress.stats.scanned;
@@ -269,14 +237,12 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.stats.warnings;
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
-                continue;
-            }
+                continue;}
             if (!snapshotPaths.insert(rel).second) {
                 ++progress.stats.warnings;
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
-                continue;
-            }
+                continue;}
             const auto size = static_cast<sqlite3_int64>(fs::file_size(filePath, ec2));
             const auto mtime = static_cast<sqlite3_int64>(fileTimeToUnixSeconds(fs::last_write_time(filePath, ec3)));
             if (ec2 || ec3) {
@@ -284,8 +250,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.stats.warnings;
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
-                continue;
-            }
+                continue;}
 #ifdef _WIN32
             if (isWindowsOfflinePlaceholder(filePath)) {
                 snapshotPaths.erase(rel);
@@ -293,8 +258,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.filesCompleted;
                 progress.phase = "backup";
                 progressEmit(progressCallback, progress);
-                continue;
-            }
+                continue;}
 #endif
             const auto prevIt = prevMap.find(rel);
             if (prevIt != prevMap.end() && prevIt->second.size == size && prevIt->second.mtime == mtime) {
@@ -302,8 +266,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.stats.reused;
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
-                continue;
-            }
+                continue;}
             sqlite3_int64 fileId = 0;
             try {
                 fileId = arc.insertFilePlaceholder(snapshotId, rel, size, mtime);
@@ -325,46 +288,37 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                     Blob comp;
                     Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
                     if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
-                        ++progress.stats.uniqueChunksInserted;
-                    }
+                        ++progress.stats.uniqueChunksInserted;}
                     StorageArchive::PendingFileChunk row;
                     row.chunkIdx = chunkIdx++;
                     row.chunkHash = ch;
                     row.rawSize = static_cast<std::size_t>(got);
-                    rows.push_back(row);
-                }
+                    rows.push_back(row);}
                 const Blob fileHash = buildFileHashFromChunkSequence(chunkSeq);
                 arc.addFileChunksBulk(fileId, rows);
                 arc.updateFileHash(fileId, fileHash);
                 ++progress.stats.added;
             } catch (...) {
                 if (fileId != 0) {
-                    try { arc.deleteFileRecord(fileId); } catch (...) {}
-                }
+                    try { arc.deleteFileRecord(fileId); } catch (...) {}}
                 snapshotPaths.erase(rel);
-                ++progress.stats.warnings;
-            }
+                ++progress.stats.warnings;}
             ++progress.filesCompleted;
-            progressEmit(progressCallback, progress);
-        }
+            progressEmit(progressCallback, progress);}
         progress.phase = "commit";
         progressEmit(progressCallback, progress);
         if (cbtEnabled) {
             if (newCbtToken != 0) {
                 arc.updateSnapshotCbtToken(snapshotId, newCbtToken);
             } else if (auto baseline = captureBaselineToken(sourceRoot); baseline.has_value()) {
-                arc.updateSnapshotCbtToken(snapshotId, *baseline);
-            }
-        }
+                arc.updateSnapshotCbtToken(snapshotId, *baseline);}}
         arc.commit();
         progress.phase = "done";
         progressEmit(progressCallback, progress);
         return progress.stats;
     } catch (...) {
         try { arc.rollback(); } catch (...) {}
-        throw;
-    }
-}
+        throw;}}
 std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     std::vector<std::string> out;
 #ifdef _WIN32
@@ -372,8 +326,7 @@ std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
         std::string root;
         root += d;
         root += ":\\";
-        if (fs::exists(root)) out.push_back(root);
-    }
+        if (fs::exists(root)) out.push_back(root);}
 #else
     if (fs::exists("/")) out.push_back("/");
     const std::vector<KnownDirectory> knownDirs = {
@@ -388,11 +341,7 @@ std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     for (const auto dir : knownDirs) {
         if (const auto path = knownDirectoryPath(dir); path && fs::exists(*path)) {
             const std::string value = path->string();
-            if (std::find(out.begin(), out.end(), value) == out.end()) out.push_back(value);
-        }
-    }
+            if (std::find(out.begin(), out.end(), value) == out.end()) out.push_back(value);}}
 #endif
     if (out.empty()) out.push_back(defaultSourceRootPath().string());
-    return out;
-}
-}
+    return out;}}

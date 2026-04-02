@@ -67,5 +67,4 @@ struct RestHttpServerConfig{
     std::shared_ptr<IWsNotifier> wsNotifier;
     int port=8080;
 };
-int runRestHttpServer(const RestHttpServerConfig& config);
-}
+int runRestHttpServer(const RestHttpServerConfig& config);}

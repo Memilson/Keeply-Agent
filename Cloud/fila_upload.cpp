@@ -30,8 +30,7 @@ void runParallelUploadQueue(
     std::exception_ptr fatalError;
     auto workerLoop=[&](){
         for(;;){
-            QueueItem item;
-            {
+            QueueItem item;{
                 std::unique_lock<std::mutex> lock(mu);
                 cv.wait(lock,[&](){return abortUpload.load()||!queue.empty()||activeWorkers==0;});
                 if(abortUpload.load()) return;
@@ -47,8 +46,7 @@ void runParallelUploadQueue(
             }catch(...){
                 if(item.attempt<maxRetries&&!abortUpload.load()){
                     shouldRetry=true;
-                }else{
-                    {
+                }else{{
                         std::lock_guard<std::mutex> lock(mu);
                         if(!fatalError) fatalError=std::current_exception();}
                     abortUpload.store(true);}}{

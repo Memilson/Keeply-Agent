@@ -28,17 +28,13 @@ public:
         : MotorMonitorBase(rootPath, respectSystemExclusionPolicy) {
         fd_ = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
         if (fd_ < 0) throw std::runtime_error("Falha criando inotify para o watcher CBT.");
-        addWatchRecursive(this->rootPath());
-    }
+        addWatchRecursive(this->rootPath());}
     ~MotorMonitorLinux() override {
-        requestStop();
-    }
+        requestStop();}
     void requestStop() noexcept override {
         if (fd_ >= 0) {
             close(fd_);
-            fd_ = -1;
-        }
-    }
+            fd_ = -1;}}
     void run(const std::function<bool()>& shouldStop) override {
         std::array<char, 64 * 1024> buffer{};
         while (!shouldStop()) {
@@ -50,23 +46,18 @@ public:
             if (prc < 0) {
                 if (errno == EINTR) continue;
                 if (shouldStop()) return;
-                throw std::runtime_error("Falha no poll do watcher CBT.");
-            }
+                throw std::runtime_error("Falha no poll do watcher CBT.");}
             if (prc == 0) continue;
             const ssize_t bytes = read(fd_, buffer.data(), buffer.size());
             if (bytes < 0) {
                 if (errno == EAGAIN || errno == EINTR) continue;
                 if (shouldStop()) return;
-                throw std::runtime_error("Falha lendo eventos do inotify.");
-            }
+                throw std::runtime_error("Falha lendo eventos do inotify.");}
             ssize_t offset = 0;
             while (offset < bytes) {
                 auto* event = reinterpret_cast<inotify_event*>(buffer.data() + offset);
                 handleEvent(*event);
-                offset += sizeof(inotify_event) + event->len;
-            }
-        }
-    }
+                offset += sizeof(inotify_event) + event->len;}}}
 private:
     void addWatch(const fs::path& dirPath) {
         const int fd = fd_;
@@ -75,8 +66,7 @@ private:
         const int wd = inotify_add_watch(fd, dirPath.c_str(), kWatchMask);
         if (wd < 0) return;
         std::lock_guard<std::mutex> lock(mu_);
-        wdToPath_[wd] = dirPath;
-    }
+        wdToPath_[wd] = dirPath;}
     void addWatchRecursive(const fs::path& dirPath) {
         addWatch(dirPath);
         std::error_code ec;
@@ -85,26 +75,19 @@ private:
         for (; it != end; it.increment(ec)) {
             if (ec) {
                 ec.clear();
-                continue;
-            }
+                continue;}
             std::error_code typeEc;
             if (it->is_directory(typeEc) && !typeEc) {
                 if (shouldIgnorePath(it->path())) {
                     it.disable_recursion_pending();
-                    continue;
-                }
-                addWatch(it->path());
-            }
-        }
-    }
+                    continue;}
+                addWatch(it->path());}}}
     void handleEvent(const inotify_event& event) {
-        fs::path basePath;
-        {
+        fs::path basePath;{
             std::lock_guard<std::mutex> lock(mu_);
             const auto it = wdToPath_.find(event.wd);
             if (it == wdToPath_.end()) return;
-            basePath = it->second;
-        }
+            basePath = it->second;}
         fs::path fullPath = basePath;
         if (event.len > 0 && event.name[0] != '\0') fullPath /= event.name;
         if (shouldIgnorePath(fullPath)) return;
@@ -120,17 +103,14 @@ private:
             appendEvent(TipoEventoMonitorado::Delete, *rel, isDir);
         } else if (event.mask & IN_IGNORED) {
             std::lock_guard<std::mutex> lock(mu_);
-            wdToPath_.erase(event.wd);
-        }
-    }
+            wdToPath_.erase(event.wd);}}
     int fd_ = -1;
     std::mutex mu_;
     std::unordered_map<int, fs::path> wdToPath_;
 };
 volatile std::sig_atomic_t gStopRequested = 0;
 void handleSignal(int) {
-    gStopRequested = 1;
-}
+    gStopRequested = 1;}
 void daemonizeProcess() {
     pid_t pid = fork();
     if (pid < 0) throw std::runtime_error("fork falhou.");
@@ -146,15 +126,10 @@ void daemonizeProcess() {
         dup2(nullFd, STDIN_FILENO);
         dup2(nullFd, STDOUT_FILENO);
         dup2(nullFd, STDERR_FILENO);
-        if (nullFd > STDERR_FILENO) close(nullFd);
-    }
-}
-}
+        if (nullFd > STDERR_FILENO) close(nullFd);}}}
 std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path& rootPath,
                                                       bool respectSystemExclusionPolicy) {
-    return std::make_unique<MotorMonitorLinux>(rootPath, respectSystemExclusionPolicy);
-}
-}
+    return std::make_unique<MotorMonitorLinux>(rootPath, respectSystemExclusionPolicy);}}
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
     try {
@@ -164,10 +139,8 @@ int main(int argc, char** argv) {
         } catch (const std::runtime_error& ex) {
             if (std::string(ex.what()) == "__KEEPLY_DAEMON_HELP__") {
                 std::cout << "Uso: keeply_daemon --root <diretorio> [--foreground]\n";
-                return 0;
-            }
-            throw;
-        }
+                return 0;}
+            throw;}
         std::signal(SIGINT, keeply::rastreamento_eventos_base::handleSignal);
         std::signal(SIGTERM, keeply::rastreamento_eventos_base::handleSignal);
         if (!options.foreground) keeply::rastreamento_eventos_base::daemonizeProcess();
@@ -180,22 +153,17 @@ int main(int argc, char** argv) {
         return 0;
     } catch (const std::exception& ex) {
         std::cerr << "keeply_daemon: " << ex.what() << "\n";
-        return 1;
-    }
-}
+        return 1;}}
 #endif
 #else
 namespace keeply::rastreamento_eventos_base {
 std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path&, bool) {
-    throw std::runtime_error("Motor Linux disponivel apenas no Linux.");
-}
-}
+    throw std::runtime_error("Motor Linux disponivel apenas no Linux.");}}
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
     std::cerr << "keeply_daemon esta disponivel apenas no Linux.\n";
-    return 1;
-}
+    return 1;}
 #endif
 #endif

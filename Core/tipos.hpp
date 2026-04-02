@@ -55,10 +55,8 @@ struct ChunkHashHasher {
         std::size_t out = 1469598103934665603ull;
         for (unsigned char b : h) {
             out ^= static_cast<std::size_t>(b);
-            out *= 1099511628211ull;
-        }
-        return out;
-    }
+            out *= 1099511628211ull;}
+        return out;}
 };
 class ShardedChunkSet {
     static constexpr std::size_t NUM_SHARDS = 64;
@@ -72,15 +70,12 @@ public:
         const std::size_t shardIdx = hashVal & (NUM_SHARDS - 1);
         auto& shard = shards_[shardIdx];
         std::lock_guard<std::mutex> lock(shard.mtx);
-        return shard.set.insert(hash).second;
-    }
+        return shard.set.insert(hash).second;}
     void reserve(std::size_t totalCapacity) {
         const std::size_t capacityPerShard =
             (totalCapacity + NUM_SHARDS - 1) / NUM_SHARDS;
         for (auto& shard : shards_) {
-            shard.set.reserve(capacityPerShard);
-        }
-    }
+            shard.set.reserve(capacityPerShard);}}
 private:
     std::array<Shard, NUM_SHARDS> shards_;
 };
@@ -213,5 +208,4 @@ struct BackupProgress {
     bool discoveryComplete = false;
     std::string phase = "idle";
     std::string currentFile;
-};
-}
+};}

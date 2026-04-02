@@ -30,5 +30,4 @@ int closeSocketFd(int fd);
 [[nodiscard]] std::string socketErrorMessage(int err);
 [[nodiscard]] int openTcpSocket(const std::string& host, int port);
 [[nodiscard]] std::size_t writeAllFd(int fd, const void* data, std::size_t size);
-[[nodiscard]] std::size_t readSomeFd(int fd, void* data, std::size_t size);
-}
+[[nodiscard]] std::size_t readSomeFd(int fd, void* data, std::size_t size);}

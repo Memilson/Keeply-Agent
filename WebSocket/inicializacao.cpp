@@ -115,8 +115,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 <div class="divider"></div>
 <p class="hint">Insira este c&oacute;digo no painel Keeply &mdash; mantenha esta janela aberta.</p>
 </body></html>)";
-    return html.str();
-}
+    return html.str();}
 inline std::string buildPlainMessage(const std::string& code,
                                      const std::string& deviceName,
                                      const std::string& hostName) {
@@ -128,9 +127,7 @@ inline std::string buildPlainMessage(const std::string& code,
         << "Dispositivo: " << dev << "\n"
         << "Host: " << host << "\n\n"
         << "Insira este c\xc3\xb3" "digo no painel Keeply.";
-    return out.str();
-}
-}
+    return out.str();}}
 struct PairingStatusResponse {
     std::string status;
     std::string deviceId;
@@ -148,8 +145,7 @@ public:
     PairingPopupHandle& operator=(const PairingPopupHandle&) = delete;
     void show(const std::string& code,
               const std::string& deviceName,
-              const std::string& hostName)
-    {
+              const std::string& hostName){
         const std::string normCode   = trim(code);
         const std::string normDevice = trim(deviceName);
         const std::string normHost   = trim(hostName);
@@ -159,14 +155,12 @@ public:
         shownCode_   = normCode;
         shownDevice_ = normDevice;
         shownHost_   = normHost;
-        launchNativePopup(normCode, normDevice, normHost);
-    }
+        launchNativePopup(normCode, normDevice, normHost);}
     void close() {
         closeNativePopup();
         shownCode_.clear();
         shownDevice_.clear();
-        shownHost_.clear();
-    }
+        shownHost_.clear();}
 private:
     std::string shownCode_;
     std::string shownDevice_;
@@ -175,10 +169,8 @@ private:
         std::string out;
         for (std::size_t i = 0; i < code.size(); ++i) {
             if (i > 0 && i % 4 == 0) out += ' ';
-            out += code[i];
-        }
-        return out;
-    }
+            out += code[i];}
+        return out;}
 #ifdef _WIN32
     HWND   hwnd_         = nullptr;
     HANDLE threadHandle_  = nullptr;
@@ -196,8 +188,7 @@ private:
         std::wstring wide(static_cast<std::size_t>(len), L'\0');
         MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, wide.data(), len);
         if (!wide.empty() && wide.back() == L'\0') wide.pop_back();
-        return wide;
-    }
+        return wide;}
     static void paintWindow(HWND hwnd, const PopupContext* ctx) {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
@@ -252,8 +243,7 @@ private:
             DrawTextW(hdc, ctx->codeFormatted.c_str(), -1, &codeBox,
                       DT_SINGLELINE | DT_CENTER | DT_VCENTER);
             SelectObject(hdc, oldFont);
-            DeleteObject(codeFont);
-        }
+            DeleteObject(codeFont);}
         y += boxH + 24;
         if (ctx) {
             HFONT infoFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -269,8 +259,7 @@ private:
             DrawTextW(hdc, hostLine.c_str(), -1, &hostRect, DT_SINGLELINE | DT_CENTER);
             y += 28;
             SelectObject(hdc, oldFont);
-            DeleteObject(infoFont);
-        }
+            DeleteObject(infoFont);}
         RECT divider = {(W - 48) / 2, y, (W + 48) / 2, y + 3};
         HBRUSH divBrush = CreateSolidBrush(ui::kWinBrandBlue);
         FillRect(hdc, &divider, divBrush);
@@ -285,13 +274,11 @@ private:
                   -1, &hintRect, DT_CENTER | DT_WORDBREAK);
         SelectObject(hdc, oldFont);
         DeleteObject(hintFont);
-        EndPaint(hwnd, &ps);
-    }
+        EndPaint(hwnd, &ps);}
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (msg == WM_NCCREATE) {
             auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-        }
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));}
         auto* ctx = reinterpret_cast<PopupContext*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         switch (msg) {
         case WM_PAINT:
@@ -306,9 +293,7 @@ private:
             PostQuitMessage(0);
             return 0;
         default:
-            return DefWindowProcW(hwnd, msg, wParam, lParam);
-        }
-    }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);}}
     static DWORD WINAPI popupThread(LPVOID param) {
         std::unique_ptr<PopupContext> ctx(static_cast<PopupContext*>(param));
         const wchar_t* className = L"KeeplyActivationWindow";
@@ -333,15 +318,12 @@ private:
         MSG msg{};
         while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
             TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
+            DispatchMessageW(&msg);}
         ctx->self->hwnd_ = nullptr;
-        return 0;
-    }
+        return 0;}
     void launchNativePopup(const std::string& code,
                            const std::string& device,
-                           const std::string& host)
-    {
+                           const std::string& host){
         auto ctx = std::make_unique<PopupContext>();
         ctx->self          = this;
         ctx->codeFormatted = toWide(formatCode(code));
@@ -349,19 +331,15 @@ private:
         ctx->hostName      = toWide(host.empty()   ? ui::kFallbackHost   : host);
         threadHandle_ = CreateThread(nullptr, 0, popupThread, ctx.get(), 0, &threadId_);
         if (threadHandle_) {
-            ctx.release();
-        }
-    }
+            ctx.release();}}
     void closeNativePopup() {
         if (hwnd_) PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         if (threadHandle_) {
             WaitForSingleObject(threadHandle_, 2000);
             CloseHandle(threadHandle_);
             threadHandle_ = nullptr;
-            threadId_     = 0;
-        }
-        hwnd_ = nullptr;
-    }
+            threadId_     = 0;}
+        hwnd_ = nullptr;}
 #elif defined(__linux__) || defined(__APPLE__)
     pid_t pid_ = -1;
     fs::path scriptPath_;
@@ -369,14 +347,12 @@ private:
         const char* raw = std::getenv("KEEPLY_DISABLE_POPUP");
         if (!raw) return false;
         const std::string value = trim(raw);
-        return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";
-    }
+        return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";}
     static bool hasGraphicalSession_() {
         const char* display = std::getenv("DISPLAY");
         if (display && *display) return true;
         const char* wayland = std::getenv("WAYLAND_DISPLAY");
-        return wayland && *wayland;
-    }
+        return wayland && *wayland;}
     static std::string buildTkPopupScript_() {
         return R"PY(
 import sys
@@ -486,42 +462,34 @@ x = max((sw - w)
 y = max((sh - h)
 root.geometry(f"{w}x{h}+{x}+{y}")
 root.mainloop()
-)PY";
-    }
+)PY";}
     static fs::path writeTkPopupScript_() {
         std::string templ = (fs::temp_directory_path() / "keeply-popup-XXXXXX.py").string();
         const int fd = ::mkstemps(templ.data(), 3);
         if (fd < 0) {
-            throw std::runtime_error("Falha ao criar script temporario do popup.");
-        }
+            throw std::runtime_error("Falha ao criar script temporario do popup.");}
         try {
             UniqueFile fp(::fdopen(fd, "wb"));
             if (!fp) {
                 ::close(fd);
-                throw std::runtime_error("Falha ao abrir script temporario do popup.");
-            }
+                throw std::runtime_error("Falha ao abrir script temporario do popup.");}
             const std::string script = buildTkPopupScript_();
             if (std::fwrite(script.data(), 1, script.size(), fp.get()) != script.size()) {
-                throw std::runtime_error("Falha ao escrever script temporario do popup.");
-            }
+                throw std::runtime_error("Falha ao escrever script temporario do popup.");}
             return fs::path(templ);
         } catch (...) {
             std::error_code ec;
             fs::remove(fs::path(templ), ec);
-            throw;
-        }
-    }
+            throw;}}
     void launchNativePopup(const std::string& code,
                            const std::string& device,
-                           const std::string& host)
-    {
+                           const std::string& host){
         if (popupDisabled_() || !hasGraphicalSession_()) return;
         try {
             scriptPath_ = writeTkPopupScript_();
         } catch (...) {
             scriptPath_.clear();
-            return;
-        }
+            return;}
         pid_ = fork();
         if (pid_ < 0) { pid_ = -1; return; }
         if (pid_ == 0) {
@@ -532,58 +500,47 @@ root.mainloop()
                      device.c_str(),
                      host.c_str(),
                      static_cast<char*>(nullptr));
-            _exit(127);
-        }
-    }
+            _exit(127);}}
     void closeNativePopup() {
         if (pid_ > 0) {
             kill(pid_, SIGTERM);
             int status = 0;
             waitpid(pid_, &status, 0);
-            pid_ = -1;
-        }
+            pid_ = -1;}
         if (!scriptPath_.empty()) {
             std::error_code ec;
             fs::remove(scriptPath_, ec);
-            scriptPath_.clear();
-        }
-    }
+            scriptPath_.clear();}}
 #endif
 };
 void tightenPermissions(const fs::path& path, bool executable) {
 #if defined(__linux__) || defined(__APPLE__)
     const mode_t mode = executable ? mode_t{0700} : mode_t{0600};
     if (::chmod(path.c_str(), mode) != 0) {
-        throw std::runtime_error("Falha ao ajustar permissoes de " + path.string());
-    }
+        throw std::runtime_error("Falha ao ajustar permissoes de " + path.string());}
 #else
     (void)path; (void)executable;
-#endif
-}
+#endif}
 void ensureIdentityPermissions(const AgentIdentity& id) {
     if (fs::exists(id.certPemPath)) tightenPermissions(id.certPemPath, false);
     if (fs::exists(id.keyPemPath))  tightenPermissions(id.keyPemPath,  false);
-    if (fs::exists(id.metaPath))    tightenPermissions(id.metaPath,    false);
-}
+    if (fs::exists(id.metaPath))    tightenPermissions(id.metaPath,    false);}
 std::string computeFingerprint(X509* cert) {
     const int derLen = i2d_X509(cert, nullptr);
     if (derLen <= 0) throw std::runtime_error("Falha ao serializar certificado DER.");
     std::vector<unsigned char> der(static_cast<std::size_t>(derLen));
     unsigned char* ptr = der.data();
     if (i2d_X509(cert, &ptr) != derLen) {
-        throw std::runtime_error("Falha ao serializar certificado DER.");
-    }
+        throw std::runtime_error("Falha ao serializar certificado DER.");}
     unsigned char digest[SHA256_DIGEST_LENGTH];
     SHA256(der.data(), der.size(), digest);
-    return ws_internal::hexEncode(digest, sizeof(digest));
-}
+    return ws_internal::hexEncode(digest, sizeof(digest));}
 std::string computeFingerprintFromFile(const fs::path& certPemPath) {
     UniqueFile fp(fopenPath(certPemPath, "rb"));
     if (!fp) throw std::runtime_error("Falha ao abrir certificado do agente.");
     UniqueX509 cert(PEM_read_X509(fp.get(), nullptr, nullptr, nullptr));
     if (!cert) throw std::runtime_error("Falha ao ler certificado PEM do agente.");
-    return computeFingerprint(cert.get());
-}
+    return computeFingerprint(cert.get());}
 AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
     AgentIdentity identity;
     identity.certPemPath = config.identityDir / "agent-cert.pem";
@@ -614,35 +571,26 @@ AgentIdentity generateSelfSignedIdentity(const WsClientConfig& config) {
                                -1, -1, 0);
     X509_set_issuer_name(cert.get(), subjectName);
     if (X509_sign(cert.get(), pkey.get(), EVP_sha256()) <= 0) {
-        throw std::runtime_error("Falha ao assinar certificado do agente.");
-    }
-    {
+        throw std::runtime_error("Falha ao assinar certificado do agente.");}{
         UniqueFile fp(fopenPath(identity.keyPemPath, "wb"));
         if (!fp) throw std::runtime_error("Falha ao criar chave PEM do agente.");
         if (PEM_write_PrivateKey(fp.get(), pkey.get(), nullptr, nullptr, 0, nullptr, nullptr) != 1) {
-            throw std::runtime_error("Falha ao salvar chave PEM do agente.");
-        }
-    }
-    tightenPermissions(identity.keyPemPath, false);
-    {
+            throw std::runtime_error("Falha ao salvar chave PEM do agente.");}}
+    tightenPermissions(identity.keyPemPath, false);{
         UniqueFile fp(fopenPath(identity.certPemPath, "wb"));
         if (!fp) throw std::runtime_error("Falha ao criar cert PEM do agente.");
         if (PEM_write_X509(fp.get(), cert.get()) != 1) {
-            throw std::runtime_error("Falha ao salvar cert PEM do agente.");
-        }
-    }
+            throw std::runtime_error("Falha ao salvar cert PEM do agente.");}}
     tightenPermissions(identity.certPemPath, false);
     identity.fingerprintSha256 = computeFingerprint(cert.get());
-    return identity;
-}
+    return identity;}
 PairingStatusResponse parsePairingResponse(const ws_internal::HttpResponse& resp) {
     PairingStatusResponse out;
     out.status   = trim(extractJsonStringField(resp.body, "status"));
     out.deviceId = trim(extractJsonStringField(resp.body, "deviceId"));
     out.code     = trim(extractJsonStringField(resp.body, "code"));
     out.userId   = trim(extractJsonStringField(resp.body, "userId"));
-    return out;
-}
+    return out;}
 std::string buildPairingStartBody(const WsClientConfig& config, const AgentIdentity& identity, const std::string& code) {
     std::ostringstream json;
     json << "{\"code\":\""                  << escapeJson(code)
@@ -653,26 +601,21 @@ std::string buildPairingStartBody(const WsClientConfig& config, const AgentIdent
          << "\",\"userId\":\""              << escapeJson(identity.userId)
          << "\",\"certFingerprintSha256\":\"" << escapeJson(identity.fingerprintSha256)
          << "\"}";
-    return json.str();
-}
+    return json.str();}
 PairingStatusResponse startPairing(const WsClientConfig& config,
                                    const AgentIdentity& identity,
-                                   const std::string& code)
-{
+                                   const std::string& code){
     const std::string url  = httpUrlFromWsUrl(config.url, "/api/devices/pairing/start");
     const std::string body = buildPairingStartBody(config, identity, code);
     const auto resp = httpPostJson(url, body, std::nullopt, std::nullopt, config.allowInsecureTls);
     if (resp.status == 409) return {"code_conflict", "", "", ""};
     if (resp.status < 200 || resp.status >= 300) {
         throw std::runtime_error("Falha ao iniciar pareamento. HTTP " +
-                                 std::to_string(resp.status) + " | body=" + resp.body);
-    }
-    return parsePairingResponse(resp);
-}
+                                 std::to_string(resp.status) + " | body=" + resp.body);}
+    return parsePairingResponse(resp);}
 PairingStatusResponse pollPairingStatus(const WsClientConfig& config,
                                         const AgentIdentity& identity,
-                                        const std::string& code)
-{
+                                        const std::string& code){
     const std::string url = httpUrlFromWsUrl(config.url, "/api/devices/pairing/status");
     std::ostringstream json;
     json << "{\"code\":\"" << escapeJson(code)
@@ -683,10 +626,8 @@ PairingStatusResponse pollPairingStatus(const WsClientConfig& config,
     const auto resp = httpPostJson(url, json.str(), std::nullopt, std::nullopt, config.allowInsecureTls);
     if (resp.status < 200 || resp.status >= 300) {
         throw std::runtime_error("Falha ao consultar status do pareamento. HTTP " +
-                                 std::to_string(resp.status) + " | body=" + resp.body);
-    }
-    return parsePairingResponse(resp);
-}
+                                 std::to_string(resp.status) + " | body=" + resp.body);}
+    return parsePairingResponse(resp);}
 AgentIdentity loadPersistedIdentity(const WsClientConfig& config) {
     AgentIdentity identity;
     identity.metaPath = config.identityDir / "identity.meta";
@@ -703,11 +644,9 @@ AgentIdentity loadPersistedIdentity(const WsClientConfig& config) {
     const std::string keyMeta  = get("key_pem");
     identity.certPemPath = certMeta.empty() ? (config.identityDir / "agent-cert.pem") : pathFromUtf8(certMeta);
     identity.keyPemPath  = keyMeta.empty()  ? (config.identityDir / "agent-key.pem")  : pathFromUtf8(keyMeta);
-    return identity;
-}
+    return identity;}
 bool awaitPairingConfirmation(const WsClientConfig& config,
-                              AgentIdentity& identity)
-{
+                              AgentIdentity& identity){
     const auto interval = std::chrono::milliseconds(std::max(1000, config.pairingPollIntervalMs));
     for (;;) {
         std::this_thread::sleep_for(interval);
@@ -716,15 +655,13 @@ bool awaitPairingConfirmation(const WsClientConfig& config,
             identity.deviceId    = status.deviceId;
             identity.userId      = status.userId;
             identity.pairingCode.clear();
-            return true;
-        }
+            return true;}
         if (status.isExpired()) {
             identity.pairingCode.clear();
             return false;}}}}
 AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& config) {
     if (trim(config.url).empty()) {
-        throw std::runtime_error("URL do backend websocket nao pode ser vazia.");
-    }
+        throw std::runtime_error("URL do backend websocket nao pode ser vazia.");}
     fs::create_directories(config.identityDir);
     tightenPermissions(config.identityDir, true);
     PairingPopupHandle popup;

@@ -18,19 +18,14 @@ struct WinsockInit {
     WinsockInit() {
         WSADATA data{};
         if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
-            throw std::runtime_error("WSAStartup falhou.");
-        }
-    }
+            throw std::runtime_error("WSAStartup falhou.");}}
     ~WinsockInit() {
-        WSACleanup();
-    }
+        WSACleanup();}
 };
-#endif
-}
+#endif}
 std::string toLower(std::string value) {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return value;
-}
+    return value;}
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -45,11 +40,8 @@ std::string escapeJson(const std::string& value) {
             case '\t': out += "\\t"; break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) out += "?";
-                else out += c;
-        }
-    }
-    return out;
-}
+                else out += c;}}
+    return out;}
 ParsedUrl parseUrlCommon(const std::string& url) {
     const std::size_t schemeSep = url.find("://");
     if (schemeSep == std::string::npos) throw std::runtime_error("URL invalida: esquema ausente.");
@@ -68,11 +60,9 @@ ParsedUrl parseUrlCommon(const std::string& url) {
         parsed.host = hostPort;
         if (parsed.scheme == "ws" || parsed.scheme == "http") parsed.port = 80;
         else if (parsed.scheme == "wss" || parsed.scheme == "https") parsed.port = 443;
-        else throw std::runtime_error("Esquema de URL nao suportado: " + parsed.scheme);
-    }
+        else throw std::runtime_error("Esquema de URL nao suportado: " + parsed.scheme);}
     if (parsed.host.empty() || parsed.port <= 0 || parsed.port > 65535) throw std::runtime_error("URL invalida.");
-    return parsed;
-}
+    return parsed;}
 std::string urlEncode(const std::string& value) {
     static const char* kHex = "0123456789ABCDEF";
     std::string out;
@@ -83,45 +73,37 @@ std::string urlEncode(const std::string& value) {
         else {
             out.push_back('%');
             out.push_back(kHex[(c >> 4) & 0x0F]);
-            out.push_back(kHex[c & 0x0F]);
-        }
-    }
-    return out;
-}
+            out.push_back(kHex[c & 0x0F]);}}
+    return out;}
 void ensureSocketRuntime() {
 #ifdef _WIN32
     static WinsockInit init;
     (void)init;
-#endif
-}
+#endif}
 int closeSocketFd(int fd) {
 #ifdef _WIN32
     return closesocket(static_cast<SOCKET>(fd));
 #else
     return ::close(fd);
-#endif
-}
+#endif}
 int lastSocketError() {
 #ifdef _WIN32
     return WSAGetLastError();
 #else
     return errno;
-#endif
-}
+#endif}
 bool socketInterrupted(int err) {
 #ifdef _WIN32
     return err == WSAEINTR;
 #else
     return err == EINTR;
-#endif
-}
+#endif}
 bool socketTimeoutOrWouldBlock(int err) {
 #ifdef _WIN32
     return err == WSAETIMEDOUT || err == WSAEWOULDBLOCK;
 #else
     return err == EAGAIN || err == EWOULDBLOCK;
-#endif
-}
+#endif}
 std::string socketErrorMessage(int err) {
 #ifdef _WIN32
     char* buffer = nullptr;
@@ -135,8 +117,7 @@ std::string socketErrorMessage(int err) {
     return out;
 #else
     return std::strerror(err);
-#endif
-}
+#endif}
 int openTcpSocket(const std::string& host, int port) {
     ensureSocketRuntime();
     addrinfo hints{};
@@ -152,12 +133,10 @@ int openTcpSocket(const std::string& host, int port) {
         if (fd < 0) continue;
         if (::connect(fd, p->ai_addr, static_cast<int>(p->ai_addrlen)) == 0) break;
         closeSocketFd(fd);
-        fd = -1;
-    }
+        fd = -1;}
     ::freeaddrinfo(result);
     if (fd < 0) throw std::runtime_error("Nao foi possivel conectar ao backend.");
-    return fd;
-}
+    return fd;}
 std::size_t writeAllFd(int fd, const void* data, std::size_t size) {
     const unsigned char* ptr = static_cast<const unsigned char*>(data);
     std::size_t offset = 0;
@@ -173,21 +152,14 @@ std::size_t writeAllFd(int fd, const void* data, std::size_t size) {
         if (n < 0) {
             const int err = lastSocketError();
             if (socketInterrupted(err)) continue;
-            throw std::runtime_error(std::string("send falhou: ") + socketErrorMessage(err));
-        }
-        offset += static_cast<std::size_t>(n);
-    }
-    return offset;
-}
+            throw std::runtime_error(std::string("send falhou: ") + socketErrorMessage(err));}
+        offset += static_cast<std::size_t>(n);}
+    return offset;}
 std::size_t readSomeFd(int fd, void* data, std::size_t size) {
     for (;;) {
         const auto n = ::recv(fd, reinterpret_cast<char*>(data), static_cast<int>(size), 0);
         if (n < 0) {
             const int err = lastSocketError();
             if (socketInterrupted(err)) continue;
-            throw std::runtime_error(std::string("recv falhou: ") + socketErrorMessage(err));
-        }
-        return static_cast<std::size_t>(n);
-    }
-}
-}
+            throw std::runtime_error(std::string("recv falhou: ") + socketErrorMessage(err));}
+        return static_cast<std::size_t>(n);}}}

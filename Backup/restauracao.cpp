@@ -33,8 +33,7 @@ void fsyncRestoredFile(const fs::path& target) {
     const int rc = ::fsync(fd);
     ::close(fd);
     if (rc != 0) throw std::runtime_error("Falha no fsync do arquivo restaurado: " + target.string());
-#endif
-}
+#endif}
 void applyRestoredMtime(const fs::path& target, sqlite3_int64 unixSecs) {
     std::error_code ec;
     const auto nowFileClock = fs::file_time_type::clock::now();
@@ -117,8 +116,7 @@ static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, co
             } else if (c.algo == "zlib") {
                 Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
             } else {
-                throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);
-            }
+                throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);}
             if (decompressBuffer.size() != c.rawSize)
                 throw std::runtime_error("Chunk descomprimido com tamanho inesperado.");
             out.write(reinterpret_cast<const char*>(decompressBuffer.data()), static_cast<std::streamsize>(decompressBuffer.size()));}

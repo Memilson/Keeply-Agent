@@ -44,14 +44,12 @@ using SocketLen =
 static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
-    return s;
-}
+    return s;}
 static int fromHex(char c){
     if(c>='0'&&c<='9') return c-'0';
     if(c>='a'&&c<='f') return 10+(c-'a');
     if(c>='A'&&c<='F') return 10+(c-'A');
-    return -1;
-}
+    return -1;}
 static std::string urlDecode(const std::string& s){
     std::string out;
     out.reserve(s.size());
@@ -60,12 +58,9 @@ static std::string urlDecode(const std::string& s){
         if(c=='+'){ out.push_back(' '); continue; }
         if(c=='%'&&i+2<s.size()){
             int hi=fromHex(s[i+1]),lo=fromHex(s[i+2]);
-            if(hi>=0&&lo>=0){ out.push_back((char)((hi<<4)|lo)); i+=2; continue; }
-        }
-        out.push_back(c);
-    }
-    return out;
-}
+            if(hi>=0&&lo>=0){ out.push_back((char)((hi<<4)|lo)); i+=2; continue; }}
+        out.push_back(c);}
+    return out;}
 static void parseQuery(const std::string& q,std::unordered_map<std::string,std::string>& out){
     std::size_t pos=0;
     while(pos<=q.size()){
@@ -74,12 +69,9 @@ static void parseQuery(const std::string& q,std::unordered_map<std::string,std::
         if(!part.empty()){
             auto eq=part.find('=');
             if(eq==std::string::npos) out[urlDecode(part)]="";
-            else out[urlDecode(part.substr(0,eq))]=urlDecode(part.substr(eq+1));
-        }
+            else out[urlDecode(part.substr(0,eq))]=urlDecode(part.substr(eq+1));}
         if(amp==std::string::npos) break;
-        pos=amp+1;
-    }
-}
+        pos=amp+1;}}
 static std::string reasonPhrase(int status){
     switch(status){
         case 200: return "OK";
@@ -90,9 +82,7 @@ static std::string reasonPhrase(int status){
         case 404: return "Not Found";
         case 413: return "Payload Too Large";
         case 500: return "Internal Server Error";
-        default: return "OK";
-    }
-}
+        default: return "OK";}}
 static void sendAll(int fd,const std::string& data){
     std::size_t off=0;
     while(off<data.size()){
@@ -100,11 +90,8 @@ static void sendAll(int fd,const std::string& data){
         if(n<0){
             const int err=lastSocketError();
             if(socketInterrupted(err)) continue;
-            throw std::runtime_error(std::string("send falhou: ")+socketErrorMessage(err));
-        }
-        off+=(std::size_t)n;
-    }
-}
+            throw std::runtime_error(std::string("send falhou: ")+socketErrorMessage(err));}
+        off+=(std::size_t)n;}}
 static void sendHttpResponse(int fd,const RestResponse& resp){
     std::ostringstream oss;
     std::string ct=resp.contentType.empty()?"application/json; charset=utf-8":resp.contentType;
@@ -113,15 +100,13 @@ static void sendHttpResponse(int fd,const RestResponse& resp){
     oss<<"Content-Length: "<<resp.body.size()<<"\r\n";
     oss<<"Connection: close\r\n\r\n";
     oss<<resp.body;
-    sendAll(fd,oss.str());
-}
+    sendAll(fd,oss.str());}
 static void sendHttpError(int fd,int status,const std::string& msg){
     RestResponse r;
     r.status=status;
     r.contentType="application/json; charset=utf-8";
     r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(msg)+"\"}";
-    sendHttpResponse(fd,r);
-}
+    sendHttpResponse(fd,r);}
 static void setSocketTimeouts(int fd,int recvMs,int sendMs){
 #ifdef _WIN32
     const DWORD rtv=(DWORD)recvMs;
@@ -133,8 +118,7 @@ static void setSocketTimeouts(int fd,int recvMs,int sendMs){
     timeval stv{sendMs/1000,(sendMs%1000)*1000};
     (void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&rtv,sizeof(rtv));
     (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&stv,sizeof(stv));
-#endif
-}
+#endif}
 static bool recvHttpRequest(int fd,RestRequest& req){
     std::string buf;
     buf.reserve(8192);
@@ -147,13 +131,11 @@ static bool recvHttpRequest(int fd,RestRequest& req){
             const int err=lastSocketError();
             if(socketInterrupted(err)) continue;
             if(socketTimeoutOrWouldBlock(err)) throw std::runtime_error("timeout lendo request");
-            throw std::runtime_error(std::string("recv falhou: ")+socketErrorMessage(err));
-        }
+            throw std::runtime_error(std::string("recv falhou: ")+socketErrorMessage(err));}
         buf.append(tmp,(std::size_t)n);
         headerEnd=buf.find("\r\n\r\n");
         if(headerEnd!=std::string::npos) break;
-        if(buf.size()>MAX_HEADER_BYTES) throw std::runtime_error("Cabecalho HTTP muito grande.");
-    }
+        if(buf.size()>MAX_HEADER_BYTES) throw std::runtime_error("Cabecalho HTTP muito grande.");}
     auto headerBlock=buf.substr(0,headerEnd);
     std::istringstream hs(headerBlock);
     std::string requestLine;
@@ -170,8 +152,7 @@ static bool recvHttpRequest(int fd,RestRequest& req){
         if(line.empty()) continue;
         auto colon=line.find(':');
         if(colon==std::string::npos) continue;
-        req.headers[toLower(trimHttp(line.substr(0,colon)))]=trimHttp(line.substr(colon+1));
-    }
+        req.headers[toLower(trimHttp(line.substr(0,colon)))]=trimHttp(line.substr(colon+1));}
     req.query.clear();
     auto qpos=target.find('?');
     req.path=qpos==std::string::npos?target:target.substr(0,qpos);
@@ -180,8 +161,7 @@ static bool recvHttpRequest(int fd,RestRequest& req){
     auto itCl=req.headers.find("content-length");
     if(itCl!=req.headers.end()){
         try{ contentLen=(std::size_t)std::stoull(itCl->second); }
-        catch(...){ throw std::runtime_error("Content-Length invalido."); }
-    }
+        catch(...){ throw std::runtime_error("Content-Length invalido."); }}
     if(contentLen>MAX_BODY_BYTES) throw std::runtime_error("Payload muito grande.");
     auto bodyStart=headerEnd+4;
     while(buf.size()<bodyStart+contentLen){
@@ -191,15 +171,12 @@ static bool recvHttpRequest(int fd,RestRequest& req){
             const int err=lastSocketError();
             if(socketInterrupted(err)) continue;
             if(socketTimeoutOrWouldBlock(err)) throw std::runtime_error("timeout lendo body");
-            throw std::runtime_error(std::string("recv body falhou: ")+socketErrorMessage(err));
-        }
+            throw std::runtime_error(std::string("recv body falhou: ")+socketErrorMessage(err));}
         buf.append(tmp,(std::size_t)n);
-        if(buf.size()>bodyStart+contentLen) break;
-    }
+        if(buf.size()>bodyStart+contentLen) break;}
     if(buf.size()<bodyStart+contentLen) throw std::runtime_error("Corpo HTTP truncado.");
     req.body.assign(buf.data()+(std::ptrdiff_t)bodyStart,contentLen);
-    return true;
-}
+    return true;}
 static int createListenSocket(int port){
 #ifdef _WIN32
     ensureSocketRuntime();
@@ -219,25 +196,19 @@ static int createListenSocket(int port){
     if(::bind(fd,(sockaddr*)&addr,sizeof(addr))<0){
         auto err=std::string("bind falhou: ")+socketErrorMessage(lastSocketError());
         closeSocketFd(fd);
-        throw std::runtime_error(err);
-    }
+        throw std::runtime_error(err);}
     if(::listen(fd,64)<0){
         auto err=std::string("listen falhou: ")+socketErrorMessage(lastSocketError());
         closeSocketFd(fd);
-        throw std::runtime_error(err);
-    }
-    return fd;
-}
+        throw std::runtime_error(err);}
+    return fd;}
 static bool startsWith(const std::string& s,const std::string& p){ return s.rfind(p,0)==0; }
 static bool endsWith(const std::string& s,const std::string& suf){ return s.size()>=suf.size()&&s.compare(s.size()-suf.size(),suf.size(),suf)==0; }
 static std::string pathBetween(const std::string& path,const std::string& prefix,const std::string& suffix){
     if(!startsWith(path,prefix)||!endsWith(path,suffix)||path.size()<=prefix.size()+suffix.size()) return "";
-    return path.substr(prefix.size(),path.size()-prefix.size()-suffix.size());
-}
+    return path.substr(prefix.size(),path.size()-prefix.size()-suffix.size());}
 static bool containsText(const std::string& text,const std::string& pattern){
-    return text.find(pattern)!=std::string::npos;
-}
-}
+    return text.find(pattern)!=std::string::npos;}}
 namespace keeply {
 struct BackupJob{
     std::string id;
@@ -260,33 +231,25 @@ public:
     std::atomic<bool> shuttingDown{false};
     static std::uint64_t nowMs(){
         using namespace std::chrono;
-        return (std::uint64_t)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    }
+        return (std::uint64_t)duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();}
     std::string newJobId(){ return std::to_string(seq.fetch_add(1,std::memory_order_relaxed)); }
     void addWorker(std::thread worker){
         std::lock_guard<std::mutex> lock(workersMu);
-        workers.push_back(std::move(worker));
-    }
+        workers.push_back(std::move(worker));}
     void joinWorkers(){
-        std::vector<std::thread> pending;
-        {
+        std::vector<std::thread> pending;{
             std::lock_guard<std::mutex> lock(workersMu);
-            pending.swap(workers);
-        }
+            pending.swap(workers);}
         for(auto& worker:pending){
-            if(worker.joinable()) worker.join();
-        }
-    }
+            if(worker.joinable()) worker.join();}}
 };
 KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsNotifier> wsNotifier):api_(std::move(api)),ws_(std::move(wsNotifier)),impl_(std::make_shared<Impl>()){
     if(!api_) throw std::runtime_error("KeeplyRestApi requer KeeplyApi.");
     impl_->api=api_;
-    impl_->ws=ws_;
-}
+    impl_->ws=ws_;}
 KeeplyRestApi::~KeeplyRestApi(){
     impl_->shuttingDown.store(true,std::memory_order_relaxed);
-    impl_->joinWorkers();
-}
+    impl_->joinWorkers();}
 RestResponse KeeplyRestApi::handle(const RestRequest& req){
     try{
         if(req.method=="GET"&&req.path=="/api/v1/health") return handleGetHealth();
@@ -330,18 +293,15 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
             containsText(msg,"Origem permitida neste build")||
             containsText(msg,"Tamanho de divisao muito pequeno")
         ) return jsonBadRequest(msg);
-        return jsonError(msg);
-    }
-    catch(...){ return jsonError("Erro interno desconhecido."); }
-}
+        return jsonError(msg);}
+    catch(...){ return jsonError("Erro interno desconhecido."); }}
 RestResponse KeeplyRestApi::handleGetHealth(){ return jsonOk(R"({"ok":true,"service":"keeply","version":"v1"})"); }
 RestResponse KeeplyRestApi::handleGetState(){
     std::lock_guard<std::mutex> lock(impl_->mu);
     const auto& s=impl_->api->state();
     std::ostringstream oss;
     oss<<"{"<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"archive\":\""<<escapeJson(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson(s.restoreRoot)<<"\","<<"\"scanScope\":{"<<"\"id\":\""<<escapeJson(s.scanScope.id)<<"\","<<"\"label\":\""<<escapeJson(s.scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson(s.scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson(s.scanScope.resolvedPath)<<"\"},"<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handlePostConfigSource(const RestRequest& req){
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->api->setSource(req.body);
@@ -349,22 +309,18 @@ RestResponse KeeplyRestApi::handlePostConfigSource(const RestRequest& req){
         const auto& s=impl_->api->state();
         std::ostringstream oss;
         oss<<"{"<<"\"type\":\"config.updated\","<<"\"field\":\"source\","<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"scanScope\":{"<<"\"id\":\""<<escapeJson(s.scanScope.id)<<"\","<<"\"label\":\""<<escapeJson(s.scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson(s.scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson(s.scanScope.resolvedPath)<<"\"}"<<"}";
-        impl_->ws->broadcastJson(oss.str());
-    }
-    return jsonOk(R"({"ok":true})");
-}
+        impl_->ws->broadcastJson(oss.str());}
+    return jsonOk(R"({"ok":true})");}
 RestResponse KeeplyRestApi::handlePostConfigArchive(const RestRequest& req){
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->api->setArchive(req.body);
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"config.updated","field":"archive"})");
-    return jsonOk(R"({"ok":true})");
-}
+    return jsonOk(R"({"ok":true})");}
 RestResponse KeeplyRestApi::handlePostConfigRestoreRoot(const RestRequest& req){
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->api->setRestoreRoot(req.body);
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"config.updated","field":"restoreRoot"})");
-    return jsonOk(R"({"ok":true})");
-}
+    return jsonOk(R"({"ok":true})");}
 RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
     const auto impl=impl_;
     if(impl->shuttingDown.load(std::memory_order_relaxed)) return jsonError("Servidor em desligamento.");
@@ -381,12 +337,10 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
         std::string err;
         try{
             std::lock_guard<std::mutex> lock(impl->mu);
-            stats=impl->api->runBackup(label);
-        }
+            stats=impl->api->runBackup(label);}
         catch(const std::exception& e){ err=e.what(); }
         catch(...){ err="erro interno"; }
-        std::string eventJson;
-        {
+        std::string eventJson;{
             std::lock_guard<std::mutex> lk(impl->jobsMu);
             auto it=impl->jobs.find(id);
             if(it==impl->jobs.end()) return;
@@ -398,13 +352,10 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
             }else{
                 it->second.status="failed";
                 it->second.error=err;
-                eventJson=std::string("{\"type\":\"backup.failed\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\",\"error\":\""+KeeplyRestApi::escapeJson(err)+"\"}";
-            }
-        }
+                eventJson=std::string("{\"type\":\"backup.failed\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\",\"error\":\""+KeeplyRestApi::escapeJson(err)+"\"}";}}
         if(impl->ws) impl->ws->broadcastJson(eventJson);
     }));
-    return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");
-}
+    return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");}
 RestResponse KeeplyRestApi::handleGetBackupJobs(){
     std::vector<BackupJob> items;
     { std::lock_guard<std::mutex> lk(impl_->jobsMu); for(auto& kv:impl_->jobs) items.push_back(kv.second); }
@@ -413,11 +364,9 @@ RestResponse KeeplyRestApi::handleGetBackupJobs(){
     for(std::size_t i=0;i<items.size();++i){
         if(i) oss<<",";
         auto& j=items[i];
-        oss<<"{"<<"\"id\":\""<<escapeJson(j.id)<<"\","<<"\"label\":\""<<escapeJson(j.label)<<"\","<<"\"status\":\""<<escapeJson(j.status)<<"\","<<"\"error\":\""<<escapeJson(j.error)<<"\","<<"\"startedAtMs\":"<<j.startedAtMs<<","<<"\"finishedAtMs\":"<<j.finishedAtMs<<"}";
-    }
+        oss<<"{"<<"\"id\":\""<<escapeJson(j.id)<<"\","<<"\"label\":\""<<escapeJson(j.label)<<"\","<<"\"status\":\""<<escapeJson(j.status)<<"\","<<"\"error\":\""<<escapeJson(j.error)<<"\","<<"\"startedAtMs\":"<<j.startedAtMs<<","<<"\"finishedAtMs\":"<<j.finishedAtMs<<"}";}
     oss<<"]}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handleGetBackupJob(const RestRequest& req){
     auto id=req.path.substr(std::string("/api/v1/backup/jobs/").size());
     BackupJob j;
@@ -425,8 +374,7 @@ RestResponse KeeplyRestApi::handleGetBackupJob(const RestRequest& req){
     std::size_t chunksReused=(j.stats.chunks>=j.stats.uniqueChunksInserted)?(j.stats.chunks-j.stats.uniqueChunksInserted):0;
     std::ostringstream oss;
     oss<<"{"<<"\"ok\":true,"<<"\"id\":\""<<escapeJson(j.id)<<"\","<<"\"label\":\""<<escapeJson(j.label)<<"\","<<"\"status\":\""<<escapeJson(j.status)<<"\","<<"\"error\":\""<<escapeJson(j.error)<<"\","<<"\"startedAtMs\":"<<j.startedAtMs<<","<<"\"finishedAtMs\":"<<j.finishedAtMs<<","<<"\"filesScanned\":"<<j.stats.scanned<<","<<"\"filesAdded\":"<<j.stats.added<<","<<"\"filesUnchanged\":"<<j.stats.reused<<","<<"\"chunksNew\":"<<j.stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<j.stats.bytesRead<<","<<"\"bytesStoredCompressed\":0,"<<"\"warnings\":"<<j.stats.warnings<<"}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handleGetSnapshots(){
     std::vector<SnapshotRow> rows;
     { std::lock_guard<std::mutex> lock(impl_->mu); rows=impl_->api->listSnapshots(); }
@@ -435,29 +383,24 @@ RestResponse KeeplyRestApi::handleGetSnapshots(){
     for(std::size_t i=0;i<rows.size();++i){
         if(i) oss<<",";
         auto& r=rows[i];
-        oss<<"{"<<"\"id\":"<<r.id<<","<<"\"createdAt\":\""<<escapeJson(r.createdAt)<<"\","<<"\"sourceRoot\":\""<<escapeJson(r.sourceRoot)<<"\","<<"\"label\":\""<<escapeJson(r.label)<<"\","<<"\"fileCount\":"<<r.fileCount<<"}";
-    }
+        oss<<"{"<<"\"id\":"<<r.id<<","<<"\"createdAt\":\""<<escapeJson(r.createdAt)<<"\","<<"\"sourceRoot\":\""<<escapeJson(r.sourceRoot)<<"\","<<"\"label\":\""<<escapeJson(r.label)<<"\","<<"\"fileCount\":"<<r.fileCount<<"}";}
     oss<<"]}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handleGetDiff(const RestRequest& req){
     auto itOlder=req.query.find("older"),itNewer=req.query.find("newer");
     std::vector<ChangeEntry> rows;
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(itOlder==req.query.end()&&itNewer==req.query.end()) rows=impl_->api->diffLatestVsPrevious();
       else if(itOlder!=req.query.end()&&itNewer!=req.query.end()) rows=impl_->api->diffSnapshots(itOlder->second,itNewer->second);
-      else return jsonBadRequest("Use ambos os parametros 'older' e 'newer', ou nenhum.");
-    }
+      else return jsonBadRequest("Use ambos os parametros 'older' e 'newer', ou nenhum.");}
     std::ostringstream oss;
     oss<<"{\"items\":[";
     for(std::size_t i=0;i<rows.size();++i){
         if(i) oss<<",";
         auto& c=rows[i];
-        oss<<"{"<<"\"path\":\""<<escapeJson(c.path)<<"\","<<"\"status\":\""<<escapeJson(c.status)<<"\","<<"\"oldSize\":"<<c.oldSize<<","<<"\"newSize\":"<<c.newSize<<","<<"\"oldMtime\":"<<c.oldMtime<<","<<"\"newMtime\":"<<c.newMtime<<"}";
-    }
+        oss<<"{"<<"\"path\":\""<<escapeJson(c.path)<<"\","<<"\"status\":\""<<escapeJson(c.status)<<"\","<<"\"oldSize\":"<<c.oldSize<<","<<"\"newSize\":"<<c.newSize<<","<<"\"oldMtime\":"<<c.oldMtime<<","<<"\"newMtime\":"<<c.newMtime<<"}";}
     oss<<"]}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handleGetSnapshotPaths(const RestRequest& req){
     auto snapshotId=pathBetween(req.path,"/api/v1/snapshots/","/paths");
     if(snapshotId.empty()) return jsonBadRequest("Path de snapshot invalido.");
@@ -467,8 +410,7 @@ RestResponse KeeplyRestApi::handleGetSnapshotPaths(const RestRequest& req){
     oss<<"{\"snapshot\":\""<<escapeJson(snapshotId)<<"\",\"items\":[";
     for(std::size_t i=0;i<paths.size();++i){ if(i) oss<<","; oss<<"\""<<escapeJson(paths[i])<<"\""; }
     oss<<"]}";
-    return jsonOk(oss.str());
-}
+    return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     std::istringstream iss(req.body);
     std::string snapshot,relPath,outRoot;
@@ -480,11 +422,9 @@ RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     if(snapshot.empty()||relPath.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|relpath|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreFile(snapshot,relPath,std::nullopt);
-      else impl_->api->restoreFile(snapshot,relPath,std::filesystem::path(outRoot));
-    }
+      else impl_->api->restoreFile(snapshot,relPath,std::filesystem::path(outRoot));}
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"restore.file.finished"})");
-    return jsonOk(R"({"ok":true})");
-}
+    return jsonOk(R"({"ok":true})");}
 RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     std::istringstream iss(req.body);
     std::string snapshot,outRoot;
@@ -495,57 +435,46 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     if(snapshot.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreSnapshot(snapshot,std::nullopt);
-      else impl_->api->restoreSnapshot(snapshot,std::filesystem::path(outRoot));
-    }
+      else impl_->api->restoreSnapshot(snapshot,std::filesystem::path(outRoot));}
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"restore.snapshot.finished"})");
-    return jsonOk(R"({"ok":true})");
-}
+    return jsonOk(R"({"ok":true})");}
 static const std::string kVersionPrefix=std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+",";
 RestResponse KeeplyRestApi::jsonOk(const std::string& json){
     RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8";
     if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
     else r.body=json;
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonCreated(const std::string& json){
     RestResponse r; r.status=201; r.contentType="application/json; charset=utf-8";
     if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
     else r.body=json;
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonAccepted(const std::string& json){
     RestResponse r; r.status=202; r.contentType="application/json; charset=utf-8";
     if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
     else r.body=json;
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonBadRequest(const std::string& message){
     RestResponse r; r.status=400; r.contentType="application/json; charset=utf-8";
     r.body=kVersionPrefix+"\"ok\":false,\"code\":400,\"error\":\""+escapeJson(message)+"\"}";
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonMethodNotAllowed(const std::string& message){
     RestResponse r; r.status=405; r.contentType="application/json; charset=utf-8";
     r.body=kVersionPrefix+"\"ok\":false,\"code\":405,\"error\":\""+escapeJson(message)+"\"}";
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonNotFound(const std::string& message){
     RestResponse r; r.status=404; r.contentType="application/json; charset=utf-8";
     r.body=kVersionPrefix+"\"ok\":false,\"code\":404,\"error\":\""+escapeJson(message)+"\"}";
-    return r;
-}
+    return r;}
 RestResponse KeeplyRestApi::jsonError(const std::string& message){
     RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8";
     r.body=kVersionPrefix+"\"ok\":false,\"code\":500,\"error\":\""+escapeJson(message)+"\"}";
-    return r;
-}
+    return r;}
 std::string KeeplyRestApi::escapeJson(const std::string& s){
-    return http_internal::escapeJson(s);
-}
+    return http_internal::escapeJson(s);}
 std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,const std::string& prefix){
     if(fullPath.rfind(prefix,0)!=0) return "";
-    return fullPath.substr(prefix.size());
-}
+    return fullPath.substr(prefix.size());}
 class RequestRateLimiter{
     std::deque<std::chrono::steady_clock::time_point> timestamps_;
     std::size_t maxRequests_;
@@ -559,8 +488,7 @@ public:
             timestamps_.pop_front();
         if(timestamps_.size()>=maxRequests_) return false;
         timestamps_.push_back(now);
-        return true;
-    }
+        return true;}
 };
 int runRestHttpServer(const RestHttpServerConfig& config){
     try{
@@ -580,20 +508,17 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             if(cfd<0){
                 const int err=lastSocketError();
                 if(socketInterrupted(err)) continue;
-                throw std::runtime_error(std::string("accept falhou: ")+socketErrorMessage(err));
-            }
+                throw std::runtime_error(std::string("accept falhou: ")+socketErrorMessage(err));}
             setSocketTimeouts(cfd,8000,8000);
             try{
                 if(!rateLimiter.allow()){
                     sendHttpError(cfd,429,"Rate limit excedido. Tente novamente em alguns segundos.");
                     closeSocketFd(cfd);
-                    continue;
-                }
+                    continue;}
                 RestRequest req;
                 if(recvHttpRequest(cfd,req)){
                     std::cout<<req.method<<" "<<req.path<<"\n";
-                    sendHttpResponse(cfd,rest.handle(req));
-                }
+                    sendHttpResponse(cfd,rest.handle(req));}
             }catch(const std::exception& e){
                 try{
                     std::string m=e.what();
@@ -601,15 +526,10 @@ int runRestHttpServer(const RestHttpServerConfig& config){
                     sendHttpError(cfd,code,m);
                 }catch(...){}
             }catch(...){
-                try{ sendHttpError(cfd,500,"erro interno"); }catch(...){}
-            }
-            closeSocketFd(cfd);
-        }
+                try{ sendHttpError(cfd,500,"erro interno"); }catch(...){}}
+            closeSocketFd(cfd);}
         closeSocketFd(listenFd);
         return 0;
     }catch(const std::exception& e){
         std::cerr<<"REST HTTP server falhou: "<<e.what()<<"\n";
-        return 1;
-    }
-}
-}
+        return 1;}}}

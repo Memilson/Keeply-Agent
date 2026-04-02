@@ -41,30 +41,24 @@ struct HttpTls {
         if (this != &o) {
             cleanup();
             ctx = o.ctx; ssl = o.ssl;
-            o.ctx = nullptr; o.ssl = nullptr;
-        }
-        return *this;
-    }
+            o.ctx = nullptr; o.ssl = nullptr;}
+        return *this;}
     void cleanup() noexcept {
         if (ssl) { SSL_free(ssl); ssl = nullptr; }
-        if (ctx) { SSL_CTX_free(ctx); ctx = nullptr; }
-    }
+        if (ctx) { SSL_CTX_free(ctx); ctx = nullptr; }}
     ~HttpTls() { cleanup(); }
 };
 std::string trimAscii(std::string value) {
     const auto isSpace = [](unsigned char c) { return std::isspace(c) != 0; };
     while (!value.empty() && isSpace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
     while (!value.empty() && isSpace(static_cast<unsigned char>(value.back()))) value.pop_back();
-    return value;
-}
+    return value;}
 void configurePeerVerification(SSL* ssl, const ParsedUrl& url, bool allowInsecureTls) {
     if (allowInsecureTls) return;
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
     if (SSL_set1_host(ssl, url.host.c_str()) != 1) {
-        throw std::runtime_error("Falha ao configurar validacao de hostname TLS.");
-    }
-#endif
-}
+        throw std::runtime_error("Falha ao configurar validacao de hostname TLS.");}
+#endif}
 std::string decodeChunkedBody(const std::string& body) {
     std::string decoded;
     std::size_t cursor = 0;
@@ -78,23 +72,18 @@ std::string decodeChunkedBody(const std::string& body) {
         try {
             chunkSize = static_cast<std::size_t>(std::stoull(rawSize, nullptr, 16));
         } catch (...) {
-            throw std::runtime_error("Tamanho de chunk HTTP invalido.");
-        }
+            throw std::runtime_error("Tamanho de chunk HTTP invalido.");}
         cursor = lineEnd + 2;
         if (chunkSize == 0) {
             const std::size_t trailerEnd = body.find("\r\n\r\n", cursor);
             if (trailerEnd == std::string::npos && body.find("\r\n", cursor) == std::string::npos) {
-                throw std::runtime_error("Trailer HTTP chunked invalido.");
-            }
-            return decoded;
-        }
+                throw std::runtime_error("Trailer HTTP chunked invalido.");}
+            return decoded;}
         if (body.size() < cursor + chunkSize + 2) throw std::runtime_error("Chunk HTTP truncado.");
         decoded.append(body, cursor, chunkSize);
         cursor += chunkSize;
         if (body.compare(cursor, 2, "\r\n") != 0) throw std::runtime_error("Separador de chunk HTTP invalido.");
-        cursor += 2;
-    }
-}
+        cursor += 2;}}
 HttpResponse parseHttpResponse(const std::string& raw, const std::string& contextLabel) {
     const std::size_t headerEnd = raw.find("\r\n\r\n");
     if (headerEnd == std::string::npos) throw std::runtime_error("Resposta HTTP invalida no " + contextLabel + ".");
@@ -111,15 +100,12 @@ HttpResponse parseHttpResponse(const std::string& raw, const std::string& contex
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const std::size_t colon = line.find(':');
         if (colon == std::string::npos) continue;
-        resp.headers[toLower(trimAscii(line.substr(0, colon)))] = trimAscii(line.substr(colon + 1));
-    }
+        resp.headers[toLower(trimAscii(line.substr(0, colon)))] = trimAscii(line.substr(colon + 1));}
     resp.body = raw.substr(headerEnd + 4);
     const auto transferEncodingIt = resp.headers.find("transfer-encoding");
     if (transferEncodingIt != resp.headers.end() && toLower(transferEncodingIt->second).find("chunked") != std::string::npos) {
-        resp.body = decodeChunkedBody(resp.body);
-    }
-    return resp;
-}
+        resp.body = decodeChunkedBody(resp.body);}
+    return resp;}
 HttpTls connectTls(int fd,
                    const ParsedUrl& url,
                    const std::optional<fs::path>& certPemPath,
@@ -133,17 +119,12 @@ HttpTls connectTls(int fd,
     } else {
         SSL_CTX_set_verify(tls.ctx, SSL_VERIFY_PEER, nullptr);
         if (SSL_CTX_set_default_verify_paths(tls.ctx) != 1) {
-            throw std::runtime_error("Falha ao configurar trust store do TLS.");
-        }
-    }
+            throw std::runtime_error("Falha ao configurar trust store do TLS.");}}
     if (certPemPath && keyPemPath) {
         if (SSL_CTX_use_certificate_file(tls.ctx, certPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
-            throw std::runtime_error("Falha ao carregar certificado do agente.");
-        }
+            throw std::runtime_error("Falha ao carregar certificado do agente.");}
         if (SSL_CTX_use_PrivateKey_file(tls.ctx, keyPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
-            throw std::runtime_error("Falha ao carregar chave privada do agente.");
-        }
-    }
+            throw std::runtime_error("Falha ao carregar chave privada do agente.");}}
     tls.ssl = SSL_new(tls.ctx);
     if (!tls.ssl) throw std::runtime_error("Falha ao criar SSL.");
     SSL_set_mode(tls.ssl, SSL_MODE_AUTO_RETRY | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
@@ -152,21 +133,16 @@ HttpTls connectTls(int fd,
     configurePeerVerification(tls.ssl, url, allowInsecureTls);
     if (SSL_connect(tls.ssl) != 1) throw std::runtime_error("Falha no handshake TLS com o backend.");
     if (!allowInsecureTls && SSL_get_verify_result(tls.ssl) != X509_V_OK) {
-        throw std::runtime_error("Validacao do certificado TLS do backend falhou.");
-    }
-    return tls;
-}
+        throw std::runtime_error("Validacao do certificado TLS do backend falhou.");}
+    return tls;}
 std::string readHttpResponseBody(int fd, SSL* ssl) {
     std::string data;
     char buf[4096];
     for (;;) {
         const std::size_t n = ssl ? readSomeSsl(ssl, buf, sizeof(buf)) : readSomeFd(fd, buf, sizeof(buf));
         if (n == 0) break;
-        data.append(buf, n);
-    }
-    return data;
-}
-}
+        data.append(buf, n);}
+    return data;}}
 HttpResponse httpPostJson(const std::string& url,
                           const std::string& body,
                           const std::optional<fs::path>& certPemPath,
@@ -174,16 +150,14 @@ HttpResponse httpPostJson(const std::string& url,
                           bool allowInsecureTls) {
     const ParsedUrl parsed = parseUrlCommon(url);
     if (parsed.scheme != "http" && parsed.scheme != "https") {
-        throw std::runtime_error("Enroll HTTP suporta apenas http:// ou https://");
-    }
+        throw std::runtime_error("Enroll HTTP suporta apenas http:// ou https://");}
     int fd = openTcpSocket(parsed.host, parsed.port);
     HttpTls tls;
     SSL* ssl = nullptr;
     try {
         if (parsed.scheme == "https") {
             tls = connectTls(fd, parsed, certPemPath, keyPemPath, allowInsecureTls);
-            ssl = tls.ssl;
-        }
+            ssl = tls.ssl;}
         std::ostringstream req;
         req << "POST " << parsed.target << " HTTP/1.1\r\n";
         req << "Host: " << parsed.host << ":" << parsed.port << "\r\n";
@@ -203,25 +177,21 @@ HttpResponse httpPostJson(const std::string& url,
     } catch (...) {
         tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
-        throw;
-    }
-}
+        throw;}}
 HttpResponse httpGet(const std::string& url,
                      const std::optional<fs::path>& certPemPath,
                      const std::optional<fs::path>& keyPemPath,
                      bool allowInsecureTls) {
     const ParsedUrl parsed = parseUrlCommon(url);
     if (parsed.scheme != "http" && parsed.scheme != "https") {
-        throw std::runtime_error("Download HTTP suporta apenas http:// ou https://");
-    }
+        throw std::runtime_error("Download HTTP suporta apenas http:// ou https://");}
     int fd = openTcpSocket(parsed.host, parsed.port);
     HttpTls tls;
     SSL* ssl = nullptr;
     try {
         if (parsed.scheme == "https") {
             tls = connectTls(fd, parsed, certPemPath, keyPemPath, allowInsecureTls);
-            ssl = tls.ssl;
-        }
+            ssl = tls.ssl;}
         std::ostringstream req;
         req << "GET " << parsed.target << " HTTP/1.1\r\n";
         req << "Host: " << parsed.host << ":" << parsed.port << "\r\n";
@@ -238,9 +208,7 @@ HttpResponse httpGet(const std::string& url,
     } catch (...) {
         tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
-        throw;
-    }
-}
+        throw;}}
 namespace {
 HttpResponse httpPostMultipartFile(const std::string& url,
                                    const std::vector<MultipartField>& fields,
@@ -253,8 +221,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
                                    bool allowInsecureTls) {
     const ParsedUrl parsed = parseUrlCommon(url);
     if (parsed.scheme != "http" && parsed.scheme != "https") {
-        throw std::runtime_error("Upload HTTP suporta apenas http:// ou https://");
-    }
+        throw std::runtime_error("Upload HTTP suporta apenas http:// ou https://");}
     std::error_code fileEc;
     const std::uintmax_t fileSize = fs::file_size(filePath, fileEc);
     if (fileEc) throw std::runtime_error("Falha lendo tamanho do arquivo para upload: " + fileEc.message());
@@ -268,8 +235,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         part << "Content-Disposition: form-data; name=\"" << field.name << "\"\r\n\r\n";
         part << field.value << "\r\n";
         fieldParts.push_back(part.str());
-        contentLength += fieldParts.back().size();
-    }
+        contentLength += fieldParts.back().size();}
     std::ostringstream fileHeader;
     fileHeader << "--" << boundary << "\r\n";
     fileHeader << "Content-Disposition: form-data; name=\"" << fileFieldName
@@ -286,8 +252,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
     try {
         if (parsed.scheme == "https") {
             tls = connectTls(fd, parsed, certPemPath, keyPemPath, allowInsecureTls);
-            ssl = tls.ssl;
-        }
+            ssl = tls.ssl;}
         std::ostringstream req;
         req << "POST " << parsed.target << " HTTP/1.1\r\n";
         req << "Host: " << parsed.host << ":" << parsed.port << "\r\n";
@@ -300,8 +265,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         else static_cast<void>(writeAllFd(fd, headers.data(), headers.size()));
         for (const std::string& part : fieldParts) {
             if (ssl) static_cast<void>(writeAllSsl(ssl, part.data(), part.size()));
-            else static_cast<void>(writeAllFd(fd, part.data(), part.size()));
-        }
+            else static_cast<void>(writeAllFd(fd, part.data(), part.size()));}
         if (ssl) static_cast<void>(writeAllSsl(ssl, fileHeaderStr.data(), fileHeaderStr.size()));
         else static_cast<void>(writeAllFd(fd, fileHeaderStr.data(), fileHeaderStr.size()));
         std::ifstream in(filePath, std::ios::binary);
@@ -312,8 +276,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
             const std::streamsize got = in.gcount();
             if (got <= 0) break;
             if (ssl) static_cast<void>(writeAllSsl(ssl, buf.data(), static_cast<std::size_t>(got)));
-            else static_cast<void>(writeAllFd(fd, buf.data(), static_cast<std::size_t>(got)));
-        }
+            else static_cast<void>(writeAllFd(fd, buf.data(), static_cast<std::size_t>(got)));}
         if (!in.eof() && in.fail()) throw std::runtime_error("Falha lendo arquivo durante upload.");
         if (ssl) static_cast<void>(writeAllSsl(ssl, fileFooterStr.data(), fileFooterStr.size()));
         else static_cast<void>(writeAllFd(fd, fileFooterStr.data(), fileFooterStr.size()));
@@ -325,42 +288,34 @@ HttpResponse httpPostMultipartFile(const std::string& url,
     } catch (...) {
         tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
-        throw;
-    }
-}
-}
+        throw;}}}
 std::string hexEncode(const unsigned char* data, std::size_t size) {
     static const char* h = "0123456789abcdef";
     std::string out;
     out.resize(size * 2);
     for (std::size_t i = 0; i < size; ++i) {
         out[i * 2] = h[(data[i] >> 4) & 0x0F];
-        out[i * 2 + 1] = h[data[i] & 0x0F];
-    }
-    return out;
-}
+        out[i * 2 + 1] = h[data[i] & 0x0F];}
+    return out;}
 std::string base64Encode(const unsigned char* data, std::size_t size) {
     std::string out;
     out.resize(((size + 2) / 3) * 4);
     const int written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(&out[0]), data, static_cast<int>(size));
     if (written < 0) throw std::runtime_error("Falha ao codificar base64.");
     out.resize(static_cast<std::size_t>(written));
-    return out;
-}
+    return out;}
 std::string randomBase64(std::size_t bytes) {
     std::vector<unsigned char> raw(bytes);
     std::random_device rd;
     for (std::size_t i = 0; i < bytes; ++i) raw[i] = static_cast<unsigned char>(rd());
-    return base64Encode(raw.data(), raw.size());
-}
+    return base64Encode(raw.data(), raw.size());}
 std::string randomDigits(std::size_t digits) {
     std::random_device rd;
     std::uniform_int_distribution<int> dist(0, 9);
     std::string out;
     out.reserve(digits);
     for (std::size_t i = 0; i < digits; ++i) out.push_back(static_cast<char>('0' + dist(rd)));
-    return out;
-}
+    return out;}
 std::size_t writeAllSsl(ssl_st* sslHandle, const void* data, std::size_t size) {
     SSL* ssl = static_cast<SSL*>(sslHandle);
     if (!ssl || SSL_get_fd(ssl) < 0)
@@ -382,14 +337,10 @@ std::size_t writeAllSsl(ssl_st* sslHandle, const void* data, std::size_t size) {
             } else {
                 unsigned long ecode = ERR_peek_last_error();
                 char buf[256]; ERR_error_string_n(ecode, buf, sizeof(buf));
-                detail = buf;
-            }
-            throw std::runtime_error("SSL_write falhou (ssl_error=" + std::to_string(err) + "): " + detail);
-        }
-        offset += static_cast<std::size_t>(n);
-    }
-    return offset;
-}
+                detail = buf;}
+            throw std::runtime_error("SSL_write falhou (ssl_error=" + std::to_string(err) + "): " + detail);}
+        offset += static_cast<std::size_t>(n);}
+    return offset;}
 std::size_t readSomeSsl(ssl_st* sslHandle, void* data, std::size_t size) {
     SSL* ssl = static_cast<SSL*>(sslHandle);
     for (;;) {
@@ -405,11 +356,8 @@ std::size_t readSomeSsl(ssl_st* sslHandle, void* data, std::size_t size) {
         } else {
             unsigned long ecode = ERR_peek_last_error();
             char buf[256]; ERR_error_string_n(ecode, buf, sizeof(buf));
-            detail = buf;
-        }
-        throw std::runtime_error("SSL_read falhou (ssl_error=" + std::to_string(err) + "): " + detail);
-    }
-}
+            detail = buf;}
+        throw std::runtime_error("SSL_read falhou (ssl_error=" + std::to_string(err) + "): " + detail);}}
 std::map<std::string, std::string> loadIdentityMeta(const fs::path& metaPath) {
     std::map<std::string, std::string> out;
     std::ifstream in(metaPath);
@@ -418,10 +366,8 @@ std::map<std::string, std::string> loadIdentityMeta(const fs::path& metaPath) {
     while (std::getline(in, line)) {
         const std::size_t eq = line.find('=');
         if (eq == std::string::npos) continue;
-        out[line.substr(0, eq)] = line.substr(eq + 1);
-    }
-    return out;
-}
+        out[line.substr(0, eq)] = line.substr(eq + 1);}
+    return out;}
 std::string extractJsonStringField(const std::string& json, const std::string& field) {
     const std::string needle = "\"" + field + "\"";
     std::size_t searchFrom = 0;
@@ -431,14 +377,12 @@ std::string extractJsonStringField(const std::string& json, const std::string& f
         const bool escapedKey = keyPos > 0 && json[keyPos - 1] == '\\';
         if (escapedKey) {
             searchFrom = keyPos + needle.size();
-            continue;
-        }
+            continue;}
         std::size_t colonPos = keyPos + needle.size();
         while (colonPos < json.size() && std::isspace(static_cast<unsigned char>(json[colonPos]))) ++colonPos;
         if (colonPos >= json.size() || json[colonPos] != ':') {
             searchFrom = keyPos + needle.size();
-            continue;
-        }
+            continue;}
         ++colonPos;
         while (colonPos < json.size() && std::isspace(static_cast<unsigned char>(json[colonPos]))) ++colonPos;
         if (colonPos >= json.size() || json[colonPos] != '"') return {};
@@ -465,21 +409,15 @@ std::string extractJsonStringField(const std::string& json, const std::string& f
                         break;
                     default:
                         out.push_back(c);
-                        break;
-                }
+                        break;}
                 escaped = false;
-                continue;
-            }
+                continue;}
             if (c == '\\') {
                 escaped = true;
-                continue;
-            }
+                continue;}
             if (c == '"') return out;
-            out.push_back(c);
-        }
-        return {};
-    }
-}
+            out.push_back(c);}
+        return {};}}
 void saveIdentityMeta(const AgentIdentity& identity) {
     std::ofstream out(identity.metaPath, std::ios::trunc);
     if (!out) throw std::runtime_error("Falha ao salvar identity.meta do agente.");
@@ -493,10 +431,8 @@ void saveIdentityMeta(const AgentIdentity& identity) {
     if (!out) throw std::runtime_error("Falha ao finalizar identity.meta do agente.");
 #if defined(__linux__) || defined(__APPLE__)
     if (::chmod(identity.metaPath.c_str(), static_cast<mode_t>(0600)) != 0) {
-        throw std::runtime_error("Falha ao ajustar permissoes de identity.meta.");
-    }
-#endif
-}
+        throw std::runtime_error("Falha ao ajustar permissoes de identity.meta.");}
+#endif}
 std::vector<std::string> splitPipe(const std::string& value) {
     std::vector<std::string> out;
     std::size_t start = 0;
@@ -504,16 +440,13 @@ std::vector<std::string> splitPipe(const std::string& value) {
         const std::size_t pos = value.find('|', start);
         out.push_back(value.substr(start, pos == std::string::npos ? std::string::npos : pos - start));
         if (pos == std::string::npos) break;
-        start = pos + 1;
-    }
-    return out;
-}
+        start = pos + 1;}
+    return out;}
 BackupStoragePolicy parseBackupStoragePolicy(const std::string& raw) {
     BackupStoragePolicy policy;
     const std::string normalized = toLower(trim(raw));
     static_cast<void>(normalized);
-    return policy;
-}
+    return policy;}
 void deleteLocalArchiveArtifacts(const fs::path& archivePath) {
     std::error_code ec;
     fs::remove(archivePath, ec);
@@ -522,8 +455,7 @@ void deleteLocalArchiveArtifacts(const fs::path& archivePath) {
     packPath.replace_extension(".klyp");
     fs::remove(packPath, ec);
     ec.clear();
-    fs::remove(fs::path(packPath.string() + ".idx"), ec);
-}
+    fs::remove(fs::path(packPath.string() + ".idx"), ec);}
 std::string httpUrlFromWsUrl(const std::string& wsUrl, const std::string& path) {
     ParsedUrl parsed = parseUrlCommon(wsUrl);
     if (parsed.scheme == "ws") parsed.scheme = "http";
@@ -532,8 +464,7 @@ std::string httpUrlFromWsUrl(const std::string& wsUrl, const std::string& path) 
     parsed.target = path;
     std::ostringstream oss;
     oss << parsed.scheme << "://" << parsed.host << ":" << parsed.port << parsed.target;
-    return oss.str();
-}
+    return oss.str();}
 UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                                        const AgentIdentity& identity,
                                        const AppState& state,
@@ -561,14 +492,11 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                 const std::size_t dot = item.uploadName.rfind('.');
                 if (marker != std::string::npos && dot != std::string::npos && dot > marker + 1) {
                     blobPartIndex = static_cast<std::size_t>(
-                        std::strtoull(item.uploadName.substr(marker + 1, dot - marker - 1).c_str(), nullptr, 10));
-                }
-            }
+                        std::strtoull(item.uploadName.substr(marker + 1, dot - marker - 1).c_str(), nullptr, 10));}}
             if (onProgress) {
                 onProgress(UploadProgressSnapshot{
                     uploadedCount.load(), filesTotal, blobPartIndex, bundle.blobPartCount, item.uploadName, role
-                });
-            }
+                });}
             std::vector<MultipartField> fields;
             fields.push_back({"userId", identity.userId});
             fields.push_back({"agentId", identity.deviceId});
@@ -586,30 +514,25 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                 throw std::runtime_error(
                     "HTTP " + std::to_string(response.status) +
                     " | tentativa=" + std::to_string(attempt) +
-                    " | body=" + response.body);
-            }
+                    " | body=" + response.body);}
             const std::size_t completed = uploadedCount.fetch_add(1) + 1;
             if (item.blobPart) uploadedBlobCount.fetch_add(1);
             if (item.manifest) result.manifestResponse = response;
             if (onProgress) {
                 onProgress(UploadProgressSnapshot{
                     completed, filesTotal, blobPartIndex, bundle.blobPartCount, item.uploadName, role
-                });
-            }
+                });}
         };
         const StorageArchive::CloudBundleFile* manifestFile = nullptr;
         for (const auto& item : bundle.files) {
             if (item.manifest) {
                 manifestFile = &item;
-                continue;
-            }
+                continue;}
             if (item.blobPart) continue;
             uploadOne(item, 1);
             if (!item.path.empty()) {
                 std::error_code cleanupEc;
-                fs::remove(item.path, cleanupEc);
-            }
-        }
+                fs::remove(item.path, cleanupEc);}}
         runParallelUploadQueue(
             bundle.blobPartCount,
             ParallelUploadOptions{2, 3, std::chrono::milliseconds(750)},
@@ -620,23 +543,18 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                 } catch (...) {
                     std::error_code cleanupEc;
                     if (!blobFile.path.empty()) fs::remove(blobFile.path, cleanupEc);
-                    throw;
-                }
+                    throw;}
                 std::error_code cleanupEc;
-                if (!blobFile.path.empty()) fs::remove(blobFile.path, cleanupEc);
-            }
+                if (!blobFile.path.empty()) fs::remove(blobFile.path, cleanupEc);}
         );
         if (manifestFile) uploadOne(*manifestFile, 1);
     } catch (...) {
         std::error_code cleanupEc;
         fs::remove_all(bundle.rootDir, cleanupEc);
-        throw;
-    }
+        throw;}
     std::error_code cleanupEc;
     fs::remove_all(bundle.rootDir, cleanupEc);
     result.filesUploaded = uploadedCount.load();
     result.blobPartCount = uploadedBlobCount.load();
     if (result.manifestResponse.status == 0) throw std::runtime_error("Manifest do bundle cloud nao foi enviado.");
-    return result;
-}
-}
+    return result;}}

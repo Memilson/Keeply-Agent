@@ -41,15 +41,12 @@ namespace eventos = keeply::rastreamento_eventos_base;
 static std::string envOrEmptyAny(std::initializer_list<const char*> keys) {
     for (const char* key : keys) {
         auto value = eventos::envOrEmpty(key);
-        if (!value.empty()) return value;
-    }
-    return {};
-}
+        if (!value.empty()) return value;}
+    return {};}
 static bool envTruthyAny(std::initializer_list<const char*> keys) {
     auto value = envOrEmptyAny(keys);
     for (auto& c : value) c = char(std::tolower((unsigned char)c));
-    return value == "1" || value == "true" || value == "yes" || value == "on";
-}
+    return value == "1" || value == "true" || value == "yes" || value == "on";}
 static std::string detectOsName() {
 #if defined(__linux__)
     return "linux";
@@ -59,8 +56,7 @@ static std::string detectOsName() {
     return "macos";
 #else
     return "unknown";
-#endif
-}
+#endif}
 static std::string detectHostName() {
 #if defined(_WIN32)
     auto v = eventos::envOrEmpty("COMPUTERNAME");
@@ -70,26 +66,21 @@ static std::string detectHostName() {
     if (::gethostname(buf, sizeof(buf) - 1) == 0 && buf[0]) return std::string(buf);
     auto v = eventos::envOrEmpty("HOSTNAME");
     return v.empty() ? "keeply-host" : v;
-#endif
-}
+#endif}
 static std::string argOrEmpty(int argc, char** argv, int i) {
-    return (i < argc && argv[i]) ? std::string(argv[i]) : std::string();
-}
+    return (i < argc && argv[i]) ? std::string(argv[i]) : std::string();}
 static fs::path pickDataDir() {
     auto fromEnv = envOrEmptyAny({"KEEPLY_DATA_DIR", "KEEPly_DATA_DIR"});
     if (!fromEnv.empty()) return fs::path(fromEnv);
-    return keeply::defaultKeeplyDataDir();
-}
+    return keeply::defaultKeeplyDataDir();}
 static fs::path pickWatchRoot() {
     auto fromEnv = envOrEmptyAny({"KEEPLY_ROOT", "KEEPly_ROOT"});
     if (!fromEnv.empty()) return fs::path(fromEnv);
-    return keeply::defaultSourceRootPath();
-}
+    return keeply::defaultSourceRootPath();}
 static fs::path pickPidFilePath(const fs::path& dataDir) {
     auto fromEnv = envOrEmptyAny({"KEEPLY_AGENT_PID_FILE", "KEEPly_AGENT_PID_FILE"});
     if (!fromEnv.empty()) return fs::path(fromEnv);
-    return dataDir / "keeply_agent.pid";
-}
+    return dataDir / "keeply_agent.pid";}
 static std::string findExecutableOnPath(const char* name) {
     auto pathEnv = eventos::envOrEmpty("PATH");
     if (pathEnv.empty()) return {};
@@ -106,8 +97,7 @@ static std::string findExecutableOnPath(const char* name) {
     if (baseName.find('.') == std::string::npos) {
         candidates.push_back(baseName + ".exe");
         candidates.push_back(baseName + ".cmd");
-        candidates.push_back(baseName + ".bat");
-    }
+        candidates.push_back(baseName + ".bat");}
 #endif
     std::size_t start = 0;
     while (start <= pathEnv.size()) {
@@ -123,14 +113,10 @@ static std::string findExecutableOnPath(const char* name) {
 #else
                 const auto perms = fs::status(candidate, ec).permissions();
                 if (!ec && (perms & fs::perms::owner_exec) != fs::perms::none) return candidate.string();
-#endif
-            }
-        }
+#endif}}
         if (end == std::string::npos) break;
-        start = end + 1;
-    }
-    return {};
-}
+        start = end + 1;}
+    return {};}
 static void writePidFile(const fs::path& pidFile) {
     std::error_code ec;
     fs::create_directories(pidFile.parent_path(), ec);
@@ -141,8 +127,7 @@ static void writePidFile(const fs::path& pidFile) {
     out << GetCurrentProcessId() << "\n";
 #else
     out << getpid() << "\n";
-#endif
-}
+#endif}
 class SingleInstanceGuard {
 public:
     explicit SingleInstanceGuard(const fs::path& pidFile) : pidFile_(pidFile) {
@@ -154,15 +139,13 @@ public:
         const std::string rawPath = pidFile.string();
         mutexName.reserve(mutexName.size() + rawPath.size());
         for (unsigned char ch : rawPath) {
-            mutexName.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');
-        }
+            mutexName.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');}
         mutex_ = CreateMutexA(nullptr, FALSE, mutexName.c_str());
         if (!mutex_) throw std::runtime_error("Falha criando mutex de instancia unica do agente.");
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             CloseHandle(mutex_);
             mutex_ = nullptr;
-            throw std::runtime_error("Ja existe outra instancia do Keeply Agent em execucao.");
-        }
+            throw std::runtime_error("Ja existe outra instancia do Keeply Agent em execucao.");}
         writePidFile(pidFile_);
 #else
         fd_ = ::open(pidFile_.c_str(), O_CREAT | O_RDWR, 0644);
@@ -173,43 +156,36 @@ public:
                 : "Falha adquirindo lock do agente.";
             ::close(fd_);
             fd_ = -1;
-            throw std::runtime_error(reason);
-        }
+            throw std::runtime_error(reason);}
         if (::ftruncate(fd_, 0) != 0) {
             const std::string message = "Falha limpando PID file para lock.";
             ::flock(fd_, LOCK_UN);
             ::close(fd_);
             fd_ = -1;
-            throw std::runtime_error(message);
-        }
+            throw std::runtime_error(message);}
         std::string pidText = std::to_string(getpid()) + "\n";
         if (::write(fd_, pidText.data(), pidText.size()) < 0) {
             const std::string message = "Falha escrevendo PID file com lock.";
             ::flock(fd_, LOCK_UN);
             ::close(fd_);
             fd_ = -1;
-            throw std::runtime_error(message);
-        }
-#endif
-    }
+            throw std::runtime_error(message);}
+#endif}
     ~SingleInstanceGuard() {
 #ifdef _WIN32
         std::error_code ec;
         fs::remove(pidFile_, ec);
         if (mutex_) {
             CloseHandle(mutex_);
-            mutex_ = nullptr;
-        }
+            mutex_ = nullptr;}
 #else
         std::error_code ec;
         fs::remove(pidFile_, ec);
         if (fd_ >= 0) {
             ::flock(fd_, LOCK_UN);
             ::close(fd_);
-            fd_ = -1;
-        }
-#endif
-    }
+            fd_ = -1;}
+#endif}
     SingleInstanceGuard(const SingleInstanceGuard&) = delete;
     SingleInstanceGuard& operator=(const SingleInstanceGuard&) = delete;
 private:
@@ -228,19 +204,15 @@ static fs::path currentExecutablePath() {
         if (n < 0) throw std::runtime_error("Falha resolvendo /proc/self/exe.");
         if (static_cast<std::size_t>(n) < buffer.size() - 1) {
             buffer[static_cast<std::size_t>(n)] = '\0';
-            return fs::path(buffer.data());
-        }
-        buffer.resize(buffer.size() * 2, '\0');
-    }
-}
+            return fs::path(buffer.data());}
+        buffer.resize(buffer.size() * 2, '\0');}}
 static inline std::string trimCopy(const std::string& value) { return keeply::trim(value); }
 static std::string readSmallTextFile(const fs::path& path) {
     std::ifstream in(path);
     if (!in) return {};
     std::ostringstream oss;
     oss << in.rdbuf();
-    return trimCopy(oss.str());
-}
+    return trimCopy(oss.str());}
 static std::optional<pid_t> readDaemonPid() {
     const auto text = readSmallTextFile(keeply::defaultEventStorePidPath());
     if (text.empty()) return std::nullopt;
@@ -248,38 +220,30 @@ static std::optional<pid_t> readDaemonPid() {
         const long long value = std::stoll(text);
         if (value <= 0) return std::nullopt;
         return static_cast<pid_t>(value);
-    } catch (...) { return std::nullopt; }
-}
+    } catch (...) { return std::nullopt; }}
 static bool isPidAlive(pid_t pid) {
     if (pid <= 0) return false;
     if (::kill(pid, 0) == 0) return true;
-    return errno == EPERM;
-}
+    return errno == EPERM;}
 static std::string daemonRootValue() {
-    return readSmallTextFile(keeply::defaultEventStoreRootPath());
-}
+    return readSmallTextFile(keeply::defaultEventStoreRootPath());}
 static std::string normalizeGenericPath(const fs::path& path) {
-    return fs::absolute(path).lexically_normal().generic_string();
-}
+    return fs::absolute(path).lexically_normal().generic_string();}
 static void removeStaleDaemonMetadata() {
     std::error_code ec;
     fs::remove(keeply::defaultEventStorePidPath(), ec);
     ec.clear();
-    fs::remove(keeply::defaultEventStoreRootPath(), ec);
-}
+    fs::remove(keeply::defaultEventStoreRootPath(), ec);}
 static void stopDaemonProcess(pid_t pid) {
     if (pid <= 0) return;
     ::kill(pid, SIGTERM);
     for (int attempt = 0; attempt < 20; ++attempt) {
         if (!isPidAlive(pid)) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));}
     ::kill(pid, SIGKILL);
     for (int attempt = 0; attempt < 20; ++attempt) {
         if (!isPidAlive(pid)) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-}
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));}}
 static std::string locateCbtDaemonExecutable() {
     const auto fromEnv = envOrEmptyAny({"KEEPLY_CBT_DAEMON", "KEEPly_CBT_DAEMON"});
     if (!fromEnv.empty()) return fromEnv;
@@ -291,12 +255,10 @@ static std::string locateCbtDaemonExecutable() {
         if (!ec && fs::exists(sibling, ec) && !ec && (perms & fs::perms::owner_exec) != fs::perms::none)
             return sibling.string();
     } catch (...) {}
-    return findExecutableOnPath("keeply_cbt_daemon");
-}
+    return findExecutableOnPath("keeply_cbt_daemon");}
 static bool systemdAvailable() {
     std::error_code ec;
-    return fs::exists("/run/systemd/system", ec) && !ec && !findExecutableOnPath("systemctl").empty();
-}
+    return fs::exists("/run/systemd/system", ec) && !ec && !findExecutableOnPath("systemctl").empty();}
 static int runDetachedCommand(const fs::path& executable, std::initializer_list<const char*> args) {
     pid_t pid = fork();
     if (pid < 0) return -1;
@@ -305,24 +267,20 @@ static int runDetachedCommand(const fs::path& executable, std::initializer_list<
         if (nullFd >= 0) {
             dup2(nullFd, STDOUT_FILENO);
             dup2(nullFd, STDERR_FILENO);
-            if (nullFd > STDERR_FILENO) close(nullFd);
-        }
+            if (nullFd > STDERR_FILENO) close(nullFd);}
         std::vector<char*> argv;
         argv.reserve(args.size() + 2);
         argv.push_back(const_cast<char*>(executable.c_str()));
         for (const char* arg : args) argv.push_back(const_cast<char*>(arg));
         argv.push_back(nullptr);
         execv(executable.c_str(), argv.data());
-        _exit(127);
-    }
+        _exit(127);}
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
         if (errno == EINTR) continue;
-        return -1;
-    }
+        return -1;}
     if (WIFEXITED(status)) return WEXITSTATUS(status);
-    return -1;
-}
+    return -1;}
 static bool tryEnsureDaemonViaSystemd(const std::string& expectedRoot) {
     if (!systemdAvailable()) return false;
     const std::string systemctl = findExecutableOnPath("systemctl");
@@ -331,21 +289,17 @@ static bool tryEnsureDaemonViaSystemd(const std::string& expectedRoot) {
     for (int attempt = 0; attempt < 30; ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         const auto daemonPid = readDaemonPid();
-        if (daemonPid && isPidAlive(*daemonPid) && daemonRootValue() == expectedRoot) return true;
-    }
-    return false;
-}
+        if (daemonPid && isPidAlive(*daemonPid) && daemonRootValue() == expectedRoot) return true;}
+    return false;}
 static bool ensureLinuxCbtDaemon(const fs::path& watchRoot) {
     const std::string expectedRoot = normalizeGenericPath(watchRoot);
     if (auto existingPid = readDaemonPid(); existingPid && isPidAlive(*existingPid)) {
         if (daemonRootValue() == expectedRoot) return true;
         if (!systemdAvailable()) {
             stopDaemonProcess(*existingPid);
-            removeStaleDaemonMetadata();
-        }
+            removeStaleDaemonMetadata();}
     } else {
-        removeStaleDaemonMetadata();
-    }
+        removeStaleDaemonMetadata();}
     if (tryEnsureDaemonViaSystemd(expectedRoot)) return true;
     const std::string daemonExe = locateCbtDaemonExecutable();
     if (daemonExe.empty()) throw std::runtime_error("Executavel keeply_cbt_daemon nao encontrado.");
@@ -353,18 +307,15 @@ static bool ensureLinuxCbtDaemon(const fs::path& watchRoot) {
     if (pid < 0) throw std::runtime_error("fork falhou ao iniciar daemon CBT.");
     if (pid == 0) {
         execl(daemonExe.c_str(), daemonExe.c_str(), "--root", expectedRoot.c_str(), static_cast<char*>(nullptr));
-        _exit(127);
-    }
+        _exit(127);}
     for (int attempt = 0; attempt < 30; ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         const auto daemonPid = readDaemonPid();
         if (daemonPid && isPidAlive(*daemonPid) && daemonRootValue() == expectedRoot) return true;
         int status = 0;
         const pid_t waitResult = waitpid(pid, &status, WNOHANG);
-        if (waitResult == pid) break;
-    }
-    throw std::runtime_error("Daemon CBT nao confirmou inicializacao.");
-}
+        if (waitResult == pid) break;}
+    throw std::runtime_error("Daemon CBT nao confirmou inicializacao.");}
 static void daemonizeProcess() {
     pid_t pid = fork();
     if (pid < 0) throw std::runtime_error("fork falhou.");
@@ -380,9 +331,7 @@ static void daemonizeProcess() {
         dup2(nullFd, STDIN_FILENO);
         dup2(nullFd, STDOUT_FILENO);
         dup2(nullFd, STDERR_FILENO);
-        if (nullFd > STDERR_FILENO) close(nullFd);
-    }
-}
+        if (nullFd > STDERR_FILENO) close(nullFd);}}
 class OptionalTrayIndicator {
 public:
     void start() {
@@ -394,17 +343,13 @@ public:
             execlp(zenity.c_str(), zenity.c_str(), "--notification",
                    "--text=Keeply Agent ativo", "--window-icon=network-workgroup",
                    static_cast<char*>(nullptr));
-            _exit(127);
-        }
-    }
+            _exit(127);}}
     void stop() noexcept {
         if (pid_ > 0) {
             kill(pid_, SIGTERM);
             int status = 0;
             waitpid(pid_, &status, 0);
-            pid_ = -1;
-        }
-    }
+            pid_ = -1;}}
     ~OptionalTrayIndicator() { stop(); }
 private:
     pid_t pid_ = -1;
@@ -439,9 +384,7 @@ static fs::path agentCurrentExePath() {
         DWORD n = GetModuleFileNameW(nullptr, buf.data(), (DWORD)buf.size());
         if (n == 0) throw std::runtime_error("Falha resolvendo executavel.");
         if (n < buf.size() - 1) { buf.resize(n); return fs::path(buf); }
-        buf.resize(buf.size() * 2, L'\0');
-    }
-}
+        buf.resize(buf.size() * 2, L'\0');}}
 static constexpr const wchar_t* kRunKey   = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 static constexpr const wchar_t* kRunValue = L"KeeplyAgent";
 static void agentLaunchBackground(const AgentRuntimeOptions& opts) {
@@ -456,9 +399,7 @@ static void agentLaunchBackground(const AgentRuntimeOptions& opts) {
     if (CreateProcessW(nullptr, cmdMut.data(), nullptr, nullptr, FALSE,
                        DETACHED_PROCESS | CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-    }
-}
+        CloseHandle(pi.hProcess);}}
 static void agentRegisterAutorun(const AgentRuntimeOptions& opts) {
     const fs::path exe = agentCurrentExePath();
     std::wstring cmd = L"\"" + exe.wstring() + L"\" --background";
@@ -470,14 +411,11 @@ static void agentRegisterAutorun(const AgentRuntimeOptions& opts) {
         RegSetValueExW(hkey, kRunValue, 0, REG_SZ,
             reinterpret_cast<const BYTE*>(cmd.c_str()),
             static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(hkey);
-    }
-}
+        RegCloseKey(hkey);}}
 static void agentInstallService(const AgentRuntimeOptions& opts) {
     agentRegisterAutorun(opts);
     agentLaunchBackground(opts);
-    std::cout << "Keeply Agent instalado e iniciado em background.\n";
-}
+    std::cout << "Keeply Agent instalado e iniciado em background.\n";}
 static void agentUninstallService() {
     HKEY hkey = nullptr;
     LONG res = RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &hkey);
@@ -491,14 +429,10 @@ static void agentUninstallService() {
             do {
                 if (std::wstring(pe.szExeFile).find(L"keeply") != std::wstring::npos) {
                     HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
-                    if (h) { TerminateProcess(h, 0); CloseHandle(h); }
-                }
-            } while (Process32NextW(snap, &pe));
-        }
-        CloseHandle(snap);
-    }
-    std::cout << "Keeply Agent removido do inicio automatico.\n";
-}
+                    if (h) { TerminateProcess(h, 0); CloseHandle(h); }}
+            } while (Process32NextW(snap, &pe));}
+        CloseHandle(snap);}
+    std::cout << "Keeply Agent removido do inicio automatico.\n";}
 #endif
 static AgentRuntimeOptions parseArgs(int argc, char** argv) {
     AgentRuntimeOptions options;
@@ -521,8 +455,7 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
                 << "Uso: keeply [--url <ws-url>] [--device <nome>] [--root <dir>]\n"
                 << "            [--foreground] [--no-cbt] [--no-tray] [--insecure-tls]\n"
                 << "     keeply cbt --root <dir> ...\n";
-            std::exit(0);
-        }
+            std::exit(0);}
         if (arg == "--url"    && i + 1 < argc) { options.url        = argOrEmpty(argc, argv, ++i); continue; }
         if (arg == "--device" && i + 1 < argc) { options.deviceName = argOrEmpty(argc, argv, ++i); continue; }
         if (arg == "--root"   && i + 1 < argc) { options.watchRoot  = fs::path(argOrEmpty(argc, argv, ++i)); continue; }
@@ -539,11 +472,9 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
         if (positionalIndex == 0) options.url = arg;
         else if (positionalIndex == 1) options.deviceName = arg;
         else throw std::runtime_error("Argumentos posicionais demais.");
-        ++positionalIndex;
-    }
+        ++positionalIndex;}
     if (options.url.empty()) options.url = kDefaultWsUrl;
-    return options;
-}
+    return options;}
 static void runAgentLoop(const AgentRuntimeOptions& options) {
     auto verbose   = envTruthyAny({"KEEPLY_VERBOSE", "KEEPly_VERBOSE"});
     auto dataDir   = pickDataDir();
@@ -576,14 +507,11 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
         } catch (const std::exception& ex) {
             std::cerr << "[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: " << ex.what() << "\n";
             try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
-            catch (const std::exception& wx) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << wx.what() << "\n"; }
-        }
-    }
+            catch (const std::exception& wx) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << wx.what() << "\n"; }}}
 #else
     if (options.enableLocalCbt) {
         try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
-        catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
-    }
+        catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }}
 #endif
     constexpr int kBackoffInitialMs = 1000;
     constexpr int kBackoffMaxMs     = 60000;
@@ -612,11 +540,9 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
                 if (verbose) {
                     std::cout
                         << "  OS        : " << config.osName << "\n"
-                        << "  Fingerprint SHA-256 : " << identity.fingerprintSha256 << "\n";
-                }
+                        << "  Fingerprint SHA-256 : " << identity.fingerprintSha256 << "\n";}
                 std::cout << "============================================================\n";
-                printedStartup = true;
-            }
+                printedStartup = true;}
             if (config.allowInsecureTls)
                 std::cerr << "[keeply][tls][warn] verificacao TLS desabilitada por configuracao explicita.\n";
             keeply::KeeplyAgentWsClient client(api, identity);
@@ -626,15 +552,12 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
             std::cerr << "Conexao websocket encerrada. Reconectando em " << backoffMs << "ms...\n";
         } catch (const std::exception& loopEx) {
             std::cerr << "Loop websocket falhou: " << loopEx.what() << "\n";
-            std::cerr << "Reconectando em " << backoffMs << "ms...\n";
-        }
+            std::cerr << "Reconectando em " << backoffMs << "ms...\n";}
         const int jitterRange = static_cast<int>(backoffMs * kBackoffJitterFactor);
         const int jitter = jitterRange > 0 ? (std::rand() % (jitterRange * 2 + 1)) - jitterRange : 0;
         const int sleepMs = std::max(100, backoffMs + jitter);
         std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-        backoffMs = std::min(backoffMs * 2, kBackoffMaxMs);
-    }
-}
+        backoffMs = std::min(backoffMs * 2, kBackoffMaxMs);}}
 int main(int argc, char** argv) {
     try {
 #if defined(__linux__) || defined(__APPLE__)
@@ -642,18 +565,15 @@ int main(int argc, char** argv) {
 #endif
         if (argc >= 2 && std::string(argv[1]) == "cbt") {
             argv[1] = argv[0];
-            return keeply_cbt_main(argc - 1, argv + 1);
-        }
+            return keeply_cbt_main(argc - 1, argv + 1);}
         const AgentRuntimeOptions options = parseArgs(argc, argv);
 #ifdef _WIN32
         if (options.installService)   { agentInstallService(options); return 0; }
         if (options.uninstallService) { agentUninstallService(); return 0; }
         if (options.background) {
             runAgentLoop(options);
-            return 0;
-        }
-        agentRegisterAutorun(options);
-        {
+            return 0;}
+        agentRegisterAutorun(options);{
             auto dataDir = pickDataDir();
             std::error_code ec;
             fs::create_directories(dataDir, ec);
@@ -673,10 +593,7 @@ int main(int argc, char** argv) {
                     std::wstring msg = L"Falha ao registrar dispositivo:\n";
                     msg += std::wstring(ex.what(), ex.what() + ::strlen(ex.what()));
                     MessageBoxW(nullptr, msg.c_str(), L"Keeply - Erro", MB_OK | MB_ICONERROR);
-                    return 1;
-                }
-            }
-        }
+                    return 1;}}}
         agentLaunchBackground(options);
         return 0;
 #endif
@@ -687,6 +604,4 @@ int main(int argc, char** argv) {
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Falha no agente Keeply: " << e.what() << "\n";
-        return 1;
-    }
-}
+        return 1;}}

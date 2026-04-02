@@ -12,12 +12,9 @@ public:
         if (sqlite3_exec(db_, "BEGIN IMMEDIATE;", nullptr, nullptr, &err) != SQLITE_OK) {
             std::string msg = err ? err : "erro sqlite";
             if (err) sqlite3_free(err);
-            throw std::runtime_error(msg);
-        }
-    }
+            throw std::runtime_error(msg);}}
     ~SharedSqlTransaction() {
-        if (!committed_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-    }
+        if (!committed_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);}
     SharedSqlTransaction(const SharedSqlTransaction&) = delete;
     SharedSqlTransaction& operator=(const SharedSqlTransaction&) = delete;
     void commit() {
@@ -25,10 +22,8 @@ public:
         if (sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err) != SQLITE_OK) {
             std::string msg = err ? err : "erro sqlite";
             if (err) sqlite3_free(err);
-            throw std::runtime_error(msg);
-        }
-        committed_ = true;
-    }
+            throw std::runtime_error(msg);}
+        committed_ = true;}
     bool committed() const noexcept { return committed_; }
 };
 class SharedSqlStmt {
@@ -36,11 +31,9 @@ class SharedSqlStmt {
 public:
     SharedSqlStmt(sqlite3* db, const char* sql) {
         if (sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) != SQLITE_OK)
-            throw std::runtime_error(sqlite3_errmsg(db));
-    }
+            throw std::runtime_error(sqlite3_errmsg(db));}
     ~SharedSqlStmt() {
-        if (st_) sqlite3_finalize(st_);
-    }
+        if (st_) sqlite3_finalize(st_);}
     SharedSqlStmt(const SharedSqlStmt&) = delete;
     SharedSqlStmt& operator=(const SharedSqlStmt&) = delete;
     sqlite3_stmt* get() const noexcept { return st_; }
@@ -51,7 +44,4 @@ inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullp
         std::string msg = err ? err : "erro sqlite";
         if (err) sqlite3_free(err);
         if (ctx) msg = std::string(ctx) + ": " + msg;
-        throw std::runtime_error(msg);
-    }
-}
-}
+        throw std::runtime_error(msg);}}}

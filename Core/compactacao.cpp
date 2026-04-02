@@ -21,8 +21,7 @@ std::size_t ZSTD_decompress(void* dst,
                             const void* src,
                             std::size_t compressedSize);
 unsigned ZSTD_isError(std::size_t code);
-const char* ZSTD_getErrorName(std::size_t code);
-}
+const char* ZSTD_getErrorName(std::size_t code);}
 #endif
 namespace keeply {
 std::string Compactador::blake3Hex(const void* data, std::size_t len) {
@@ -31,8 +30,7 @@ std::string Compactador::blake3Hex(const void* data, std::size_t len) {
     blake3_hasher_init(&hasher);
     blake3_hasher_update(&hasher, data, len);
     blake3_hasher_finalize(&hasher, digest, sizeof(digest));
-    return hexOfBytes(digest, sizeof(digest));
-}
+    return hexOfBytes(digest, sizeof(digest));}
 void Compactador::zlibCompress(
     const unsigned char* data,
     std::size_t len,
@@ -44,10 +42,8 @@ void Compactador::zlibCompress(
     out.resize(bound);
     int rc = compress2(out.data(), &bound, data, static_cast<uLong>(len), level);
     if (rc != Z_OK) {
-        throw std::runtime_error("Falha ao comprimir chunk (zlib)");
-    }
-    out.resize(bound);
-}
+        throw std::runtime_error("Falha ao comprimir chunk (zlib)");}
+    out.resize(bound);}
 void Compactador::zlibDecompress(
     const void* compData,
     std::size_t compLen,
@@ -61,12 +57,9 @@ void Compactador::zlibDecompress(
                         static_cast<const Bytef*>(compData),
                         static_cast<uLong>(compLen));
     if (rc != Z_OK) {
-        throw std::runtime_error("Falha ao descomprimir chunk (zlib)");
-    }
+        throw std::runtime_error("Falha ao descomprimir chunk (zlib)");}
     if (destLen != rawSize) {
-        throw std::runtime_error("Tamanho descomprimido inesperado (zlib)");
-    }
-}
+        throw std::runtime_error("Tamanho descomprimido inesperado (zlib)");}}
 void Compactador::zstdCompress(
     const unsigned char* data,
     std::size_t len,
@@ -78,10 +71,8 @@ void Compactador::zstdCompress(
     out.resize(bound);
     const std::size_t rc = ZSTD_compress(out.data(), out.size(), data, len, level);
     if (ZSTD_isError(rc)) {
-        throw std::runtime_error(std::string("Falha ao comprimir chunk (zstd): ") + ZSTD_getErrorName(rc));
-    }
-    out.resize(rc);
-}
+        throw std::runtime_error(std::string("Falha ao comprimir chunk (zstd): ") + ZSTD_getErrorName(rc));}
+    out.resize(rc);}
 void Compactador::zstdDecompress(
     const void* compData,
     std::size_t compLen,
@@ -92,10 +83,6 @@ void Compactador::zstdDecompress(
     out.resize(rawSize);
     const std::size_t rc = ZSTD_decompress(out.data(), out.size(), compData, compLen);
     if (ZSTD_isError(rc)) {
-        throw std::runtime_error(std::string("Falha ao descomprimir chunk (zstd): ") + ZSTD_getErrorName(rc));
-    }
+        throw std::runtime_error(std::string("Falha ao descomprimir chunk (zstd): ") + ZSTD_getErrorName(rc));}
     if (rc != rawSize) {
-        throw std::runtime_error("Tamanho descomprimido inesperado (zstd)");
-    }
-}
-}
+        throw std::runtime_error("Tamanho descomprimido inesperado (zstd)");}}}

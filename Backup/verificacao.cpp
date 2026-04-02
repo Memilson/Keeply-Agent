@@ -37,8 +37,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
         if (verbose) std::cerr << "[ERRO] " << msg << "\n";};
     auto info = [&](const std::string& msg) {
         if (verbose) std::cout << "[INFO] " << msg << "\n";};
-    info("V1: Verificando integridade do SQLite...");
-    {
+    info("V1: Verificando integridade do SQLite...");{
         sqlite3* rawDb = nullptr;
         if (sqlite3_open_v2_path(archivePath, &rawDb,
                             SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
@@ -56,8 +55,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
                 if (line != "ok") {
                     fail("SQLite integrity_check: " + line);
                 } else if (first) {
-                    info("SQLite: ok");
-                }
+                    info("SQLite: ok");}
                 first = false;}
             sqlite3_finalize(stmt);
         } else {
@@ -81,8 +79,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     info("Magic do pack: OK");
     info("V2+V3: Verificando offsets e hashes dos chunks...");
     std::size_t chunksChecked = 0;
-    std::size_t chunksOk      = 0;
-    {
+    std::size_t chunksOk      = 0;{
         DB db(archivePath);
         Stmt st(db.raw(),
             "SELECT chunk_hash, raw_size, comp_size, comp_algo, pack_offset "
@@ -161,8 +158,7 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     info("Chunks verificados: " + std::to_string(chunksChecked) +
          ", OK: " + std::to_string(chunksOk));
     if (chunksChecked != chunksOk) {}
-    info("V4: Verificando integridade referencial file_chunks→chunks...");
-    {
+    info("V4: Verificando integridade referencial file_chunks→chunks...");{
         DB db(archivePath);
         Stmt st(db.raw(),
             "SELECT COUNT(*) FROM file_chunks fc "

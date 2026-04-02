@@ -95,5 +95,4 @@ private:
                                           std::size_t expectedRawSize,
                                           std::size_t expectedCompSize,
                                           const std::string& expectedAlgo) const;
-};
-}
+};}
