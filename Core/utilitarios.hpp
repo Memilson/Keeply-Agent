@@ -1,26 +1,21 @@
 #pragma once
-
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
 namespace keeply {
-
 inline std::string lowerAscii(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;
 }
-
 inline std::string trim(const std::string& s) {
     const auto front = s.find_first_not_of(" \t\r\n");
     if (front == std::string::npos) return {};
     const auto back = s.find_last_not_of(" \t\r\n");
     return s.substr(front, back - front + 1);
 }
-
 inline std::string normalizeSeparators(std::string p) {
     for (char& c : p)
         if (c == '\\') c = '/';
@@ -28,19 +23,16 @@ inline std::string normalizeSeparators(std::string p) {
         p.pop_back();
     return p;
 }
-
 inline bool parseTruthyValue(const std::string& raw) {
     std::string v = lowerAscii(trim(raw));
     return v == "1" || v == "true" || v == "yes" || v == "on";
 }
-
 inline unsigned hexNibble(char c) {
     if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
     if (c >= 'a' && c <= 'f') return static_cast<unsigned>(10 + c - 'a');
     if (c >= 'A' && c <= 'F') return static_cast<unsigned>(10 + c - 'A');
     throw std::runtime_error("Hex invalido.");
 }
-
 inline std::string hexEncode(const unsigned char* data, std::size_t size) {
     static constexpr char kHex[] = "0123456789abcdef";
     std::string out;
@@ -51,7 +43,6 @@ inline std::string hexEncode(const unsigned char* data, std::size_t size) {
     }
     return out;
 }
-
 inline std::vector<unsigned char> hexDecode(const std::string& hex) {
     if (hex.size() % 2 != 0) throw std::runtime_error("Hex com tamanho invalido.");
     std::vector<unsigned char> out(hex.size() / 2);
@@ -61,24 +52,18 @@ inline std::vector<unsigned char> hexDecode(const std::string& hex) {
     }
     return out;
 }
-
 class KeeplyNotFoundError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
-
 class KeeplyValidationError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
-
 inline constexpr const char* kAlgoBlake3 = "blake3";
 inline constexpr const char* kAlgoZstd   = "zstd";
 inline constexpr const char* kAlgoZlib   = "zlib";
 inline constexpr const char* kAlgoRaw    = "raw";
-
 inline constexpr int kProtocolVersion = 1;
-
 inline constexpr int kCurrentSchemaVersion = 6;
-
 }

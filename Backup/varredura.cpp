@@ -9,61 +9,46 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
 namespace keeply {
 namespace {
-
 static Blob hexToBlob(const std::string& hex) {
-    return keeply::hexDecode(hex);
-}
-
+    return keeply::hexDecode(hex);}
 static ChunkHash hexToChunkHash(const std::string& hex) {
     if (hex.size() != 64) throw std::runtime_error("Chunk hash hex invalido.");
     ChunkHash out{};
     for (std::size_t i = 0; i < out.size(); ++i) {
         out[i] = static_cast<unsigned char>(
-            (keeply::hexNibble(hex[i * 2]) << 4) | keeply::hexNibble(hex[i * 2 + 1]));
-    }
-    return out;
-}
-
+            (keeply::hexNibble(hex[i * 2]) << 4) | keeply::hexNibble(hex[i * 2 + 1]));}return out;}
 static Blob buildFileHashFromChunkSequence(const std::vector<ChunkHash>& hashes) {
     Blob seq;
     seq.reserve(hashes.size() * ChunkHash{}.size());
     for (const auto& h : hashes) seq.insert(seq.end(), h.begin(), h.end());
-    return hexToBlob(Compactador::blake3Hex(seq.data(), seq.size()));
-}
-
+    return hexToBlob(Compactador::blake3Hex(seq.data(), seq.size()));}
 static void setFileMtime(const fs::path& p, sqlite3_int64 unixSecs) {
     std::error_code ec;
     const auto tp = fs::file_time_type::clock::now() + std::chrono::seconds(unixSecs - fileTimeToUnixSeconds(fs::file_time_type::clock::now()));
     fs::last_write_time(p, tp, ec);
 }
-
 static void progressEmit(const std::function<void(const BackupProgress&)>& cb, const BackupProgress& p) {
     if (cb) cb(p);
 }
-
 static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_point& lastEmit,
                                         std::size_t discoveredFiles) {
     if (discoveredFiles <= 1) return true;
     if ((discoveredFiles % 200u) == 0u) return true;
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - lastEmit).count() >= 1200;
 }
-
 #ifdef _WIN32
 static DWORD windowsFileAttributes(const fs::path& path) {
     const DWORD attrs = GetFileAttributesW(path.wstring().c_str());
     return attrs == INVALID_FILE_ATTRIBUTES ? 0 : attrs;
 }
-
 static bool isWindowsOfflinePlaceholder(const fs::path& path) {
     const DWORD attrs = windowsFileAttributes(path);
     if (attrs == 0) return false;
     return (attrs & FILE_ATTRIBUTE_OFFLINE) != 0;
 }
 #endif
-
 static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue) {
     std::string value = trim(rawValue);
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -74,7 +59,6 @@ static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue)
     if (value == "0" || value == "false" || value == "off" || value == "no") return false;
     return defaultValue;
 }
-
 static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, bool defaultValue) {
     sqlite3* rawDb = nullptr;
     const int openRc = sqlite3_open_v2_path(
@@ -87,26 +71,22 @@ static bool readArchiveBoolConfig(const fs::path& archivePath, const char* key, 
         if (rawDb) sqlite3_close(rawDb);
         return defaultValue;
     }
-
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "SELECT v FROM meta WHERE k = ? LIMIT 1;";
     if (sqlite3_prepare_v2(rawDb, sql, -1, &stmt, nullptr) != SQLITE_OK) {
         sqlite3_close(rawDb);
         return defaultValue;
     }
-
     sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT);
     bool out = defaultValue;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const unsigned char* text = sqlite3_column_text(stmt, 0);
         if (text) out = parseBoolConfigValue(reinterpret_cast<const char*>(text), defaultValue);
     }
-
     sqlite3_finalize(stmt);
     sqlite3_close(rawDb);
     return out;
 }
-
 static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress& progress, const std::function<void(const BackupProgress&)>& cb) {
     std::vector<fs::path> files;
     std::error_code ec;
@@ -141,12 +121,12 @@ static std::vector<fs::path> discoverFiles(const fs::path& root, BackupProgress&
     progressEmit(cb, progress);
     return files;
 }
-
 static std::vector<fs::path> discoverFilesFromTracker(
     const fs::path& root,
     const std::map<std::string, FileInfo>& prevMap,
     StorageArchive& arc,
     sqlite3_int64 snapshotId,
+    std::unordered_set<std::string>& snapshotPaths,
     std::uint64_t lastToken,
     std::uint64_t& newToken,
     BackupProgress& progress,
@@ -156,15 +136,12 @@ static std::vector<fs::path> discoverFilesFromTracker(
     if (!tracker || !tracker->isAvailable()) {
         throw std::runtime_error("CBT indisponivel.");
     }
-
     tracker->startTracking(root);
     auto changes = tracker->getChanges(lastToken, newToken);
-
     std::unordered_set<std::string> changedPaths;
     std::unordered_set<std::string> deletedPaths;
     changedPaths.reserve(changes.size());
     deletedPaths.reserve(changes.size());
-
     for (const auto& change : changes) {
         const std::string rel = normalizeRelPath(change.relPath);
         if (!isSafeRelativePath(rel)) {
@@ -174,14 +151,16 @@ static std::vector<fs::path> discoverFilesFromTracker(
         if (change.isDeleted) deletedPaths.insert(rel);
         else changedPaths.insert(rel);
     }
-
     for (const auto& [relPath, prev] : prevMap) {
         if (changedPaths.find(relPath) != changedPaths.end()) continue;
         if (deletedPaths.find(relPath) != deletedPaths.end()) continue;
+        if (!snapshotPaths.insert(relPath).second) {
+            ++progress.stats.warnings;
+            continue;
+        }
         arc.cloneFileFromPrevious(snapshotId, relPath, prev);
         ++progress.stats.reused;
     }
-
     std::vector<fs::path> files;
     files.reserve(changedPaths.size());
     for (const auto& relPath : changedPaths) {
@@ -193,14 +172,12 @@ static std::vector<fs::path> discoverFilesFromTracker(
         }
         files.push_back(fullPath);
     }
-
     progress.filesQueued = files.size();
     progress.discoveryComplete = true;
     progress.phase = "backup";
     progressEmit(cb, progress);
     return files;
 }
-
 static std::optional<std::uint64_t> captureBaselineToken(const fs::path& root) {
     auto tracker = createPlatformChangeTracker();
     if (!tracker || !tracker->isAvailable()) return std::nullopt;
@@ -214,7 +191,6 @@ static std::optional<std::uint64_t> captureBaselineToken(const fs::path& root) {
         return std::nullopt;
     }
 }
-
 static Blob readWholeFile(const fs::path& p) {
     std::ifstream in(p, std::ios::binary);
     if (!in) throw std::runtime_error("Falha abrindo arquivo: " + p.string());
@@ -227,7 +203,6 @@ static Blob readWholeFile(const fs::path& p) {
     if (!in && !out.empty()) throw std::runtime_error("Falha lendo arquivo inteiro: " + p.string());
     return out;
 }
-
 static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const fs::path& outPath) {
     auto chunks = arc.loadFileChunks(fileId);
     std::error_code ec;
@@ -240,9 +215,7 @@ static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const
         if (!out) throw std::runtime_error("Falha escrevendo arquivo restaurado: " + outPath.string());
     }
 }
-
 }
-
 BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label, const std::function<void(const BackupProgress&)>& progressCallback) {
     ensureDefaults();
     if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot)) throw std::runtime_error("sourceRoot invalido.");
@@ -250,18 +223,16 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
     BackupProgress progress;
     progress.phase = "discovery";
     progressEmit(progressCallback, progress);
-
     const bool cbtEnabled = readArchiveBoolConfig(archivePath, "scan.cbt.enabled", false);
     const auto prevSnapshotId = arc.latestSnapshotId();
     const auto lastCbtToken = arc.latestSnapshotCbtToken().value_or(0);
     const auto prevMap = arc.loadLatestSnapshotFileMap();
-
     arc.begin();
     try {
-        const sqlite3_int64 snapshotId = arc.createSnapshot(sourceRoot.string(), label);
+        sqlite3_int64 snapshotId = arc.createSnapshot(sourceRoot.string(), label);
         std::uint64_t newCbtToken = 0;
         std::vector<fs::path> files;
-
+        std::unordered_set<std::string> snapshotPaths;
         if (cbtEnabled && prevSnapshotId.has_value()) {
             try {
                 files = discoverFilesFromTracker(
@@ -269,6 +240,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                     prevMap,
                     arc,
                     snapshotId,
+                    snapshotPaths,
                     lastCbtToken,
                     newCbtToken,
                     progress,
@@ -276,16 +248,21 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 );
             } catch (const std::exception& ex) {
                 std::cout << "CBT indisponivel, usando full scan: " << ex.what() << "\n";
+                arc.rollback();
+                progress = BackupProgress{};
+                progress.phase = "discovery";
+                progressEmit(progressCallback, progress);
+                arc.begin();
+                snapshotId = arc.createSnapshot(sourceRoot.string(), label);
+                newCbtToken = 0;
                 files = discoverFiles(sourceRoot, progress, progressCallback);
             }
         } else {
             files = discoverFiles(sourceRoot, progress, progressCallback);
         }
-
         for (const auto& filePath : files) {
             progress.currentFile = filePath.string();
             ++progress.stats.scanned;
-
             std::error_code ec1, ec2, ec3;
             const auto rel = normalizeRelPath(fs::relative(filePath, sourceRoot, ec1).generic_string());
             if (ec1 || !isSafeRelativePath(rel)) {
@@ -294,18 +271,24 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 progressEmit(progressCallback, progress);
                 continue;
             }
-
-            const auto size = static_cast<sqlite3_int64>(fs::file_size(filePath, ec2));
-            const auto mtime = static_cast<sqlite3_int64>(fileTimeToUnixSeconds(fs::last_write_time(filePath, ec3)));
-            if (ec2 || ec3) {
+            if (!snapshotPaths.insert(rel).second) {
                 ++progress.stats.warnings;
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
                 continue;
             }
-
+            const auto size = static_cast<sqlite3_int64>(fs::file_size(filePath, ec2));
+            const auto mtime = static_cast<sqlite3_int64>(fileTimeToUnixSeconds(fs::last_write_time(filePath, ec3)));
+            if (ec2 || ec3) {
+                snapshotPaths.erase(rel);
+                ++progress.stats.warnings;
+                ++progress.filesCompleted;
+                progressEmit(progressCallback, progress);
+                continue;
+            }
 #ifdef _WIN32
             if (isWindowsOfflinePlaceholder(filePath)) {
+                snapshotPaths.erase(rel);
                 ++progress.stats.warnings;
                 ++progress.filesCompleted;
                 progress.phase = "backup";
@@ -313,7 +296,6 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 continue;
             }
 #endif
-
             const auto prevIt = prevMap.find(rel);
             if (prevIt != prevMap.end() && prevIt->second.size == size && prevIt->second.mtime == mtime) {
                 arc.cloneFileFromPrevious(snapshotId, rel, prevIt->second);
@@ -322,43 +304,35 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 progressEmit(progressCallback, progress);
                 continue;
             }
-
             sqlite3_int64 fileId = 0;
             try {
                 fileId = arc.insertFilePlaceholder(snapshotId, rel, size, mtime);
                 std::ifstream in(filePath, std::ios::binary);
                 if (!in) throw std::runtime_error("Falha abrindo arquivo para backup: " + filePath.string());
-
                 Blob raw(CHUNK_SIZE);
                 std::vector<StorageArchive::PendingFileChunk> rows;
                 std::vector<ChunkHash> chunkSeq;
-
                 int chunkIdx = 0;
                 while (in) {
                     in.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
                     const std::streamsize got = in.gcount();
                     if (got <= 0) break;
-
                     ++progress.stats.chunks;
                     progress.stats.bytesRead += static_cast<std::uintmax_t>(got);
-
                     const std::string chunkHex = Compactador::blake3Hex(raw.data(), static_cast<std::size_t>(got));
                     const ChunkHash ch = hexToChunkHash(chunkHex);
                     chunkSeq.push_back(ch);
-
                     Blob comp;
                     Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
                     if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
                         ++progress.stats.uniqueChunksInserted;
                     }
-
                     StorageArchive::PendingFileChunk row;
                     row.chunkIdx = chunkIdx++;
                     row.chunkHash = ch;
                     row.rawSize = static_cast<std::size_t>(got);
                     rows.push_back(row);
                 }
-
                 const Blob fileHash = buildFileHashFromChunkSequence(chunkSeq);
                 arc.addFileChunksBulk(fileId, rows);
                 arc.updateFileHash(fileId, fileHash);
@@ -367,13 +341,12 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 if (fileId != 0) {
                     try { arc.deleteFileRecord(fileId); } catch (...) {}
                 }
+                snapshotPaths.erase(rel);
                 ++progress.stats.warnings;
             }
-
             ++progress.filesCompleted;
             progressEmit(progressCallback, progress);
         }
-
         progress.phase = "commit";
         progressEmit(progressCallback, progress);
         if (cbtEnabled) {
@@ -392,7 +365,6 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
         throw;
     }
 }
-
 std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     std::vector<std::string> out;
 #ifdef _WIN32

@@ -1,6 +1,5 @@
 #include "../../../keeply.hpp"
 #include "../rastreamento_mudancas.hpp"
-
 #ifdef _WIN32
 #include <windows.h>
 #include <winsvc.h>
@@ -9,13 +8,9 @@
 #include <memory>
 #include <vector>
 #endif
-
 namespace fs = std::filesystem;
-
 #ifdef _WIN32
-
 namespace keeply::rastreamento_eventos_base {
-
 class MotorMonitorWindows final : public MotorMonitorBase {
 public:
     MotorMonitorWindows(const fs::path& rootPath, bool respectSystemExclusionPolicy)
@@ -32,15 +27,12 @@ public:
         ));
         if (!dir_->valid()) throw std::runtime_error("Falha abrindo diretorio para monitoramento.");
     }
-
     ~MotorMonitorWindows() override {
         requestStop();
     }
-
     void requestStop() noexcept override {
         if (dir_) dir_->reset();
     }
-
     void run(const std::function<bool()>& shouldStop) override {
         std::vector<unsigned char> buffer(64 * 1024);
         while (!shouldStop()) {
@@ -70,22 +62,17 @@ public:
             parseBuffer(buffer.data(), bytesReturned);
         }
     }
-
 private:
     class Handle {
         HANDLE handle_ = INVALID_HANDLE_VALUE;
-
     public:
         Handle() = default;
         explicit Handle(HANDLE handle) : handle_(handle) {}
-
         ~Handle() {
             if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
         }
-
         Handle(const Handle&) = delete;
         Handle& operator=(const Handle&) = delete;
-
         HANDLE get() const { return handle_; }
         bool valid() const { return handle_ != INVALID_HANDLE_VALUE; }
         void reset(HANDLE next = INVALID_HANDLE_VALUE) {
@@ -93,11 +80,9 @@ private:
             handle_ = next;
         }
     };
-
     static std::string normalizePath(const fs::path& path) {
         return path.lexically_normal().generic_string();
     }
-
     void parseBuffer(void* data, unsigned long bytes) {
         unsigned char* ptr = static_cast<unsigned char*>(data);
         unsigned char* end = ptr + bytes;
@@ -108,15 +93,12 @@ private:
             ptr += info->NextEntryOffset;
         }
     }
-
     void handleNotification(const std::wstring& relativePathUtf16, unsigned long action) {
         if (relativePathUtf16.empty()) return;
         const fs::path fullPath = rootPath() / fs::path(relativePathUtf16);
         if (shouldIgnorePath(fullPath)) return;
-
         const auto rel = buildRelativePath(fullPath);
         if (!rel) return;
-
         TipoEventoMonitorado eventType;
         switch (action) {
             case FILE_ACTION_ADDED:
@@ -133,7 +115,6 @@ private:
             default:
                 return;
         }
-
         std::error_code typeEc;
         bool isDir = false;
         if (eventType != TipoEventoMonitorado::Delete) {
@@ -141,25 +122,19 @@ private:
         }
         appendEvent(eventType, normalizePath(fs::path(*rel)), isDir);
     }
-
     std::unique_ptr<Handle> dir_;
 };
-
 std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path& rootPath,
                                                         bool respectSystemExclusionPolicy) {
     return std::make_unique<MotorMonitorWindows>(rootPath, respectSystemExclusionPolicy);
 }
-
 }
-
 namespace {
-
 std::atomic_bool gStopRequested{false};
 SERVICE_STATUS_HANDLE gServiceStatusHandle = nullptr;
 SERVICE_STATUS gServiceStatus{};
 std::string gServiceRootUtf8;
 keeply::rastreamento_eventos_base::MonitorRunner* gActiveRunner = nullptr;
-
 BOOL WINAPI consoleHandler(DWORD ctrlType) {
     switch (ctrlType) {
         case CTRL_C_EVENT:
@@ -174,7 +149,6 @@ BOOL WINAPI consoleHandler(DWORD ctrlType) {
             return FALSE;
     }
 }
-
 fs::path currentExecutablePath() {
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
@@ -187,7 +161,6 @@ fs::path currentExecutablePath() {
         buffer.resize(buffer.size() * 2, L'\0');
     }
 }
-
 void setServiceState(DWORD state, DWORD win32ExitCode = NO_ERROR, DWORD waitHint = 0) {
     if (!gServiceStatusHandle) return;
     gServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
@@ -198,7 +171,6 @@ void setServiceState(DWORD state, DWORD win32ExitCode = NO_ERROR, DWORD waitHint
     gServiceStatus.dwCheckPoint = (state == SERVICE_RUNNING || state == SERVICE_STOPPED) ? 0 : 1;
     SetServiceStatus(gServiceStatusHandle, &gServiceStatus);
 }
-
 DWORD WINAPI serviceControlHandler(DWORD ctrlCode, DWORD, LPVOID, LPVOID) {
     switch (ctrlCode) {
         case SERVICE_CONTROL_STOP:
@@ -211,7 +183,6 @@ DWORD WINAPI serviceControlHandler(DWORD ctrlCode, DWORD, LPVOID, LPVOID) {
             return NO_ERROR;
     }
 }
-
 void runDaemonOrThrow(const fs::path& root) {
     const fs::path normalizedRoot = keeply::rastreamento_eventos_base::resolveAndPrepareDaemonMonitorRootOrThrow(
         root,
@@ -222,7 +193,6 @@ void runDaemonOrThrow(const fs::path& root) {
     daemon.run([]() { return gStopRequested.load(); });
     gActiveRunner = nullptr;
 }
-
 void WINAPI serviceMain(DWORD, LPWSTR*) {
     gServiceStatusHandle = RegisterServiceCtrlHandlerExW(L"KeeplyCbtDaemon", serviceControlHandler, nullptr);
     if (!gServiceStatusHandle) return;
@@ -236,13 +206,11 @@ void WINAPI serviceMain(DWORD, LPWSTR*) {
         setServiceState(SERVICE_STOPPED, ERROR_SERVICE_SPECIFIC_ERROR);
     }
 }
-
 void installService(const fs::path& root) {
     if (root.empty()) throw std::runtime_error("Informe --root <diretorio> para instalar o servico.");
     const fs::path normalizedRoot = fs::absolute(root).lexically_normal();
     const fs::path exePath = currentExecutablePath();
     const std::wstring commandLine = L"\"" + exePath.wstring() + L"\" --service --root \"" + normalizedRoot.wstring() + L"\"";
-
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CREATE_SERVICE);
     if (!scm) throw std::runtime_error("Falha abrindo SCM.");
     SC_HANDLE service = CreateServiceW(
@@ -268,7 +236,6 @@ void installService(const fs::path& root) {
     CloseServiceHandle(service);
     CloseServiceHandle(scm);
 }
-
 void uninstallService() {
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (!scm) throw std::runtime_error("Falha abrindo SCM.");
@@ -289,9 +256,7 @@ void uninstallService() {
     CloseServiceHandle(service);
     CloseServiceHandle(scm);
 }
-
 }
-
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
     try {
@@ -305,7 +270,6 @@ int main(int argc, char** argv) {
             }
             throw;
         }
-
         if (options.installService) {
             installService(keeply::rastreamento_eventos_base::resolveDaemonMonitorRootOrThrow(options.rootPath));
             std::cout << "Servico Windows instalado.\n";
@@ -327,11 +291,9 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
-
         if (!SetConsoleCtrlHandler(consoleHandler, TRUE)) {
             throw std::runtime_error("Falha registrando handler do console.");
         }
-
         runDaemonOrThrow(options.rootPath);
         return 0;
     } catch (const std::exception& ex) {
@@ -340,17 +302,12 @@ int main(int argc, char** argv) {
     }
 }
 #endif
-
 #else
-
 namespace keeply::rastreamento_eventos_base {
-
 std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path&, bool) {
     throw std::runtime_error("Motor Windows disponivel apenas no Windows.");
 }
-
 }
-
 #ifdef KEEPLY_DAEMON_PROGRAM
 int main(int argc, char** argv) {
     (void)argc;
@@ -358,5 +315,4 @@ int main(int argc, char** argv) {
     return 1;
 }
 #endif
-
 #endif

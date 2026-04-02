@@ -22,7 +22,6 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-
 namespace {
 using keeply::RestRequest;
 using keeply::RestResponse;
@@ -36,14 +35,12 @@ using keeply::http_internal::socketTimeoutOrWouldBlock;
 using keeply::http_internal::toLower;
 static constexpr std::size_t MAX_HEADER_BYTES=(1u<<20);
 static constexpr std::size_t MAX_BODY_BYTES=(8u<<20);
-
 using SocketLen =
 #ifdef _WIN32
     int;
 #else
     socklen_t;
 #endif
-
 static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
@@ -241,9 +238,7 @@ static bool containsText(const std::string& text,const std::string& pattern){
     return text.find(pattern)!=std::string::npos;
 }
 }
-
 namespace keeply {
-
 struct BackupJob{
     std::string id;
     std::string label;
@@ -252,12 +247,10 @@ struct BackupJob{
     BackupStats stats{};
     std::uint64_t startedAtMs=0,finishedAtMs=0;
 };
-
 class KeeplyRestApi::Impl{
 public:
     std::shared_ptr<KeeplyApi> api;
     std::shared_ptr<IWsNotifier> ws;
-
     std::mutex mu;
     std::mutex jobsMu;
     std::mutex workersMu;
@@ -285,7 +278,6 @@ public:
         }
     }
 };
-
 KeeplyRestApi::KeeplyRestApi(std::shared_ptr<KeeplyApi> api,std::shared_ptr<IWsNotifier> wsNotifier):api_(std::move(api)),ws_(std::move(wsNotifier)),impl_(std::make_shared<Impl>()){
     if(!api_) throw std::runtime_error("KeeplyRestApi requer KeeplyApi.");
     impl_->api=api_;
@@ -295,7 +287,6 @@ KeeplyRestApi::~KeeplyRestApi(){
     impl_->shuttingDown.store(true,std::memory_order_relaxed);
     impl_->joinWorkers();
 }
-
 RestResponse KeeplyRestApi::handle(const RestRequest& req){
     try{
         if(req.method=="GET"&&req.path=="/api/v1/health") return handleGetHealth();
@@ -314,13 +305,10 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
         if(startsWith(req.path,"/api/v1/")) return jsonMethodNotAllowed("Metodo HTTP nao suportado para esta rota.");
         return jsonNotFound("Rota nao encontrada.");
     }catch(const KeeplyNotFoundError& e){
-
         return jsonNotFound(e.what());
     }catch(const KeeplyValidationError& e){
-
         return jsonBadRequest(e.what());
     }catch(const std::exception& e){
-
         const std::string msg=e.what();
         if(
             containsText(msg,"nao encontrado")||
@@ -346,9 +334,7 @@ RestResponse KeeplyRestApi::handle(const RestRequest& req){
     }
     catch(...){ return jsonError("Erro interno desconhecido."); }
 }
-
 RestResponse KeeplyRestApi::handleGetHealth(){ return jsonOk(R"({"ok":true,"service":"keeply","version":"v1"})"); }
-
 RestResponse KeeplyRestApi::handleGetState(){
     std::lock_guard<std::mutex> lock(impl_->mu);
     const auto& s=impl_->api->state();
@@ -356,7 +342,6 @@ RestResponse KeeplyRestApi::handleGetState(){
     oss<<"{"<<"\"source\":\""<<escapeJson(s.source)<<"\","<<"\"archive\":\""<<escapeJson(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson(s.restoreRoot)<<"\","<<"\"scanScope\":{"<<"\"id\":\""<<escapeJson(s.scanScope.id)<<"\","<<"\"label\":\""<<escapeJson(s.scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson(s.scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson(s.scanScope.resolvedPath)<<"\"},"<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handlePostConfigSource(const RestRequest& req){
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->api->setSource(req.body);
@@ -380,7 +365,6 @@ RestResponse KeeplyRestApi::handlePostConfigRestoreRoot(const RestRequest& req){
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"config.updated","field":"restoreRoot"})");
     return jsonOk(R"({"ok":true})");
 }
-
 RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
     const auto impl=impl_;
     if(impl->shuttingDown.load(std::memory_order_relaxed)) return jsonError("Servidor em desligamento.");
@@ -421,7 +405,6 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
     }));
     return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");
 }
-
 RestResponse KeeplyRestApi::handleGetBackupJobs(){
     std::vector<BackupJob> items;
     { std::lock_guard<std::mutex> lk(impl_->jobsMu); for(auto& kv:impl_->jobs) items.push_back(kv.second); }
@@ -435,7 +418,6 @@ RestResponse KeeplyRestApi::handleGetBackupJobs(){
     oss<<"]}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handleGetBackupJob(const RestRequest& req){
     auto id=req.path.substr(std::string("/api/v1/backup/jobs/").size());
     BackupJob j;
@@ -445,7 +427,6 @@ RestResponse KeeplyRestApi::handleGetBackupJob(const RestRequest& req){
     oss<<"{"<<"\"ok\":true,"<<"\"id\":\""<<escapeJson(j.id)<<"\","<<"\"label\":\""<<escapeJson(j.label)<<"\","<<"\"status\":\""<<escapeJson(j.status)<<"\","<<"\"error\":\""<<escapeJson(j.error)<<"\","<<"\"startedAtMs\":"<<j.startedAtMs<<","<<"\"finishedAtMs\":"<<j.finishedAtMs<<","<<"\"filesScanned\":"<<j.stats.scanned<<","<<"\"filesAdded\":"<<j.stats.added<<","<<"\"filesUnchanged\":"<<j.stats.reused<<","<<"\"chunksNew\":"<<j.stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<j.stats.bytesRead<<","<<"\"bytesStoredCompressed\":0,"<<"\"warnings\":"<<j.stats.warnings<<"}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handleGetSnapshots(){
     std::vector<SnapshotRow> rows;
     { std::lock_guard<std::mutex> lock(impl_->mu); rows=impl_->api->listSnapshots(); }
@@ -459,7 +440,6 @@ RestResponse KeeplyRestApi::handleGetSnapshots(){
     oss<<"]}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handleGetDiff(const RestRequest& req){
     auto itOlder=req.query.find("older"),itNewer=req.query.find("newer");
     std::vector<ChangeEntry> rows;
@@ -478,7 +458,6 @@ RestResponse KeeplyRestApi::handleGetDiff(const RestRequest& req){
     oss<<"]}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handleGetSnapshotPaths(const RestRequest& req){
     auto snapshotId=pathBetween(req.path,"/api/v1/snapshots/","/paths");
     if(snapshotId.empty()) return jsonBadRequest("Path de snapshot invalido.");
@@ -490,7 +469,6 @@ RestResponse KeeplyRestApi::handleGetSnapshotPaths(const RestRequest& req){
     oss<<"]}";
     return jsonOk(oss.str());
 }
-
 RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     std::istringstream iss(req.body);
     std::string snapshot,relPath,outRoot;
@@ -507,7 +485,6 @@ RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"restore.file.finished"})");
     return jsonOk(R"({"ok":true})");
 }
-
 RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     std::istringstream iss(req.body);
     std::string snapshot,outRoot;
@@ -523,12 +500,9 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     if(impl_->ws) impl_->ws->broadcastJson(R"({"type":"restore.snapshot.finished"})");
     return jsonOk(R"({"ok":true})");
 }
-
 static const std::string kVersionPrefix=std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+",";
-
 RestResponse KeeplyRestApi::jsonOk(const std::string& json){
     RestResponse r; r.status=200; r.contentType="application/json; charset=utf-8";
-
     if(!json.empty()&&json.front()=='{') r.body=kVersionPrefix+json.substr(1);
     else r.body=json;
     return r;
@@ -565,16 +539,13 @@ RestResponse KeeplyRestApi::jsonError(const std::string& message){
     r.body=kVersionPrefix+"\"ok\":false,\"code\":500,\"error\":\""+escapeJson(message)+"\"}";
     return r;
 }
-
 std::string KeeplyRestApi::escapeJson(const std::string& s){
     return http_internal::escapeJson(s);
 }
-
 std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,const std::string& prefix){
     if(fullPath.rfind(prefix,0)!=0) return "";
     return fullPath.substr(prefix.size());
 }
-
 class RequestRateLimiter{
     std::deque<std::chrono::steady_clock::time_point> timestamps_;
     std::size_t maxRequests_;
@@ -582,10 +553,8 @@ class RequestRateLimiter{
 public:
     RequestRateLimiter(std::size_t maxRequests,std::chrono::milliseconds window)
         :maxRequests_(maxRequests),window_(window){}
-
     bool allow(){
         const auto now=std::chrono::steady_clock::now();
-
         while(!timestamps_.empty()&&(now-timestamps_.front())>window_)
             timestamps_.pop_front();
         if(timestamps_.size()>=maxRequests_) return false;
@@ -593,16 +562,13 @@ public:
         return true;
     }
 };
-
 int runRestHttpServer(const RestHttpServerConfig& config){
     try{
         if(!config.api) throw std::runtime_error("RestHttpServerConfig requer KeeplyApi.");
         if(config.port<=0||config.port>65535) throw std::runtime_error("Porta invalida.");
         KeeplyRestApi rest(config.api,config.wsNotifier);
         int listenFd=createListenSocket(config.port);
-
         RequestRateLimiter rateLimiter(120,std::chrono::minutes(1));
-
         std::cout<<"Keeply REST HTTP listening on http://127.0.0.1:"<<config.port<<"\n";
         std::cout<<"Archive: "<<config.api->state().archive<<"\n";
         std::cout<<"RestoreRoot: "<<config.api->state().restoreRoot<<"\n";
@@ -618,7 +584,6 @@ int runRestHttpServer(const RestHttpServerConfig& config){
             }
             setSocketTimeouts(cfd,8000,8000);
             try{
-
                 if(!rateLimiter.allow()){
                     sendHttpError(cfd,429,"Rate limit excedido. Tente novamente em alguns segundos.");
                     closeSocketFd(cfd);
@@ -647,5 +612,4 @@ int runRestHttpServer(const RestHttpServerConfig& config){
         return 1;
     }
 }
-
 }

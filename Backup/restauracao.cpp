@@ -1,5 +1,4 @@
 #include "../keeply.hpp"
-
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -13,19 +12,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #endif
-
 namespace keeply {
-
 namespace {
-
 bool restoreFsyncEnabled() {
     const char* raw = std::getenv("KEEPLY_RESTORE_FSYNC");
     if (!raw) return false;
     std::string value = trim(raw);
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return value == "1" || value == "true" || value == "yes" || value == "on";
-}
-
+    return value == "1" || value == "true" || value == "yes" || value == "on";}
 void fsyncRestoredFile(const fs::path& target) {
 #if defined(_WIN32)
     const int fd = _wopen(target.wstring().c_str(), _O_BINARY | _O_RDWR);
@@ -41,7 +35,6 @@ void fsyncRestoredFile(const fs::path& target) {
     if (rc != 0) throw std::runtime_error("Falha no fsync do arquivo restaurado: " + target.string());
 #endif
 }
-
 void applyRestoredMtime(const fs::path& target, sqlite3_int64 unixSecs) {
     std::error_code ec;
     const auto nowFileClock = fs::file_time_type::clock::now();
@@ -49,29 +42,21 @@ void applyRestoredMtime(const fs::path& target, sqlite3_int64 unixSecs) {
     const auto desired = nowFileClock + std::chrono::seconds(unixSecs - nowUnix);
     fs::last_write_time(target, desired, ec);
     if (ec) {
-        throw std::runtime_error("Falha aplicando mtime no arquivo restaurado: " + ec.message());
-    }
-}
-
+        throw std::runtime_error("Falha aplicando mtime no arquivo restaurado: " + ec.message());}}
 class ArchiveReadSession {
     StorageArchive& arc_;
     bool active_ = false;
 public:
     explicit ArchiveReadSession(StorageArchive& arc) : arc_(arc) {
         arc_.beginRead();
-        active_ = true;
-    }
+        active_ = true;}
     ArchiveReadSession(const ArchiveReadSession&) = delete;
     ArchiveReadSession& operator=(const ArchiveReadSession&) = delete;
     ~ArchiveReadSession() {
         if (active_) {
             try {
                 arc_.endRead();
-            } catch (...) {}
-        }
-    }
-};
-
+            } catch (...) {}}}};
 fs::path buildSafeRestoreTarget(const fs::path& outRoot, const std::string& relPath) {
     const std::string rp = normalizeRelPath(relPath);
     if (!isSafeRelativePath(rp))
@@ -87,17 +72,12 @@ fs::path buildSafeRestoreTarget(const fs::path& outRoot, const std::string& relP
     auto targetIt = target.begin();
     for (; baseIt != base.end() && targetIt != target.end(); ++baseIt, ++targetIt) {
         if (*baseIt != *targetIt)
-            throw std::runtime_error("Path escapou do diretorio de restore: " + rp);
-    }
+            throw std::runtime_error("Path escapou do diretorio de restore: " + rp);}
     if (baseIt != base.end())
         throw std::runtime_error("Diretorio base invalido para restore.");
-    return target;
-}
-
+    return target;}
 fs::path makeTempRestorePath(const fs::path& target) {
-    return target.string() + ".keeply.tmp";
-}
-
+    return target.string() + ".keeply.tmp";}
 struct TempFileCleanup {
     fs::path path;
     bool keep = false;
@@ -105,41 +85,28 @@ struct TempFileCleanup {
     ~TempFileCleanup() {
         if (!keep) {
             std::error_code ec;
-            fs::remove(path, ec);
-        }
-    }
-};
-
-}
-
+            fs::remove(path, ec);}}};}
 static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, const std::string& relPath, const fs::path& outRoot) {
     const std::string rp = normalizeRelPath(relPath);
     const auto found = arc.findFileBySnapshotAndPath(snapshotId, rp);
     if (!found)
         throw std::runtime_error("Arquivo nao encontrado no snapshot: " + rp);
-
     const sqlite3_int64 fileId = found->fileId;
     const fs::path target = buildSafeRestoreTarget(outRoot, rp);
     const fs::path tempTarget = makeTempRestorePath(target);
-
     std::error_code ec;
     fs::create_directories(target.parent_path(), ec);
     if (ec) throw std::runtime_error("Falha criando diretorio de destino: " + ec.message());
-
     TempFileCleanup cleanup(tempTarget);
-
     std::ofstream out(tempTarget, std::ios::binary | std::ios::trunc);
     if (!out)
         throw std::runtime_error("Falha ao abrir destino temporario de restore: " + tempTarget.string());
-
     auto chunks = arc.loadFileChunks(fileId);
     std::vector<unsigned char> decompressBuffer;
     decompressBuffer.reserve(CHUNK_SIZE);
-
     for (const auto& c : chunks) {
         if (c.blob.size() != c.compSize)
             throw std::runtime_error("Blob de chunk invalido/corrompido.");
-
         if (c.algo == "raw") {
             if (c.blob.size() != c.rawSize)
                 throw std::runtime_error("Chunk raw corrompido (tamanho invalido).");
@@ -154,20 +121,14 @@ static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, co
             }
             if (decompressBuffer.size() != c.rawSize)
                 throw std::runtime_error("Chunk descomprimido com tamanho inesperado.");
-            out.write(reinterpret_cast<const char*>(decompressBuffer.data()), static_cast<std::streamsize>(decompressBuffer.size()));
-        }
-
+            out.write(reinterpret_cast<const char*>(decompressBuffer.data()), static_cast<std::streamsize>(decompressBuffer.size()));}
         if (!out)
-            throw std::runtime_error("Erro escrevendo arquivo restaurado: " + tempTarget.string());
-    }
-
+            throw std::runtime_error("Erro escrevendo arquivo restaurado: " + tempTarget.string());}
     out.close();
     if (!out)
         throw std::runtime_error("Falha ao fechar arquivo restaurado: " + tempTarget.string());
-
     if (restoreFsyncEnabled())
         fsyncRestoredFile(tempTarget);
-
     fs::rename(tempTarget, target, ec);
     if (ec) {
         std::error_code removeEc;
@@ -175,30 +136,18 @@ static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, co
         ec.clear();
         fs::rename(tempTarget, target, ec);
         if (ec)
-            throw std::runtime_error("Falha movendo arquivo restaurado para destino final: " + ec.message());
-    }
-
+            throw std::runtime_error("Falha movendo arquivo restaurado para destino final: " + ec.message());}
     cleanup.keep = true;
-
     applyRestoredMtime(target, found->mtime);
-
     if (restoreFsyncEnabled())
-        fsyncRestoredFile(target);
-}
-
+        fsyncRestoredFile(target);}
 void RestoreEngine::restoreFile(const fs::path& archivePath, sqlite3_int64 snapshotId, const std::string& relPath, const fs::path& outRoot) {
     StorageArchive arc(archivePath);
     ArchiveReadSession session(arc);
-    restoreFileFromArc(arc, snapshotId, relPath, outRoot);
-}
-
+    restoreFileFromArc(arc, snapshotId, relPath, outRoot);}
 void RestoreEngine::restoreSnapshot(const fs::path& archivePath, sqlite3_int64 snapshotId, const fs::path& outRoot) {
     StorageArchive arc(archivePath);
     ArchiveReadSession session(arc);
     const auto paths = arc.listSnapshotPaths(snapshotId);
     for (const auto& p : paths) {
-        restoreFileFromArc(arc, snapshotId, p, outRoot);
-    }
-}
-
-}
+        restoreFileFromArc(arc, snapshotId, p, outRoot);}}}

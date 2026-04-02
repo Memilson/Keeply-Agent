@@ -1,7 +1,6 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
 #include "../HTTP/http_util.hpp"
-
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -12,7 +11,6 @@
 #endif
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -35,20 +33,15 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
-
 namespace {
-
 namespace fs = std::filesystem;
-
 using namespace keeply::ws_internal;
-
 struct FsListRow{
     bool isDir=false;
     std::string name;
     std::string fullPath;
     std::uintmax_t size=0;
 };
-
 struct LsblkEntry{
     std::string name;
     std::string label;
@@ -57,13 +50,11 @@ struct LsblkEntry{
     std::string mountpoint;
     std::string parentName;
 };
-
 struct DiskMountCandidate{
     std::string label;
     std::string mountpoint;
     int score=0;
 };
-
 std::string jsonBool(bool v){return v?"true":"false";}
 std::string jsonStrField(const std::string& key,const std::string& value){return "\"" + key + "\":\"" + escapeJson(value) + "\"";}
 std::string jsonNumField(const std::string& key,std::uintmax_t value){return "\"" + key + "\":" + std::to_string(value);}
@@ -71,12 +62,9 @@ std::string jsonBoolField(const std::string& key,bool value){return "\"" + key +
 std::string storageModeToString(BackupStorageMode mode){
     switch(mode){
         case BackupStorageMode::CloudOnly: return "cloud_only";
-        case BackupStorageMode::Hybrid: return "local_then_cloud";
-        case BackupStorageMode::LocalOnly:
-        default: return "local_only";
+        default: return "cloud_only";
     }
 }
-
 std::map<std::string,std::string> parseKeyValueLine(const std::string& line){
     std::map<std::string,std::string> out;
     std::size_t i=0;
@@ -106,7 +94,6 @@ std::map<std::string,std::string> parseKeyValueLine(const std::string& line){
     }
     return out;
 }
-
 std::vector<std::string> splitNonEmptyPipe(const std::string& value){
     std::vector<std::string> out;
     for(const auto& part : splitPipe(value)){
@@ -115,13 +102,11 @@ std::vector<std::string> splitNonEmptyPipe(const std::string& value){
     }
     return out;
 }
-
 void ensureDirectory(const fs::path& path){
     std::error_code ec;
     fs::create_directories(path, ec);
     if(ec) throw std::runtime_error("Falha criando diretorio temporario de restore: " + ec.message());
 }
-
 void writeBinaryFile(const fs::path& path,const std::string& bytes){
     if(!path.parent_path().empty()) ensureDirectory(path.parent_path());
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -129,7 +114,6 @@ void writeBinaryFile(const fs::path& path,const std::string& bytes){
     if(!bytes.empty()) out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     if(!out) throw std::runtime_error("Falha gravando arquivo temporario: " + path.string());
 }
-
 void appendFileToStream(std::ofstream& out,const fs::path& path){
     std::ifstream in(path, std::ios::binary);
     if(!in) throw std::runtime_error("Falha abrindo parte do bundle: " + path.string());
@@ -143,7 +127,6 @@ void appendFileToStream(std::ofstream& out,const fs::path& path){
     }
     if(!in.eof() && in.fail()) throw std::runtime_error("Falha lendo parte do bundle: " + path.string());
 }
-
 std::string ensureRelativeHttpPath(std::string path){
     path = keeply::trim(path);
     if(path.empty()) throw std::runtime_error("downloadPathBase ausente para restore cloud.");
@@ -151,18 +134,15 @@ std::string ensureRelativeHttpPath(std::string path){
     while(path.size() > 1 && path.back() == '/') path.pop_back();
     return path;
 }
-
 std::string buildBundleDownloadPath(const std::string& downloadPathBase,const std::string& fileName){
     return ensureRelativeHttpPath(downloadPathBase) + "/" + urlEncode(fileName);
 }
-
 bool hasSnapshotPathPrefix(const std::string& path,const std::string& prefix){
     if(prefix.empty()) return true;
     if(path == prefix) return true;
     if(path.size() <= prefix.size()) return false;
     return path.rfind(prefix + "/", 0) == 0;
 }
-
 bool shouldSkipMountType(const std::string& fsType){
     static const std::set<std::string> skipped={
         "proc","sysfs","tmpfs","devtmpfs","devpts","cgroup","cgroup2","mqueue","overlay","squashfs",
@@ -171,7 +151,6 @@ bool shouldSkipMountType(const std::string& fsType){
     };
     return skipped.find(fsType)!=skipped.end();
 }
-
 void appendRootRow(std::vector<FsListRow>& rows,std::unordered_set<std::string>& seen,const fs::path& path){
     if(path.empty()) return;
     std::error_code ec;
@@ -188,7 +167,6 @@ void appendRootRow(std::vector<FsListRow>& rows,std::unordered_set<std::string>&
     if(row.name.empty()) row.name=fullPath;
     rows.push_back(std::move(row));
 }
-
 std::vector<FsListRow> listRootRows(){
     std::vector<FsListRow> rows;
     std::unordered_set<std::string> seen;
@@ -275,7 +253,6 @@ std::vector<FsListRow> listRootRows(){
     std::sort(rows.begin(),rows.end(),[](const FsListRow& a,const FsListRow& b){return toLower(a.name)<toLower(b.name);});
     return rows;
 }
-
 keeply::WsCommand parseLegacyCommand(const std::string& payload){
     keeply::WsCommand cmd;
     cmd.raw=payload;
@@ -327,6 +304,7 @@ keeply::WsCommand parseLegacyCommand(const std::string& payload){
         if(!parts.empty()) cmd.label=parts[0];
         for(std::size_t i=1;i<parts.size();++i){
             if(parts[i].rfind("storage=",0)==0) cmd.storage=parts[i].substr(8);
+            else if(parts[i].rfind("source=",0)==0) cmd.sourcePath=parts[i].substr(7);
         }
         return cmd;
     }
@@ -348,13 +326,13 @@ keeply::WsCommand parseLegacyCommand(const std::string& payload){
     cmd.type="unsupported";
     return cmd;
 }
-
 keeply::WsCommand parseJsonCommand(const std::string& payload){
     keeply::WsCommand cmd;
     cmd.raw=payload;
     cmd.type=keeply::trim(extractJsonStringField(payload,"type"));
     cmd.requestId=keeply::trim(extractJsonStringField(payload,"requestId"));
     cmd.path=keeply::trim(extractJsonStringField(payload,"path"));
+    cmd.sourcePath=keeply::trim(extractJsonStringField(payload,"source"));
     cmd.scopeId=keeply::trim(extractJsonStringField(payload,"scopeId"));
     cmd.label=extractJsonStringField(payload,"label");
     cmd.storage=extractJsonStringField(payload,"storage");
@@ -373,49 +351,32 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     cmd.blobFiles=extractJsonStringField(payload,"blobFiles");
     cmd.sourceRoot=extractJsonStringField(payload,"sourceRoot");
     cmd.entryType=extractJsonStringField(payload,"entryType");
-    return cmd;
-}
-
-}
-
+    return cmd;}}
 namespace keeply {
-
 struct KeeplyAgentWsClient::TlsState{
     SSL_CTX* ctx=nullptr;
     SSL* ssl=nullptr;
-    ~TlsState(){if(ssl){SSL_shutdown(ssl);SSL_free(ssl);}if(ctx) SSL_CTX_free(ctx);}
-};
-
+    ~TlsState(){if(ssl){SSL_shutdown(ssl);SSL_free(ssl);}if(ctx) SSL_CTX_free(ctx);}};
 void KeeplyWsHub::addClient(IWsClientSession* client){
     if(!client) return;
     std::lock_guard<std::mutex> lock(mu_);
-    clients_[client->id()]=client;
-}
-
+    clients_[client->id()]=client;}
 void KeeplyWsHub::removeClient(IWsClientSession* client){
     if(!client) return;
     std::lock_guard<std::mutex> lock(mu_);
     clients_.erase(client->id());
-    clientJobSubscription_.erase(client->id());
-}
-
+    clientJobSubscription_.erase(client->id());}
 void KeeplyWsHub::broadcastJson(const std::string& json){
     std::vector<IWsClientSession*> snapshot;
     {std::lock_guard<std::mutex> lock(mu_);snapshot.reserve(clients_.size());for(auto& kv:clients_) snapshot.push_back(kv.second);}
-    for(auto* c:snapshot) sendSafe_(c,json);
-}
-
+    for(auto* c:snapshot) sendSafe_(c,json);}
 void KeeplyWsHub::publishJobEvent(const std::string& jobId,const std::string& json){
     std::vector<IWsClientSession*> targets;
     {std::lock_guard<std::mutex> lock(mu_);
         for(auto& [cid,c]:clients_){
             auto it=clientJobSubscription_.find(cid);
-            if(it!=clientJobSubscription_.end()&&it->second==jobId) targets.push_back(c);
-        }
-    }
-    for(auto* c:targets) sendSafe_(c,json);
-}
-
+            if(it!=clientJobSubscription_.end()&&it->second==jobId) targets.push_back(c);}}
+    for(auto* c:targets) sendSafe_(c,json);}
 void KeeplyWsHub::onClientMessage(IWsClientSession* client,const std::string& payload){
     if(!client) return;
     if(payload=="ping"){sendSafe_(client,R"({"type":"pong"})");return;}
@@ -424,24 +385,16 @@ void KeeplyWsHub::onClientMessage(IWsClientSession* client,const std::string& pa
         const std::string jobId=payload.substr(prefix.size());
         {std::lock_guard<std::mutex> lock(mu_);clientJobSubscription_[client->id()]=jobId;}
         sendSafe_(client,std::string("{\"type\":\"subscribed\",\"jobId\":\"")+escapeJson(jobId)+"\"}");
-        return;
-    }
-    sendSafe_(client,R"({"type":"error","message":"Mensagem WS nao suportada no MVP"})");
-}
-
+        return;}
+    sendSafe_(client,R"({"type":"error","message":"Mensagem WS nao suportada no MVP"})");}
 void KeeplyWsHub::sendSafe_(IWsClientSession* client,const std::string& payload){
     if(!client) return;
     try{client->sendText(payload);}
     catch(const std::exception& e){std::cerr<<"[ws] sendText falhou para client "<<client->id()<<": "<<e.what()<<"\n";}
-    catch(...){std::cerr<<"[ws] sendText falhou para client "<<client->id()<<": erro desconhecido\n";}
-}
-
+    catch(...){std::cerr<<"[ws] sendText falhou para client "<<client->id()<<": erro desconhecido\n";}}
 KeeplyAgentWsClient::KeeplyAgentWsClient(std::shared_ptr<KeeplyApi> api,AgentIdentity identity):api_(std::move(api)),identity_(std::move(identity)){
-    if(!api_) throw std::runtime_error("KeeplyAgentWsClient requer KeeplyApi.");
-}
-
+    if(!api_) throw std::runtime_error("KeeplyAgentWsClient requer KeeplyApi.");}
 KeeplyAgentWsClient::~KeeplyAgentWsClient(){try{close();}catch(...){}}
-
 void KeeplyAgentWsClient::connect(const WsClientConfig& config){
     close();
     config_=config;
@@ -452,11 +405,8 @@ void KeeplyAgentWsClient::connect(const WsClientConfig& config){
         performHandshake_(url);
         {std::lock_guard<std::mutex> lock(mu_);connected_=true;closeSent_=false;}
         sendHello_();
-    }catch(...){close();throw;}
-}
-
+    }catch(...){close();throw;}}
 void KeeplyAgentWsClient::run(){
-
     constexpr std::size_t kMaxMsgsPerWindow=60;
     constexpr auto kWindow=std::chrono::minutes(1);
     constexpr auto kKeepAliveInterval=std::chrono::seconds(25);
@@ -477,7 +427,6 @@ void KeeplyAgentWsClient::run(){
             }
             if(fd<0) return false;
             if(hasBufferedData||(tls&&tls->ssl&&SSL_pending(tls->ssl)>0)) return true;
-
 #ifdef _WIN32
             fd_set readfds;
             FD_ZERO(&readfds);
@@ -500,12 +449,9 @@ void KeeplyAgentWsClient::run(){
             if(rc==0) return false;
             const int err=keeply::http_internal::lastSocketError();
             if(keeply::http_internal::socketInterrupted(err)) continue;
-            throw std::runtime_error("select falhou: "+keeply::http_internal::socketErrorMessage(err));
-        }
-    };
+            throw std::runtime_error("select falhou: "+keeply::http_internal::socketErrorMessage(err));}};
     auto nextKeepAliveAt=std::chrono::steady_clock::now()+kKeepAliveInterval;
     std::optional<std::chrono::steady_clock::time_point> pongDeadline;
-
     for(;;){
         const auto now=std::chrono::steady_clock::now();
         auto waitUntil=nextKeepAliveAt;
@@ -522,47 +468,32 @@ void KeeplyAgentWsClient::run(){
                 sendFrame_(0x9,"keepalive");
                 nextKeepAliveAt=timeoutNow+kKeepAliveInterval;
                 pongDeadline=timeoutNow+kKeepAlivePongTimeout;
-            }
-            continue;
-        }
-
+            }continue;}
         unsigned char opcode=0;
         std::string payload;
         if(!readFrame_(opcode,payload)) break;
         nextKeepAliveAt=std::chrono::steady_clock::now()+kKeepAliveInterval;
         pongDeadline.reset();
-
         if(opcode==0x1){
-
             const auto now=std::chrono::steady_clock::now();
             while(!msgTimestamps.empty()&&(now-msgTimestamps.front())>kWindow)
                 msgTimestamps.pop_front();
             if(msgTimestamps.size()>=kMaxMsgsPerWindow){
                 ++droppedCount;
                 if(droppedCount==1||droppedCount%10==0){
-                    std::cerr<<"[keeply][ws][warn] rate limit: "<<droppedCount<<" mensagens ignoradas.\n";
-                }
-                continue;
-            }
+                    std::cerr<<"[keeply][ws][warn] rate limit: "<<droppedCount<<" mensagens ignoradas.\n";}continue;}
             msgTimestamps.push_back(now);
             if(droppedCount>0){
-
                 std::cerr<<"[keeply][ws][info] rate limit normalizado após "<<droppedCount<<" mensagens ignoradas.\n";
-                droppedCount=0;
-            }
+                droppedCount=0;}
             handleServerMessage_(payload);
-            continue;
-        }
+            continue;}
         if(opcode==0x8){try{sendClose_(1000,"");}catch(...){}
-            break;
-        }
+            break;}
         if(opcode==0x9){sendPong_(payload);continue;}
         if(opcode==0xA) continue;
-        throw std::runtime_error("Opcode websocket nao suportado recebido do servidor.");
-    }
-    close();
-}
-
+        throw std::runtime_error("Opcode websocket nao suportado recebido do servidor.");}
+    close();}
 void KeeplyAgentWsClient::close(){
     bool shouldSendClose=false;
     {std::lock_guard<std::mutex> lock(mu_);shouldSendClose=connected_&&!closeSent_&&sockfd_>=0;}
@@ -588,28 +519,22 @@ void KeeplyAgentWsClient::close(){
         keeply::http_internal::closeSocketFd(fd);
     }
 }
-
 bool KeeplyAgentWsClient::isConnected() const{std::lock_guard<std::mutex> lock(mu_);return connected_;}
-
 void KeeplyAgentWsClient::sendText(const std::string& payload){sendFrame_(0x1,payload);}
-
 KeeplyAgentWsClient::UrlParts KeeplyAgentWsClient::parseUrl_(const std::string& url){
     const ParsedUrl parsed=parseUrlCommon(url);
     if(parsed.scheme!="ws"&&parsed.scheme!="wss") throw std::runtime_error("Somente URLs ws:// ou wss:// sao suportadas.");
     UrlParts out;out.scheme=parsed.scheme;out.host=parsed.host;out.port=parsed.port;out.target=parsed.target;
     return out;
 }
-
 std::string KeeplyAgentWsClient::escapeJson_(const std::string& value){return escapeJson(value);}
 std::string KeeplyAgentWsClient::urlEncode_(const std::string& value){return urlEncode(value);}
 std::string KeeplyAgentWsClient::httpUrlFromWsUrl_(const std::string& wsUrl,const std::string& path){return httpUrlFromWsUrl(wsUrl,path);}
-
 void KeeplyAgentWsClient::connectSocket_(const UrlParts& url){
     const int fd=openTcpSocket(url.host,url.port);
     {std::lock_guard<std::mutex> lock(mu_);sockfd_=fd;recvBuffer_.clear();}
     if(url.scheme=="wss") configureTls_(url);
 }
-
 void KeeplyAgentWsClient::configureTls_(const UrlParts& url){
     auto tls=std::make_shared<TlsState>();
     tls->ctx=SSL_CTX_new(TLS_client_method());
@@ -642,7 +567,6 @@ void KeeplyAgentWsClient::configureTls_(const UrlParts& url){
     std::lock_guard<std::mutex> lock(mu_);
     tls_=std::move(tls);
 }
-
 void KeeplyAgentWsClient::performHandshake_(const UrlParts& url){
     const std::string key=randomBase64(16);
     std::string target=url.target;
@@ -683,7 +607,6 @@ void KeeplyAgentWsClient::performHandshake_(const UrlParts& url){
     }
     if(!hasUpgrade||!hasConnection||!hasAccept) throw std::runtime_error("Handshake websocket invalido recebido do backend.");
 }
-
 void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
     if(payload.empty()) return;
     try{
@@ -693,7 +616,6 @@ void KeeplyAgentWsClient::handleServerMessage_(const std::string& payload){
         sendJson_(std::string("{\"type\":\"error\",\"message\":\"")+escapeJson_(e.what())+"\"}");
     }
 }
-
 void KeeplyAgentWsClient::executeCommand_(const WsCommand& cmd){
     if(cmd.type=="ping"){sendJson_(R"({"type":"pong"})");return;}
     if(cmd.type=="state"){sendJson_(buildStateJson_());return;}
@@ -717,49 +639,45 @@ void KeeplyAgentWsClient::executeCommand_(const WsCommand& cmd){
     }
     if(cmd.type=="config.archive"){api_->setArchive(cmd.path);sendJson_(R"({"type":"config.updated","field":"archive"})");return;}
     if(cmd.type=="config.restoreRoot"){api_->setRestoreRoot(cmd.path);sendJson_(R"({"type":"config.updated","field":"restoreRoot"})");return;}
-    if(cmd.type=="backup"){runBackupCommand_(cmd.label,cmd.storage);return;}
+    if(cmd.type=="backup"){
+        if(!cmd.sourcePath.empty()) api_->setSource(cmd.sourcePath);
+        runBackupCommand_(cmd.label,cmd.storage);
+        return;
+    }
     if(cmd.type=="restore.file"){runRestoreFileCommand_(cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
     if(cmd.type=="restore.snapshot"){runRestoreSnapshotCommand_(cmd.snapshot,cmd.outRoot);return;}
     if(cmd.type=="restore.cloud.snapshot"){runRestoreCloudSnapshotCommand_(cmd);return;}
     throw std::runtime_error("Comando websocket nao suportado: "+(cmd.type.empty()?cmd.raw:cmd.type));
 }
-
 void KeeplyAgentWsClient::runRestoreFileCommand_(const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw){
     if(snapshot.empty()||relPath.empty()) throw std::runtime_error("Formato restore.file invalido. Use restore.file:snapshot|relPath|outRoot(opcional)");
     const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
     api_->restoreFile(snapshot,relPath,outRoot);
     sendJson_(std::string("{\"type\":\"restore.file.finished\",\"snapshot\":\"")+escapeJson_(snapshot)+"\",\"path\":\""+escapeJson_(relPath)+"\"}");
 }
-
 void KeeplyAgentWsClient::runRestoreSnapshotCommand_(const std::string& snapshot,const std::string& outRootRaw){
     if(snapshot.empty()) throw std::runtime_error("Formato restore.snapshot invalido. Use restore.snapshot:snapshot|outRoot(opcional)");
     const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
     api_->restoreSnapshot(snapshot,outRoot);
     sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(snapshot)+"\"}");
 }
-
 void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
     if(cmd.snapshot.empty()) throw std::runtime_error("restore.cloud.snapshot requer snapshot.");
     if(cmd.downloadPathBase.empty()) throw std::runtime_error("restore.cloud.snapshot requer downloadPathBase.");
     if(cmd.archiveFile.empty()) throw std::runtime_error("restore.cloud.snapshot requer archiveFile.");
-
     const std::vector<std::string> blobFiles = splitNonEmptyPipe(cmd.blobFiles);
     if(blobFiles.empty()) throw std::runtime_error("restore.cloud.snapshot requer ao menos um blob do pack.");
-
     const std::string requestId = cmd.requestId.empty() ? randomDigits(12) : cmd.requestId;
     const std::string packFileName = !cmd.packFile.empty() ? cmd.packFile : blobFiles.front();
     const std::size_t filesTotal = 1 + (cmd.indexFile.empty() ? 0 : 1) + blobFiles.size();
     const std::string resolvedOutRoot = !cmd.outRoot.empty() ? cmd.outRoot : api_->state().restoreRoot;
-
     std::ostringstream startedJson;
     startedJson<<"{"<<"\"type\":\"restore.cloud.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesTotal\":"<<filesTotal<<"}";
     sendJson_(startedJson.str());
-
     const fs::path tempRoot = defaultKeeplyTempDir() / "cloud_restore" / requestId;
     std::error_code cleanupEc;
     fs::remove_all(tempRoot, cleanupEc);
     ensureDirectory(tempRoot);
-
     try{
         std::size_t completedDownloads = 0;
         auto sendProgress = [&](const std::string& phase,const std::string& currentFile){
@@ -767,7 +685,6 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
             progressJson<<"{"<<"\"type\":\"restore.cloud.progress\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("phase",phase)<<","<<jsonStrField("currentFile",currentFile)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesCompleted\":"<<completedDownloads<<","<<"\"filesTotal\":"<<filesTotal<<"}";
             sendJson_(progressJson.str());
         };
-
         auto downloadOne = [&](const std::string& fileName){
             sendProgress("downloading", fileName);
             const std::string path = buildBundleDownloadPath(cmd.downloadPathBase, fileName);
@@ -784,19 +701,15 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
             sendProgress("downloaded", fileName);
             return outPath;
         };
-
         const fs::path archivePath = downloadOne(cmd.archiveFile);
         if(!cmd.indexFile.empty()) downloadOne(cmd.indexFile);
-
         std::vector<fs::path> blobPaths;
         blobPaths.reserve(blobFiles.size());
         for(const auto& blobFile : blobFiles){
             blobPaths.push_back(downloadOne(blobFile));
         }
-
         const fs::path finalPackPath = tempRoot / packFileName;
         if(blobPaths.size() == 1 && blobPaths.front().filename() == finalPackPath.filename()){
-
         }else{
             sendProgress("assembling", packFileName);
             if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
@@ -808,12 +721,10 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
             packOut.close();
             if(!packOut) throw std::runtime_error("Falha finalizando pack temporario para restore cloud.");
         }
-
         sendProgress("restoring", cmd.snapshot);
         const std::optional<fs::path> outRoot = resolvedOutRoot.empty()
             ? std::nullopt
             : std::optional<fs::path>(fs::path(resolvedOutRoot));
-
         StorageArchive archive(archivePath);
         const sqlite3_int64 snapshotId = archive.resolveSnapshotId(cmd.snapshot);
         const fs::path finalOutRoot = outRoot.value_or(pathFromUtf8(api_->state().restoreRoot));
@@ -835,11 +746,9 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
         }else{
             RestoreEngine::restoreFile(archivePath, snapshotId, normalizedRelPath, finalOutRoot);
         }
-
         std::ostringstream finishedJson;
         finishedJson<<"{"<<"\"type\":\"restore.cloud.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("path",normalizedRelPath)<<","<<jsonStrField("entryType",normalizedEntryType)<<"}";
         sendJson_(finishedJson.str());
-
         sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson_(cmd.snapshot)+"\",\"requestId\":\""+escapeJson_(requestId)+"\",\"outRoot\":\""+escapeJson_(resolvedOutRoot)+"\",\"path\":\""+escapeJson_(normalizedRelPath)+"\",\"entryType\":\""+escapeJson_(normalizedEntryType)+"\"}");
     }catch(const std::exception& e){
         std::ostringstream failedJson;
@@ -848,35 +757,24 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
         fs::remove_all(tempRoot, cleanupEc);
         throw;
     }
-
     fs::remove_all(tempRoot, cleanupEc);
 }
-
 void KeeplyAgentWsClient::sendBackupProgress_(const std::string& label,const BackupProgress& progress){
     std::ostringstream progressJson;
     progressJson<<"{"<<"\"type\":\"backup.progress\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"phase\":\""<<escapeJson_(progress.phase)<<"\","<<"\"discoveryComplete\":"<<(progress.discoveryComplete?"true":"false")<<","<<"\"currentFile\":\""<<escapeJson_(progress.currentFile)<<"\","<<"\"filesQueued\":"<<progress.filesQueued<<","<<"\"filesCompleted\":"<<progress.filesCompleted<<","<<"\"filesScanned\":"<<progress.stats.scanned<<","<<"\"filesAdded\":"<<progress.stats.added<<","<<"\"filesUnchanged\":"<<progress.stats.reused<<","<<"\"chunksNew\":"<<progress.stats.uniqueChunksInserted<<","<<"\"bytesRead\":"<<progress.stats.bytesRead<<","<<"\"warnings\":"<<progress.stats.warnings<<"}";
     sendJson_(progressJson.str());
 }
-
 void KeeplyAgentWsClient::sendBackupFinished_(const std::string& label,const BackupStats& stats){
     const std::size_t chunksReused=stats.chunks>=stats.uniqueChunksInserted?stats.chunks-stats.uniqueChunksInserted:0;
     std::ostringstream oss;
     oss<<"{"<<"\"type\":\"backup.finished\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"filesScanned\":"<<stats.scanned<<","<<"\"filesAdded\":"<<stats.added<<","<<"\"filesUnchanged\":"<<stats.reused<<","<<"\"chunksNew\":"<<stats.uniqueChunksInserted<<","<<"\"chunksReused\":"<<chunksReused<<","<<"\"bytesRead\":"<<stats.bytesRead<<","<<"\"warnings\":"<<stats.warnings<<"}";
     sendJson_(oss.str());
 }
-
 void KeeplyAgentWsClient::sendBackupFailed_(const std::string& label,const BackupProgress& latestProgress,const std::string& message){
     std::ostringstream failedJson;
     failedJson<<"{"<<"\"type\":\"backup.failed\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"phase\":\"failed\","<<"\"discoveryComplete\":"<<(latestProgress.discoveryComplete?"true":"false")<<","<<"\"currentFile\":\""<<escapeJson_(latestProgress.currentFile)<<"\","<<"\"filesQueued\":"<<latestProgress.filesQueued<<","<<"\"filesCompleted\":"<<latestProgress.filesCompleted<<","<<"\"filesScanned\":"<<latestProgress.stats.scanned<<","<<"\"filesAdded\":"<<latestProgress.stats.added<<","<<"\"filesUnchanged\":"<<latestProgress.stats.reused<<","<<"\"chunksNew\":"<<latestProgress.stats.uniqueChunksInserted<<","<<"\"bytesRead\":"<<latestProgress.stats.bytesRead<<","<<"\"warnings\":"<<latestProgress.stats.warnings<<","<<"\"message\":\""<<escapeJson_(message)<<"\""<<"}";
     sendJson_(failedJson.str());
 }
-
-void KeeplyAgentWsClient::sendBackupLocalOnly_(const std::string& label,const std::string& storageMode){
-    std::ostringstream localOnlyJson;
-    localOnlyJson<<"{"<<"\"type\":\"backup.storage.applied\","<<"\"label\":\""<<escapeJson_(label)<<"\","<<"\"source\":\""<<escapeJson_(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"storageMode\":\""<<escapeJson_(storageMode)<<"\","<<"\"message\":\"Backup mantido somente no destino local atribuido.\""<< "}";
-    sendJson_(localOnlyJson.str());
-}
-
 void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const BackupStoragePolicy& storagePolicy){
     try{
         const std::string storageMode=storageModeToString(storagePolicy.mode);
@@ -907,7 +805,6 @@ void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const Backup
         sendJson_(uploadFailedJson.str());
     }
 }
-
 void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::string& storage){
     BackupStoragePolicy storagePolicy;
     BackupProgress latestProgress;
@@ -923,7 +820,7 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
                 urlStr += "?userId=" + ws_internal::urlEncode(identity_.userId);
                 urlStr += "&agentId=" + ws_internal::urlEncode(identity_.deviceId);
                 urlStr += "&folderName=" + ws_internal::urlEncode(label);
-
+                urlStr += "&sourcePath=" + ws_internal::urlEncode(api_->state().source);
                 const ws_internal::HttpResponse latestResp = ws_internal::httpGet(urlStr, std::nullopt, std::nullopt, config_.allowInsecureTls);
                 if (latestResp.status >= 200 && latestResp.status < 300) {
                     const std::string preSignedUrl = ws_internal::extractJsonStringField(latestResp.body, "url");
@@ -941,7 +838,6 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
                 std::cerr << "[backup] Falha ignorada ao baixar base incremental: " << e.what() << "\n";
             }
         }
-
         auto lastProgressSent=std::chrono::steady_clock::now()-std::chrono::seconds(10);
         std::string lastPhase;
         const BackupStats stats=api_->runBackup(label,[this,label,&latestProgress,&lastProgressSent,&lastPhase](const BackupProgress& progress){
@@ -956,8 +852,7 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
             lastPhase=progress.phase;
         });
         sendBackupFinished_(label,stats);
-        if(storagePolicy.uploadCloud) runBackupUpload_(label,storagePolicy);
-        else sendBackupLocalOnly_(label,storageModeToString(storagePolicy.mode));
+        runBackupUpload_(label,storagePolicy);
         std::cout<<"[backup] concluido"<<" | scanned="<<stats.scanned<<" added="<<stats.added<<" unchanged="<<stats.reused<<" bytes="<<stats.bytesRead<<" warnings="<<stats.warnings<<"\n";
         std::cout<<"[agent] backup finalizado. Agente segue online aguardando comandos.\n";
     }catch(const std::exception& e){
@@ -968,7 +863,6 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
         std::cout<<"[agent] agente segue online aguardando comandos.\n";
     }
 }
-
 void KeeplyAgentWsClient::sendHello_(){
     const auto& s=api_->state();
     std::ostringstream oss;
@@ -988,9 +882,7 @@ void KeeplyAgentWsClient::sendHello_(){
        <<"}";
     sendJson_(oss.str());
 }
-
 void KeeplyAgentWsClient::sendJson_(const std::string& payload){
-
     if(!payload.empty()&&payload.front()=='{'){
         sendText(std::string("{\"v\":")+std::to_string(keeply::kProtocolVersion)+","+payload.substr(1));
     }else{
@@ -998,7 +890,6 @@ void KeeplyAgentWsClient::sendJson_(const std::string& payload){
     }
 }
 void KeeplyAgentWsClient::sendPong_(const std::string& payload){sendFrame_(0xA,payload);}
-
 void KeeplyAgentWsClient::sendClose_(std::uint16_t code,const std::string& reason){
     std::string payload;
     payload.push_back((char)((code>>8)&0xFF));
@@ -1008,7 +899,6 @@ void KeeplyAgentWsClient::sendClose_(std::uint16_t code,const std::string& reaso
     std::lock_guard<std::mutex> lock(mu_);
     closeSent_=true;
 }
-
 void KeeplyAgentWsClient::sendFrame_(unsigned char opcode,const std::string& payload){
     std::vector<unsigned char> frame;
     frame.reserve(payload.size()+16);
@@ -1031,7 +921,6 @@ void KeeplyAgentWsClient::sendFrame_(unsigned char opcode,const std::string& pay
     for(std::size_t i=0;i<payload.size();++i) frame.push_back((unsigned char)payload[i]^mask[i%4]);
     writeRaw_(frame.data(),frame.size());
 }
-
 std::string KeeplyAgentWsClient::readHttpHeader_(){
     for(;;){
         const std::size_t pos=recvBuffer_.find("\r\n\r\n");
@@ -1048,7 +937,6 @@ std::string KeeplyAgentWsClient::readHttpHeader_(){
         if(recvBuffer_.size()>(1u<<20)) throw std::runtime_error("Cabecalho websocket muito grande.");
     }
 }
-
 bool KeeplyAgentWsClient::readFrame_(unsigned char& opcode,std::string& payload){
     auto ensureBytes=[&](std::size_t needed){
         while(recvBuffer_.size()<needed){
@@ -1092,21 +980,18 @@ bool KeeplyAgentWsClient::readFrame_(unsigned char& opcode,std::string& payload)
     if(!fin) throw std::runtime_error("Frames websocket fragmentados nao sao suportados neste cliente.");
     return true;
 }
-
 std::string KeeplyAgentWsClient::buildScanScopeJson_() const{
     const auto& scanScope=api_->state().scanScope;
     std::ostringstream oss;
     oss<<"{"<<"\"id\":\""<<escapeJson_(scanScope.id)<<"\","<<"\"label\":\""<<escapeJson_(scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson_(scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson_(scanScope.resolvedPath)<<"\""<<"}";
     return oss.str();
 }
-
 std::string KeeplyAgentWsClient::buildStateJson_() const{
     const auto& s=api_->state();
     std::ostringstream oss;
     oss<<"{"<<"\"type\":\"state\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
     return oss.str();
 }
-
 std::string KeeplyAgentWsClient::buildSnapshotsJson_(){
     const auto rows=api_->listSnapshots();
     std::ostringstream oss;
@@ -1119,7 +1004,6 @@ std::string KeeplyAgentWsClient::buildSnapshotsJson_(){
     oss<<"]}";
     return oss.str();
 }
-
 std::string KeeplyAgentWsClient::buildFsDisksJson_(const std::string& requestId) const{
     const auto rows=listRootRows();
     std::ostringstream oss;
@@ -1132,7 +1016,6 @@ std::string KeeplyAgentWsClient::buildFsDisksJson_(const std::string& requestId)
     oss<<"]}";
     return oss.str();
 }
-
 std::string KeeplyAgentWsClient::buildFsListJson_(const std::string& requestId,const std::string& requestedPath) const{
     std::string targetRaw=trim(requestedPath);
     const auto& s=api_->state();
@@ -1209,12 +1092,9 @@ std::string KeeplyAgentWsClient::buildFsListJson_(const std::string& requestId,c
     for(std::size_t i=0;i<rows.size();++i){
         if(i) oss<<",";
         const auto& row=rows[i];
-        oss<<"{\"name\":\""<<escapeJson_(row.name)<<"\",\"path\":\""<<escapeJson_(row.fullPath)<<"\",\"kind\":\""<<(row.isDir?"dir":"file")<<"\",\"size\":"<<row.size<<"}";
-    }
+        oss<<"{\"name\":\""<<escapeJson_(row.name)<<"\",\"path\":\""<<escapeJson_(row.fullPath)<<"\",\"kind\":\""<<(row.isDir?"dir":"file")<<"\",\"size\":"<<row.size<<"}";}
     oss<<"]}";
-    return oss.str();
-}
-
+    return oss.str();}
 std::size_t KeeplyAgentWsClient::writeRaw_(const void* data,std::size_t size){
     std::shared_ptr<TlsState> tls;
     int fd=-1;
@@ -1225,10 +1105,7 @@ std::size_t KeeplyAgentWsClient::writeRaw_(const void* data,std::size_t size){
         fd=sockfd_;
         if(fd<0) throw std::runtime_error("Socket do agente nao esta inicializado.");
         if(tls&&tls->ssl) return writeAllSsl(tls->ssl,data,size);
-        return writeAllFd(fd,data,size);
-    }
-}
-
+        return writeAllFd(fd,data,size);}}
 std::size_t KeeplyAgentWsClient::readRaw_(void* data,std::size_t size){
     std::shared_ptr<TlsState> tls;
     int fd=-1;
@@ -1239,12 +1116,6 @@ std::size_t KeeplyAgentWsClient::readRaw_(void* data,std::size_t size){
         fd=sockfd_;
         if(fd<0) throw std::runtime_error("Socket do agente nao esta inicializado.");
         if(tls&&tls->ssl) return readSomeSsl(tls->ssl,data,size);
-        return readSomeFd(fd,data,size);
-    }
-}
-
+        return readSomeFd(fd,data,size);}}
 void KeeplyAgentWsClient::ensureConnected_() const{
-    if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");
-}
-
-}
+    if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");}}

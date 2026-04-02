@@ -1,28 +1,21 @@
 #include "../keeply.hpp"
-
 #include <cstdlib>
 #include <fstream>
 #include <system_error>
-
 #ifdef _WIN32
 #include <shlobj.h>
 #include <windows.h>
 #else
 #include <unistd.h>
 #endif
-
 namespace keeply {
-
 namespace detail {
-
 inline std::string trimAscii(const std::string& value) { return keeply::trim(value); }
-
 inline std::optional<std::string> envValue(const char* key) {
     const char* value = std::getenv(key);
     if (!value || !*value) return std::nullopt;
     return std::string(value);
 }
-
 inline fs::path normalizedOrEmpty(const fs::path& path) {
     if (path.empty()) return {};
     std::error_code ec;
@@ -30,7 +23,6 @@ inline fs::path normalizedOrEmpty(const fs::path& path) {
     if (ec) return path.lexically_normal();
     return absolute.lexically_normal();
 }
-
 inline void appendUnique(std::vector<fs::path>& out, const fs::path& path) {
     if (path.empty()) return;
     const fs::path normalized = normalizedOrEmpty(path);
@@ -39,7 +31,6 @@ inline void appendUnique(std::vector<fs::path>& out, const fs::path& path) {
     }
     out.push_back(normalized);
 }
-
 #ifdef _WIN32
 inline std::optional<fs::path> knownFolderPath(REFKNOWNFOLDERID folderId) {
     PWSTR raw = nullptr;
@@ -49,7 +40,6 @@ inline std::optional<fs::path> knownFolderPath(REFKNOWNFOLDERID folderId) {
     CoTaskMemFree(raw);
     return normalizedOrEmpty(path);
 }
-
 inline std::wstring widenAscii(const char* text) {
     std::wstring out;
     if (!text) return out;
@@ -57,25 +47,21 @@ inline std::wstring widenAscii(const char* text) {
     return out;
 }
 #endif
-
 #if !defined(_WIN32)
 inline std::optional<std::string> readXdgUserDir(const fs::path& homeDir, const std::string& key) {
     const fs::path configPath = homeDir / ".config" / "user-dirs.dirs";
     std::ifstream input(configPath);
     if (!input) return std::nullopt;
-
     const std::string prefix = key + "=";
     std::string line;
     while (std::getline(input, line)) {
         line = trimAscii(line);
         if (line.empty() || line.front() == '#') continue;
         if (line.rfind(prefix, 0) != 0) continue;
-
         std::string value = trimAscii(line.substr(prefix.size()));
         if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
             value = value.substr(1, value.size() - 2);
         }
-
         const std::string homeToken = "$HOME";
         const auto homePos = value.find(homeToken);
         if (homePos != std::string::npos) {
@@ -83,11 +69,9 @@ inline std::optional<std::string> readXdgUserDir(const fs::path& homeDir, const 
         }
         return value;
     }
-
     return std::nullopt;
 }
 #endif
-
 inline std::optional<fs::path> homeFromEnvironment() {
 #ifdef _WIN32
     if (const auto fromProfile = envValue("USERPROFILE")) return normalizedOrEmpty(pathFromUtf8(*fromProfile));
@@ -99,23 +83,18 @@ inline std::optional<fs::path> homeFromEnvironment() {
 #endif
     return std::nullopt;
 }
-
 inline fs::path fallbackCurrentPath() {
     std::error_code ec;
     const fs::path cwd = fs::current_path(ec);
     return ec ? fs::path(".") : cwd.lexically_normal();
 }
-
 }
-
 std::string pathToUtf8(const fs::path& path) {
     return path.u8string();
 }
-
 fs::path pathFromUtf8(const std::string& utf8Path) {
     return fs::u8path(utf8Path);
 }
-
 std::optional<fs::path> knownDirectoryPath(KnownDirectory dir) {
 #ifdef _WIN32
     switch (dir) {
@@ -195,7 +174,6 @@ std::optional<fs::path> knownDirectoryPath(KnownDirectory dir) {
     return std::nullopt;
 #endif
 }
-
 fs::path homeDirectoryPath() {
 #ifdef _WIN32
     if (const auto home = knownDirectoryPath(KnownDirectory::Home)) return *home;
@@ -203,7 +181,6 @@ fs::path homeDirectoryPath() {
     if (const auto home = detail::homeFromEnvironment()) return *home;
     return detail::fallbackCurrentPath();
 }
-
 fs::path defaultKeeplyDataDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::LocalData)) {
 #if defined(__APPLE__)
@@ -214,7 +191,6 @@ fs::path defaultKeeplyDataDir() {
     }
     return detail::fallbackCurrentPath() / ".keeply";
 }
-
 fs::path defaultKeeplyStateDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::StateData)) {
 #if defined(__APPLE__)
@@ -225,7 +201,6 @@ fs::path defaultKeeplyStateDir() {
     }
     return defaultKeeplyDataDir();
 }
-
 fs::path defaultKeeplyTempDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::Temp)) {
         return *base / "keeply";
@@ -235,23 +210,18 @@ fs::path defaultKeeplyTempDir() {
     if (!ec) return temp / "keeply";
     return defaultKeeplyDataDir() / "tmp";
 }
-
 fs::path defaultCloudBundleExportRoot() {
     return defaultKeeplyTempDir() / "cloud_bundle_export";
 }
-
 fs::path defaultSourceRootPath() {
     return homeDirectoryPath();
 }
-
 fs::path defaultArchivePath() {
     return defaultKeeplyDataDir() / "keeply.kipy";
 }
-
 fs::path defaultRestoreRootPath() {
     return defaultKeeplyDataDir() / "restore";
 }
-
 std::vector<fs::path> defaultSystemExcludedRoots() {
     std::vector<fs::path> out;
 #ifdef _WIN32
@@ -279,14 +249,12 @@ std::vector<fs::path> defaultSystemExcludedRoots() {
 #endif
     return out;
 }
-
 bool isFilesystemRootPath(const fs::path& path) {
     if (path.empty()) return false;
     const fs::path normalized = detail::normalizedOrEmpty(path);
     const fs::path root = normalized.root_path();
     return !root.empty() && normalized == root;
 }
-
 FILE* fopenPath(const fs::path& path, const char* mode) {
 #ifdef _WIN32
     const std::wstring wideMode = detail::widenAscii(mode);
@@ -295,15 +263,12 @@ FILE* fopenPath(const fs::path& path, const char* mode) {
     return std::fopen(path.c_str(), mode);
 #endif
 }
-
 int sqlite3_open_path(const fs::path& path, sqlite3** db) {
     return sqlite3_open(pathToUtf8(path).c_str(), db);
 }
-
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs) {
     return sqlite3_open_v2(pathToUtf8(path).c_str(), db, flags, vfs);
 }
-
 fs::path normalizeAbsolutePath(const fs::path& p) {
     if (p.empty()) return {};
     std::error_code ec;
@@ -311,14 +276,12 @@ fs::path normalizeAbsolutePath(const fs::path& p) {
     if (ec) return p.lexically_normal();
     return abs.lexically_normal();
 }
-
 bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
     const fs::path normalized = normalizeAbsolutePath(sourceRoot);
     if (isFilesystemRootPath(normalized)) return true;
     const fs::path home = homeDirectoryPath();
     return normalized == normalizeAbsolutePath(home);
 }
-
 bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
     if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;
     const auto excluded = defaultSystemExcludedRoots();
@@ -335,5 +298,4 @@ bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candid
     }
     return false;
 }
-
 }

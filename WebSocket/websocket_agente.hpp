@@ -6,22 +6,17 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
-
 namespace keeply {
-
 namespace ws_internal {
 struct BackupStoragePolicy;
 }
-
 namespace fs = std::filesystem;
-
 class IWsClientSession{
 public:
     virtual ~IWsClientSession()=default;
     virtual std::string id() const=0;
     virtual void sendText(const std::string& payload)=0;
 };
-
 class KeeplyWsHub final:public IWsNotifier{
 public:
     void addClient(IWsClientSession* client);
@@ -29,14 +24,12 @@ public:
     void broadcastJson(const std::string& json) override;
     void publishJobEvent(const std::string& jobId,const std::string& json) override;
     void onClientMessage(IWsClientSession* client,const std::string& payload);
-
 private:
     std::mutex mu_;
     std::unordered_map<std::string,IWsClientSession*> clients_;
     std::unordered_map<std::string,std::string> clientJobSubscription_;
     void sendSafe_(IWsClientSession* client,const std::string& payload);
 };
-
 struct WsClientConfig{
     std::string url="wss://backend.keeply.app.br/ws/agent";
     std::string agentId;
@@ -48,7 +41,6 @@ struct WsClientConfig{
     bool allowInsecureTls=false;
     int pairingPollIntervalMs=3000;
 };
-
 struct AgentIdentity{
     std::string deviceId;
     std::string userId;
@@ -58,11 +50,11 @@ struct AgentIdentity{
     fs::path keyPemPath;
     fs::path metaPath;
 };
-
 struct WsCommand{
     std::string type;
     std::string requestId;
     std::string path;
+    std::string sourcePath;
     std::string scopeId;
     std::string label;
     std::string storage;
@@ -82,13 +74,11 @@ struct WsCommand{
     std::string entryType;
     std::string raw;
 };
-
 class KeeplyAgentBootstrap final{
 public:
     static AgentIdentity ensureRegistered(const WsClientConfig& config);
     static AgentIdentity loadPersistedIdentity(const WsClientConfig& config);
 };
-
 class KeeplyAgentWsClient final{
 public:
     explicit KeeplyAgentWsClient(std::shared_ptr<KeeplyApi> api,AgentIdentity identity={});
@@ -98,7 +88,6 @@ public:
     void close();
     bool isConnected() const;
     void sendText(const std::string& payload);
-
 private:
     struct UrlParts{std::string scheme;std::string host;int port=80;std::string target="/";};
     struct TlsState;
@@ -128,7 +117,6 @@ private:
     void sendBackupProgress_(const std::string& label,const BackupProgress& progress);
     void sendBackupFinished_(const std::string& label,const BackupStats& stats);
     void sendBackupFailed_(const std::string& label,const BackupProgress& latestProgress,const std::string& message);
-    void sendBackupLocalOnly_(const std::string& label,const std::string& storageMode);
     void sendHello_();
     void sendJson_(const std::string& payload);
     void sendPong_(const std::string& payload);
@@ -146,5 +134,4 @@ private:
     void configureTls_(const UrlParts& url);
     void ensureConnected_() const;
 };
-
 }

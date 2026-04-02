@@ -20,7 +20,6 @@
 #include <windows.h>
 #include <winioctl.h>
 #endif
-
 namespace keeply {
 namespace {
 enum class TokenBackend : std::uint64_t { Native = 1, Daemon = 2 };
@@ -40,7 +39,6 @@ DecodedToken decodeToken(std::uint64_t token) {
     if (rawBackend == static_cast<std::uint64_t>(TokenBackend::Daemon)) return {TokenBackend::Daemon, token & kTokenValueMask};
     return {TokenBackend::Native, token & kTokenValueMask};
 }
-
 std::string normalizeEventType(std::string type) {
     return keeply::lowerAscii(std::move(type));
 }
@@ -52,10 +50,8 @@ long long fileTimeToUnixSecondsLocal(const fs::file_time_type& ftp) {
     const auto sctp = time_point_cast<system_clock::duration>(ftp - fs::file_time_type::clock::now() + system_clock::now());
     return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
-
 using SqlTransaction = keeply::SharedSqlTransaction;
 using SqlStmt = keeply::SharedSqlStmt;
-
 void execSql(sqlite3* db, const char* sql, const char* ctx) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
@@ -95,7 +91,6 @@ struct WinHandle {
 };
 #endif
 }
-
 class EventStore::Db {
     sqlite3* db_ = nullptr;
 public:
@@ -117,28 +112,23 @@ public:
     }
     sqlite3* raw() const { return db_; }
 };
-
 EventStore::EventStore(const fs::path& dbPath)
     : db_(std::make_unique<Db>(dbPath)) {
     prepareStatements();
 }
-
 EventStore::~EventStore() {
     if (appendStmt_) {
         sqlite3_finalize(appendStmt_);
         appendStmt_ = nullptr;
     }
 }
-
 std::string EventStore::normalizePath(const fs::path& path) {
     return normalizeDbPath(path);
 }
-
 std::int64_t EventStore::nowUnixSeconds() {
     using clock = std::chrono::system_clock;
     return static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::seconds>(clock::now().time_since_epoch()).count());
 }
-
 void EventStore::prepareStatements() {
     if (sqlite3_prepare_v2(
             db_->raw(),
@@ -151,11 +141,9 @@ void EventStore::prepareStatements() {
         throw std::runtime_error("Falha preparando statement de evento do daemon.");
     }
 }
-
 void EventStore::ensureRoot(const fs::path& rootPath) {
     const std::string root = normalizePath(rootPath);
     const auto ts = nowUnixSeconds();
-
     SqlTransaction tx(db_->raw());
     {
         SqlStmt st(db_->raw(), "INSERT INTO cbt_event_roots(root_path, created_at, updated_at) VALUES(?, ?, ?) ON CONFLICT(root_path) DO UPDATE SET updated_at=excluded.updated_at;");
@@ -173,7 +161,6 @@ void EventStore::ensureRoot(const fs::path& rootPath) {
     }
     tx.commit();
 }
-
 void EventStore::appendEvent(const std::string& type, const std::string& relPath, bool isDir) {
     sqlite3_reset(appendStmt_);
     sqlite3_clear_bindings(appendStmt_);
@@ -185,7 +172,6 @@ void EventStore::appendEvent(const std::string& type, const std::string& relPath
     sqlite3_bind_int64(appendStmt_, 6, nowUnixSeconds());
     if (sqlite3_step(appendStmt_) != SQLITE_DONE) throw std::runtime_error("Falha gravando evento do daemon.");
 }
-
 std::optional<std::uint64_t> EventStore::latestToken(const fs::path& rootPath) const {
     const std::string root = normalizePath(rootPath);
     SqlStmt st(db_->raw(), "SELECT COALESCE(MAX(e.seq), 0) FROM cbt_event_roots r LEFT JOIN cbt_events e ON e.root_id = r.id WHERE r.root_path=?;");
@@ -196,7 +182,6 @@ std::optional<std::uint64_t> EventStore::latestToken(const fs::path& rootPath) c
     if (token == 0) return std::nullopt;
     return token;
 }
-
 std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, std::uint64_t lastToken, std::uint64_t& newToken) const {
     const std::string root = normalizePath(rootPath);
     sqlite3_int64 rootId = 0;
@@ -223,25 +208,19 @@ std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, 
     }
     return out;
 }
-
 fs::path defaultEventStorePath() {
     return defaultKeeplyStateDir() / "keeplyintf.kipy";
 }
-
 fs::path defaultEventStorePidPath() {
     return defaultEventStorePath().parent_path() / "keeplyintf.pid";
 }
-
 fs::path defaultEventStoreRootPath() {
     return defaultEventStorePath().parent_path() / "keeplyintf.root";
 }
-
 fs::path defaultNativeStateStorePath() {
     return defaultKeeplyStateDir() / "keeply_state.kipy";
 }
-
 namespace {
-
 bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
     const fs::path base = normalizeAbsolutePath(baseInput);
     const fs::path candidate = normalizeAbsolutePath(candidateInput);
@@ -252,21 +231,15 @@ bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
     }
     return true;
 }
-
 std::vector<fs::path> systemExcludedRoots() {
     return defaultSystemExcludedRoots();
 }
-
 }
-
 namespace rastreamento_eventos_base {
-
 namespace {
-
 std::string normalizeMonitorPath(const fs::path& path) {
     return path.lexically_normal().generic_string();
 }
-
 const char* toStoreEventType(TipoEventoMonitorado eventType) {
     switch (eventType) {
         case TipoEventoMonitorado::Upsert: return "upsert";
@@ -275,9 +248,7 @@ const char* toStoreEventType(TipoEventoMonitorado eventType) {
     }
     return "modify";
 }
-
 }
-
 MotorMonitorBase::MotorMonitorBase(const fs::path& rootPath, bool respectSystemExclusionPolicy)
     : respectSystemExclusionPolicy_(respectSystemExclusionPolicy) {
     std::error_code ec;
@@ -285,42 +256,31 @@ MotorMonitorBase::MotorMonitorBase(const fs::path& rootPath, bool respectSystemE
     if (ec || normalizedRoot.empty() || !fs::exists(normalizedRoot) || !fs::is_directory(normalizedRoot)) {
         throw std::runtime_error("Root invalido para o watcher CBT: " + rootPath.string());
     }
-
     rootPath_ = normalizedRoot;
     store_ = std::make_unique<EventStore>(defaultEventStorePath());
     store_->ensureRoot(rootPath_);
 }
-
 const fs::path& MotorMonitorBase::rootPath() const noexcept { return rootPath_; }
 bool MotorMonitorBase::respectSystemExclusionPolicy() const noexcept { return respectSystemExclusionPolicy_; }
-
 bool MotorMonitorBase::shouldIgnorePath(const fs::path& path) const {
     return respectSystemExclusionPolicy_ && isExcludedBySystemPolicy(rootPath_, path);
 }
-
 std::optional<std::string> MotorMonitorBase::buildRelativePath(const fs::path& fullPath) const {
     return buildRelativeEventPath(rootPath_, fullPath);
 }
-
 void MotorMonitorBase::appendEvent(TipoEventoMonitorado eventType, const std::string& relPath, bool isDir) {
     appendMonitoredEvent(*store_, eventType, relPath, isDir);
 }
-
 EventStore& MotorMonitorBase::eventStore() noexcept { return *store_; }
-
 MonitorRunner::MonitorRunner(const fs::path& rootPath, bool respectSystemExclusionPolicy)
     : engine_(createPlatformMotorMonitor(rootPath, respectSystemExclusionPolicy)) {}
-
 void MonitorRunner::requestStop() noexcept {
     if (engine_) engine_->requestStop();
 }
-
 void MonitorRunner::run(const std::function<bool()>& shouldStop) {
     if (engine_) engine_->run(shouldStop);
 }
-
 MotorMonitor* MonitorRunner::engine() noexcept { return engine_.get(); }
-
 std::unique_ptr<MotorMonitor> createPlatformMotorMonitor(const fs::path& rootPath,
                                                          bool respectSystemExclusionPolicy) {
 #ifdef __linux__
@@ -333,7 +293,6 @@ std::unique_ptr<MotorMonitor> createPlatformMotorMonitor(const fs::path& rootPat
     throw std::runtime_error("Watcher CBT em background disponivel apenas no Linux e Windows.");
 #endif
 }
-
 OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServiceOptions) {
     OpcoesDaemonMonitor options;
     for (int i = 1; i < argc; ++i) {
@@ -356,7 +315,6 @@ OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServ
     }
     return options;
 }
-
 fs::path resolveDaemonMonitorRootOrThrow(const fs::path& rootFromArgs) {
     fs::path rootPath = rootFromArgs;
     if (rootPath.empty()) {
@@ -369,19 +327,16 @@ fs::path resolveDaemonMonitorRootOrThrow(const fs::path& rootFromArgs) {
     }
     return rootPath;
 }
-
 void prepareDaemonMonitorState(const fs::path& rootPath, const std::string& pidValue) {
     writeMonitorPidFile(defaultEventStorePidPath(), pidValue);
     writeMonitorRootFile(defaultEventStoreRootPath(), rootPath);
 }
-
 fs::path resolveAndPrepareDaemonMonitorRootOrThrow(const fs::path& rootFromArgs,
                                                    const std::string& pidValue) {
     const fs::path rootPath = resolveDaemonMonitorRootOrThrow(rootFromArgs);
     prepareDaemonMonitorState(rootPath, pidValue);
     return rootPath;
 }
-
 void runMonitorDaemonOrThrow(const fs::path& rootPath,
                              const std::string& pidValue,
                              const std::function<bool()>& shouldStop) {
@@ -389,12 +344,10 @@ void runMonitorDaemonOrThrow(const fs::path& rootPath,
     MonitorRunner daemon(normalizedRoot, false);
     daemon.run(shouldStop);
 }
-
 std::string envOrEmpty(const char* key) {
     const char* value = std::getenv(key);
     return value ? std::string(value) : std::string();
 }
-
 std::optional<std::string> buildRelativeEventPath(const fs::path& rootPath, const fs::path& fullPath) {
     std::error_code relEc;
     fs::path relPath = fs::relative(fullPath, rootPath, relEc);
@@ -402,30 +355,25 @@ std::optional<std::string> buildRelativeEventPath(const fs::path& rootPath, cons
     if (relEc || relPath.empty() || relRaw.rfind("..", 0) == 0) return std::nullopt;
     return normalizeMonitorPath(relPath);
 }
-
 void appendMonitoredEvent(EventStore& store,
                           TipoEventoMonitorado eventType,
                           const std::string& relPath,
                           bool isDir) {
     store.appendEvent(toStoreEventType(eventType), relPath, isDir);
 }
-
 void writeMonitorPidFile(const fs::path& pidPath, const std::string& pidValue) {
     fs::create_directories(pidPath.parent_path());
     std::ofstream pid(pidPath, std::ios::trunc);
     if (!pid) throw std::runtime_error("Falha criando PID file do daemon.");
     pid << pidValue << "\n";
 }
-
 void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath) {
     fs::create_directories(metadataPath.parent_path());
     std::ofstream rootFile(metadataPath, std::ios::trunc);
     if (!rootFile) throw std::runtime_error("Falha criando arquivo de root do daemon.");
     rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";
 }
-
 }
-
 class BackgroundCbtWatcher::Impl {
 public:
     void start(const fs::path& rootPath) {
@@ -441,7 +389,6 @@ public:
         });
         running_.store(true);
     }
-
     void stop() noexcept {
         stopRequested_.store(true);
         if (runner_) runner_->requestStop();
@@ -449,23 +396,19 @@ public:
         runner_.reset();
         running_.store(false);
     }
-
     bool running() const noexcept { return running_.load(); }
     ~Impl() { stop(); }
-
 private:
     std::atomic<bool> stopRequested_{false};
     std::atomic<bool> running_{false};
     std::thread worker_;
     std::unique_ptr<rastreamento_eventos_base::MonitorRunner> runner_;
 };
-
 BackgroundCbtWatcher::BackgroundCbtWatcher() : impl_(std::make_unique<Impl>()) {}
 BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
 void BackgroundCbtWatcher::start(const fs::path& rootPath) { impl_->start(rootPath); }
 void BackgroundCbtWatcher::stop() noexcept { impl_->stop(); }
 bool BackgroundCbtWatcher::running() const noexcept { return impl_->running(); }
-
 #ifdef _WIN32
 namespace {
 class WindowsUSNTracker : public ChangeTracker {
@@ -706,7 +649,6 @@ public:
         const auto previousFiles = loadTrackedFiles();
         const auto currentFiles = scanCurrentLinuxFiles(root_);
         std::vector<ChangedFile> changes;
-
         for (const auto& [relPath, info] : currentFiles) {
             const auto prevIt = previousFiles.find(relPath);
             if (prevIt == previousFiles.end() || prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false});
@@ -741,7 +683,6 @@ std::unique_ptr<ChangeTracker> makePlatformTracker() {
 }
 }
 #endif
-
 namespace {
 class CompositeChangeTracker : public ChangeTracker {
     fs::path root_;
@@ -810,7 +751,6 @@ public:
     }
 };
 }
-
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
     return std::make_unique<CompositeChangeTracker>();
 }

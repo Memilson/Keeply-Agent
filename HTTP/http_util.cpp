@@ -1,5 +1,4 @@
 #include "http_util.hpp"
-
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -10,14 +9,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
-
 #include <cctype>
 #include <stdexcept>
-
 namespace keeply::http_internal {
-
 namespace {
-
 #ifdef _WIN32
 struct WinsockInit {
     WinsockInit() {
@@ -31,14 +26,11 @@ struct WinsockInit {
     }
 };
 #endif
-
 }
-
 std::string toLower(std::string value) {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return value;
 }
-
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);
@@ -58,7 +50,6 @@ std::string escapeJson(const std::string& value) {
     }
     return out;
 }
-
 ParsedUrl parseUrlCommon(const std::string& url) {
     const std::size_t schemeSep = url.find("://");
     if (schemeSep == std::string::npos) throw std::runtime_error("URL invalida: esquema ausente.");
@@ -82,7 +73,6 @@ ParsedUrl parseUrlCommon(const std::string& url) {
     if (parsed.host.empty() || parsed.port <= 0 || parsed.port > 65535) throw std::runtime_error("URL invalida.");
     return parsed;
 }
-
 std::string urlEncode(const std::string& value) {
     static const char* kHex = "0123456789ABCDEF";
     std::string out;
@@ -98,14 +88,12 @@ std::string urlEncode(const std::string& value) {
     }
     return out;
 }
-
 void ensureSocketRuntime() {
 #ifdef _WIN32
     static WinsockInit init;
     (void)init;
 #endif
 }
-
 int closeSocketFd(int fd) {
 #ifdef _WIN32
     return closesocket(static_cast<SOCKET>(fd));
@@ -113,7 +101,6 @@ int closeSocketFd(int fd) {
     return ::close(fd);
 #endif
 }
-
 int lastSocketError() {
 #ifdef _WIN32
     return WSAGetLastError();
@@ -121,7 +108,6 @@ int lastSocketError() {
     return errno;
 #endif
 }
-
 bool socketInterrupted(int err) {
 #ifdef _WIN32
     return err == WSAEINTR;
@@ -129,7 +115,6 @@ bool socketInterrupted(int err) {
     return err == EINTR;
 #endif
 }
-
 bool socketTimeoutOrWouldBlock(int err) {
 #ifdef _WIN32
     return err == WSAETIMEDOUT || err == WSAEWOULDBLOCK;
@@ -137,7 +122,6 @@ bool socketTimeoutOrWouldBlock(int err) {
     return err == EAGAIN || err == EWOULDBLOCK;
 #endif
 }
-
 std::string socketErrorMessage(int err) {
 #ifdef _WIN32
     char* buffer = nullptr;
@@ -153,7 +137,6 @@ std::string socketErrorMessage(int err) {
     return std::strerror(err);
 #endif
 }
-
 int openTcpSocket(const std::string& host, int port) {
     ensureSocketRuntime();
     addrinfo hints{};
@@ -175,7 +158,6 @@ int openTcpSocket(const std::string& host, int port) {
     if (fd < 0) throw std::runtime_error("Nao foi possivel conectar ao backend.");
     return fd;
 }
-
 std::size_t writeAllFd(int fd, const void* data, std::size_t size) {
     const unsigned char* ptr = static_cast<const unsigned char*>(data);
     std::size_t offset = 0;
@@ -197,7 +179,6 @@ std::size_t writeAllFd(int fd, const void* data, std::size_t size) {
     }
     return offset;
 }
-
 std::size_t readSomeFd(int fd, void* data, std::size_t size) {
     for (;;) {
         const auto n = ::recv(fd, reinterpret_cast<char*>(data), static_cast<int>(size), 0);
@@ -209,5 +190,4 @@ std::size_t readSomeFd(int fd, void* data, std::size_t size) {
         return static_cast<std::size_t>(n);
     }
 }
-
 }
