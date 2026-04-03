@@ -366,7 +366,6 @@ struct AgentRuntimeOptions {
     std::string deviceName;
     fs::path watchRoot;
     bool foreground = false;
-    bool enableLocalCbt = true;
     bool enableTray = true;
 #ifdef _WIN32
     bool allowInsecureTls = true;
@@ -440,7 +439,6 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
     options.url        = envOrEmptyAny({"KEEPLY_WS_URL", "KEEPly_WS_URL"});
     options.deviceName = envOrEmptyAny({"KEEPLY_DEVICE_NAME", "KEEPly_DEVICE_NAME"});
     options.watchRoot  = pickWatchRoot();
-    options.enableLocalCbt = !envTruthyAny({"KEEPLY_DISABLE_CBT", "KEEPly_DISABLE_CBT"});
     options.enableTray     = !envTruthyAny({"KEEPLY_DISABLE_TRAY", "KEEPly_DISABLE_TRAY"});
 #ifdef _WIN32
     options.allowInsecureTls = true;
@@ -453,15 +451,14 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
         if (arg == "--help") {
             std::cout
                 << "Uso: keeply [--url <ws-url>] [--device <nome>] [--root <dir>]\n"
-                << "            [--foreground] [--no-cbt] [--no-tray] [--insecure-tls]\n"
+                << "            [--foreground] [--no-tray] [--insecure-tls]\n"
                 << "     keeply cbt --root <dir> ...\n";
             std::exit(0);}
         if (arg == "--url"    && i + 1 < argc) { options.url        = argOrEmpty(argc, argv, ++i); continue; }
         if (arg == "--device" && i + 1 < argc) { options.deviceName = argOrEmpty(argc, argv, ++i); continue; }
         if (arg == "--root"   && i + 1 < argc) { options.watchRoot  = fs::path(argOrEmpty(argc, argv, ++i)); continue; }
-        if (arg == "--foreground")   { options.foreground     = true; continue; }
-        if (arg == "--no-cbt")       { options.enableLocalCbt = false; continue; }
-        if (arg == "--no-tray")      { options.enableTray     = false; continue; }
+        if (arg == "--foreground")   { options.foreground = true; continue; }
+        if (arg == "--no-tray")      { options.enableTray = false; continue; }
         if (arg == "--insecure-tls") { options.allowInsecureTls = true; continue; }
 #ifdef _WIN32
         if (arg == "--install-service")   { options.installService   = true; continue; }
@@ -501,17 +498,15 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     keeply::BackgroundCbtWatcher watcher;
     bool cbtStarted = false;
 #ifdef __linux__
-    if (options.enableLocalCbt) {
-        try {
-            cbtStarted = ensureLinuxCbtDaemon(watchRoot);
-        } catch (const std::exception& ex) {
-            std::cerr << "[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: " << ex.what() << "\n";
-            try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
-            catch (const std::exception& wx) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << wx.what() << "\n"; }}}
-#else
-    if (options.enableLocalCbt) {
+    try {
+        cbtStarted = ensureLinuxCbtDaemon(watchRoot);
+    } catch (const std::exception& ex) {
+        std::cerr << "[keeply][cbt][warn] daemon CBT indisponivel, usando watcher local: " << ex.what() << "\n";
         try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
-        catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }}
+        catch (const std::exception& wx) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << wx.what() << "\n"; }}
+#else
+    try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
+    catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
 #endif
     constexpr int kBackoffInitialMs = 1000;
     constexpr int kBackoffMaxMs     = 60000;

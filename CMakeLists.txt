@@ -13,6 +13,12 @@ find_library(ZSTD_LIB
 if(NOT ZSTD_LIB)
     message(FATAL_ERROR "Biblioteca zstd nao encontrada.")
 endif()
+find_library(RSYNC_LIB NAMES rsync librsync)
+if(RSYNC_LIB)
+    message(STATUS "librsync encontrada: ${RSYNC_LIB} — deltas byte-level habilitados.")
+else()
+    message(STATUS "librsync NAO encontrada. Instale librsync-dev para suporte a deltas byte-level.")
+endif()
 include(FetchContent)
 FetchContent_Declare(
     blake3_src
@@ -36,6 +42,7 @@ set(KEEPLY_CORE
     Backup/verificacao.cpp
     Backup/restauracao.cpp
     Backup/varredura.cpp
+    Backup/delta_rsync.cpp
     Storage/arquivo_armazenamento.cpp
     ${blake3_src_SOURCE_DIR}/c/blake3.c
     ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
@@ -79,6 +86,12 @@ set(KEEPLY_COMMON_LIBS
     ZLIB::ZLIB
     SQLite::SQLite3
     ${ZSTD_LIB})
+if(RSYNC_LIB)
+    list(APPEND KEEPLY_COMMON_LIBS ${RSYNC_LIB})
+    add_compile_definitions(KEEPLY_HAVE_RSYNC=1)
+else()
+    add_compile_definitions(KEEPLY_HAVE_RSYNC=0)
+endif()
 function(keeply_stage_windows_runtime_deps target_name)
     if(NOT WIN32)
         return()

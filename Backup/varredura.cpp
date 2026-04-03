@@ -1,5 +1,8 @@
 #include "../keeply.hpp"
 #include "Rastreamento/rastreamento_mudancas.hpp"
+#if KEEPLY_HAVE_RSYNC
+#include "delta_rsync.hpp"
+#endif
 #include "../Core/utilitarios.hpp"
 #include <algorithm>
 #include <chrono>
@@ -276,6 +279,8 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 std::vector<StorageArchive::PendingFileChunk> rows;
                 std::vector<ChunkHash> chunkSeq;
                 int chunkIdx = 0;
+                std::array<unsigned char, 32> encKey{};
+                const bool encEnabled = Compactador::deriveKeyFromEnv(encKey);
                 while (in) {
                     in.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
                     const std::streamsize got = in.gcount();
@@ -287,8 +292,17 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                     chunkSeq.push_back(ch);
                     Blob comp;
                     Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
+                    if (encEnabled) {
+                        const auto iv = Compactador::generateIv();
+                        Blob encComp = Compactador::aesGcmEncrypt(encKey, iv, comp.data(), comp.size());
+                        if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), encComp, "zstd")) {
+                            ++progress.stats.uniqueChunksInserted;
+                            Blob ivBlob(iv.begin(), iv.end());
+                            arc.setChunkEncryptIv(ch, ivBlob);}
+                    } else {
                     if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
                         ++progress.stats.uniqueChunksInserted;}
+                    }
                     StorageArchive::PendingFileChunk row;
                     row.chunkIdx = chunkIdx++;
                     row.chunkHash = ch;
@@ -297,6 +311,16 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 const Blob fileHash = buildFileHashFromChunkSequence(chunkSeq);
                 arc.addFileChunksBulk(fileId, rows);
                 arc.updateFileHash(fileId, fileHash);
+                // Gera e persiste assinatura rsync para suporte a delta byte-level
+                // no proximo backup incremental deste arquivo (requer librsync)
+#if KEEPLY_HAVE_RSYNC
+                try {
+                    const Blob sig = rsyncGenerateSignature(filePath);
+                    arc.saveFileSignature(snapshotId, rel, sig);
+                } catch (...) {
+                    // Falha na geracao da assinatura nao e fatal
+                    ++progress.stats.warnings;}
+#endif
                 ++progress.stats.added;
             } catch (...) {
                 if (fileId != 0) {

@@ -56,4 +56,4 @@ inline constexpr const char* kAlgoZstd   = "zstd";
 inline constexpr const char* kAlgoZlib   = "zlib";
 inline constexpr const char* kAlgoRaw    = "raw";
 inline constexpr int kProtocolVersion = 1;
-inline constexpr int kCurrentSchemaVersion = 6;}
+inline constexpr int kCurrentSchemaVersion = 9;}

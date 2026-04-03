@@ -47,7 +47,7 @@ fs::path pathFromUtf8(const std::string& utf8Path);
 FILE* fopenPath(const fs::path& path, const char* mode);
 int sqlite3_open_path(const fs::path& path, sqlite3** db);
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs);
-inline constexpr std::size_t CHUNK_SIZE = 4 * 1024 * 1024;
+inline constexpr std::size_t CHUNK_SIZE = 8 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
 using Blob = std::vector<unsigned char>;
 struct ChunkHashHasher {
@@ -115,6 +115,19 @@ public:
         std::size_t rawSize,
         std::vector<unsigned char>& out
     );
+    static Blob aesGcmEncrypt(
+        const std::array<unsigned char, 32>& key,
+        const std::array<unsigned char, 12>& iv,
+        const unsigned char* data, std::size_t len
+    );
+    static bool aesGcmDecrypt(
+        const std::array<unsigned char, 32>& key,
+        const std::array<unsigned char, 12>& iv,
+        const unsigned char* data, std::size_t len,
+        Blob& plainOut
+    );
+    static std::array<unsigned char, 12> generateIv();
+    static bool deriveKeyFromEnv(std::array<unsigned char, 32>& keyOut);
 };
 class SqliteError : public std::runtime_error {
 public:
@@ -186,11 +199,13 @@ struct StoredChunkRow {
     std::size_t compSize{};
     std::string algo;
     std::vector<unsigned char> blob;
+    Blob encryptIv;  // 12 bytes se AES-256-GCM, vazio se nao criptografado
 };
 struct RestorableFileRef {
     sqlite3_int64 fileId{};
     sqlite3_int64 size{};
     sqlite3_int64 mtime{};
+    Blob fileHash;
 };
 struct BackupStats {
     std::size_t scanned = 0;

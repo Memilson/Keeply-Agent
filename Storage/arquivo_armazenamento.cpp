@@ -371,6 +371,30 @@ void DB::initSchema() {
         exec("INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) SELECT file_id,chunk_index,chunk_hash,raw_size FROM _fc_fix_old;");
         exec("DROP TABLE _fc_fix_old;");
         tx.commit();}
+    if (ver < 7) {
+        if (!tableHasColumn(db_, "chunks", "encrypt_iv"))
+            exec("ALTER TABLE chunks ADD COLUMN encrypt_iv BLOB;");
+        writeSchemaVersion(db_, 7);}
+    if (ver < 8) {
+        exec("CREATE TABLE IF NOT EXISTS file_signatures("
+             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+             "snapshot_id INTEGER NOT NULL,"
+             "path TEXT NOT NULL,"
+             "sig_blob BLOB NOT NULL,"
+             "created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+             "UNIQUE(snapshot_id, path),"
+             "FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE);");
+        exec("CREATE INDEX IF NOT EXISTS idx_filesig_snapshot_path ON file_signatures(snapshot_id, path);");
+        writeSchemaVersion(db_, 8);}
+    if (ver < 9) {
+        exec("CREATE TABLE IF NOT EXISTS upload_parts("
+             "bundle_id TEXT NOT NULL,"
+             "part_index INTEGER NOT NULL,"
+             "upload_id  TEXT NOT NULL,"
+             "etag       TEXT NOT NULL,"
+             "uploaded_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+             "PRIMARY KEY(bundle_id, part_index));");
+        writeSchemaVersion(db_, 9);}
     exec("CREATE INDEX IF NOT EXISTS idx_files_snapshot ON files(snapshot_id);");
     exec("CREATE INDEX IF NOT EXISTS idx_fc_file ON file_chunks(file_id);");
     exec("CREATE INDEX IF NOT EXISTS idx_chunks_state_hash ON chunks(storage_state, chunk_hash);");}
@@ -593,7 +617,7 @@ void StorageArchive::addFileChunksBulk(sqlite3_int64 fileId, const std::vector<P
         st.bindInt64(4, static_cast<sqlite3_int64>(r.rawSize));
         st.stepDone();}}
 std::optional<RestorableFileRef> StorageArchive::findFileBySnapshotAndPath(sqlite3_int64 snapshotId, const std::string& relPath) {
-    Stmt st(db_.raw(), "SELECT id,size,mtime FROM files WHERE snapshot_id=? AND path=?;");
+    Stmt st(db_.raw(), "SELECT id,size,mtime,file_hash FROM files WHERE snapshot_id=? AND path=?;");
     st.bindInt64(1, snapshotId);
     st.bindText(2, relPath);
     if (!st.stepRow()) return std::nullopt;
@@ -601,8 +625,9 @@ std::optional<RestorableFileRef> StorageArchive::findFileBySnapshotAndPath(sqlit
     out.fileId = sqlite3_column_int64(st.get(), 0);
     out.size = sqlite3_column_int64(st.get(), 1);
     out.mtime = sqlite3_column_int64(st.get(), 2);
+    out.fileHash = colBlob(st.get(), 3);
     return out;}
-std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset, const ChunkHash& expectedSha, std::size_t expectedRawSize, std::size_t expectedCompSize, const std::string& expectedAlgo) const {
+std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset, const ChunkHash& expectedSha, std::size_t expectedRawSize, std::size_t expectedCompSize, const std::string& expectedAlgo, const Blob& encryptIv) const {
     const fs::path p = describeArchiveStorage(path_).packPath;
     if (!packIn_ || !packIn_->is_open()) {
         packIn_ = std::make_unique<std::ifstream>(p, std::ios::binary);
@@ -633,6 +658,18 @@ std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset
     Blob comp(expectedCompSize);
     if (expectedCompSize > 0) in.read(reinterpret_cast<char*>(comp.data()), static_cast<std::streamsize>(comp.size()));
     if (!in) throw std::runtime_error("Falha lendo blob comprimido do pack.");
+    // Descriptografa AES-256-GCM se houver IV registrado no SQLite
+    if (!encryptIv.empty()) {
+        if (encryptIv.size() != 12) throw std::runtime_error("IV invalido: esperado 12 bytes para AES-GCM.");
+        std::array<unsigned char, 32> key{};
+        if (!Compactador::deriveKeyFromEnv(key))
+            throw std::runtime_error("Chunk criptografado mas KEEPLY_BACKUP_KEY nao esta definida.");
+        std::array<unsigned char, 12> iv{};
+        std::memcpy(iv.data(), encryptIv.data(), 12);
+        Blob plain;
+        if (!Compactador::aesGcmDecrypt(key, iv, comp.data(), comp.size(), plain))
+            throw std::runtime_error("Falha na autenticacao AES-256-GCM: chunk corrompido ou adulterado.");
+        comp = std::move(plain);}
     Blob raw;
     if (algo == "zstd") Compactador::zstdDecompress(comp.data(), comp.size(), expectedRawSize, raw);
     else if (algo == "zlib") Compactador::zlibDecompress(comp.data(), comp.size(), expectedRawSize, raw);
@@ -641,7 +678,11 @@ std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset
     return raw;}
 std::vector<StoredChunkRow> StorageArchive::loadFileChunks(sqlite3_int64 fileId) {
     std::vector<StoredChunkRow> out;
-    Stmt st(db_.raw(), "SELECT fc.chunk_index, fc.raw_size, c.comp_size, c.comp_algo, c.pack_id, c.pack_offset, c.storage_state, fc.chunk_hash FROM file_chunks fc JOIN chunks c ON c.chunk_hash = fc.chunk_hash WHERE fc.file_id=? ORDER BY fc.chunk_index ASC;");
+    Stmt st(db_.raw(),
+        "SELECT fc.chunk_index, fc.raw_size, c.comp_size, c.comp_algo, "
+               "c.pack_id, c.pack_offset, c.storage_state, fc.chunk_hash, c.encrypt_iv "
+        "FROM file_chunks fc JOIN chunks c ON c.chunk_hash = fc.chunk_hash "
+        "WHERE fc.file_id=? ORDER BY fc.chunk_index ASC;");
     st.bindInt64(1, fileId);
     while (st.stepRow()) {
         StoredChunkRow row;
@@ -654,13 +695,14 @@ std::vector<StoredChunkRow> StorageArchive::loadFileChunks(sqlite3_int64 fileId)
         const std::string storageState = colText(st.get(), 6);
         const void* hp = sqlite3_column_blob(st.get(), 7);
         const int hb = sqlite3_column_bytes(st.get(), 7);
+        row.encryptIv = colBlob(st.get(), 8);
         if (storageState != "ready") throw std::runtime_error("Chunk ainda nao esta pronto para leitura.");
         if (packOffset < 0) throw std::runtime_error("Chunk com pack_offset invalido.");
         if (packId.empty()) throw std::runtime_error("Chunk sem pack_id.");
         if (!hp || hb != static_cast<int>(ChunkHash{}.size())) throw std::runtime_error("chunk_hash invalido vindo do SQLite.");
         ChunkHash ch{};
         std::memcpy(ch.data(), hp, ch.size());
-        row.blob = readPackAt(packOffset, ch, row.rawSize, row.compSize, row.algo);
+        row.blob = readPackAt(packOffset, ch, row.rawSize, row.compSize, row.algo, row.encryptIv);
         out.push_back(std::move(row));}
     return out;}
 std::vector<std::string> StorageArchive::listSnapshotPaths(sqlite3_int64 snapshotId) {
@@ -715,6 +757,42 @@ std::vector<ChangeEntry> StorageArchive::diffLatestVsPrevious() {
     const auto older = previousSnapshotId();
     if (!newer || !older) return {};
     return diffSnapshots(*older, *newer);}
+void StorageArchive::setChunkEncryptIv(const ChunkHash& hash, const Blob& iv) {
+    Stmt st(db_.raw(), "UPDATE chunks SET encrypt_iv=? WHERE chunk_hash=?;");
+    if (iv.empty()) st.bindNull(1);
+    else st.bindBlob(1, iv.data(), static_cast<int>(iv.size()));
+    st.bindBlob(2, hash.data(), static_cast<int>(hash.size()));
+    st.stepDone();}
+void StorageArchive::saveFileSignature(sqlite3_int64 snapshotId, const std::string& path, const Blob& sigBlob) {
+    Stmt st(db_.raw(), "INSERT OR REPLACE INTO file_signatures(snapshot_id, path, sig_blob) VALUES(?,?,?);");
+    st.bindInt64(1, snapshotId);
+    st.bindText(2, path);
+    st.bindBlob(3, sigBlob.data(), static_cast<int>(sigBlob.size()));
+    st.stepDone();}
+std::optional<Blob> StorageArchive::loadFileSignature(const std::string& path) {
+    Stmt st(db_.raw(), "SELECT sig_blob FROM file_signatures WHERE path=? ORDER BY id DESC LIMIT 1;");
+    st.bindText(1, path);
+    if (!st.stepRow()) return std::nullopt;
+    return colBlob(st.get(), 0);}
+void StorageArchive::markPartUploaded(const std::string& bundleId, int partIndex,
+                                      const std::string& uploadId, const std::string& etag) {
+    Stmt st(db_.raw(), "INSERT OR REPLACE INTO upload_parts(bundle_id,part_index,upload_id,etag) VALUES(?,?,?,?);");
+    st.bindText(1, bundleId);
+    st.bindInt(2, partIndex);
+    st.bindText(3, uploadId);
+    st.bindText(4, etag);
+    st.stepDone();}
+std::vector<std::pair<int,std::string>> StorageArchive::loadUploadedParts(const std::string& bundleId) {
+    std::vector<std::pair<int,std::string>> out;
+    Stmt st(db_.raw(), "SELECT part_index, etag FROM upload_parts WHERE bundle_id=? ORDER BY part_index;");
+    st.bindText(1, bundleId);
+    while (st.stepRow())
+        out.emplace_back(sqlite3_column_int(st.get(), 0), colText(st.get(), 1));
+    return out;}
+void StorageArchive::clearUploadParts(const std::string& bundleId) {
+    Stmt st(db_.raw(), "DELETE FROM upload_parts WHERE bundle_id=?;");
+    st.bindText(1, bundleId);
+    st.stepDone();}
 StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::path& tempRoot, std::uint64_t blobMaxBytes) const {
     return makeLocalCloudExporter(path_)->exportBundle(tempRoot, blobMaxBytes);}
 StorageArchive::CloudBundleFile StorageArchive::materializeCloudBundleBlob(const CloudBundleExport& bundle, std::size_t partIndex) const {

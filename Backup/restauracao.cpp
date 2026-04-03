@@ -101,30 +101,23 @@ static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, co
     if (!out)
         throw std::runtime_error("Falha ao abrir destino temporario de restore: " + tempTarget.string());
     auto chunks = arc.loadFileChunks(fileId);
-    std::vector<unsigned char> decompressBuffer;
-    decompressBuffer.reserve(CHUNK_SIZE);
+    Blob chunkHashSeq;
+    chunkHashSeq.reserve(chunks.size() * 32);
     for (const auto& c : chunks) {
-        if (c.blob.size() != c.compSize)
-            throw std::runtime_error("Blob de chunk invalido/corrompido.");
-        if (c.algo == "raw") {
-            if (c.blob.size() != c.rawSize)
-                throw std::runtime_error("Chunk raw corrompido (tamanho invalido).");
-            out.write(reinterpret_cast<const char*>(c.blob.data()), static_cast<std::streamsize>(c.rawSize));
-        } else {
-            if (c.algo == "zstd") {
-                Compactador::zstdDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
-            } else if (c.algo == "zlib") {
-                Compactador::zlibDecompress(c.blob.data(), c.compSize, c.rawSize, decompressBuffer);
-            } else {
-                throw std::runtime_error("Algoritmo de compressao nao suportado: " + c.algo);}
-            if (decompressBuffer.size() != c.rawSize)
-                throw std::runtime_error("Chunk descomprimido com tamanho inesperado.");
-            out.write(reinterpret_cast<const char*>(decompressBuffer.data()), static_cast<std::streamsize>(decompressBuffer.size()));}
+        const std::string chunkHex = Compactador::blake3Hex(c.blob.data(), c.blob.size());
+        const Blob chunkHashBytes = hexDecode(chunkHex);
+        chunkHashSeq.insert(chunkHashSeq.end(), chunkHashBytes.begin(), chunkHashBytes.end());
+        out.write(reinterpret_cast<const char*>(c.blob.data()), static_cast<std::streamsize>(c.blob.size()));
         if (!out)
             throw std::runtime_error("Erro escrevendo arquivo restaurado: " + tempTarget.string());}
     out.close();
     if (!out)
         throw std::runtime_error("Falha ao fechar arquivo restaurado: " + tempTarget.string());
+    if (!found->fileHash.empty() && !chunkHashSeq.empty()) {
+        const std::string computedHex = Compactador::blake3Hex(chunkHashSeq.data(), chunkHashSeq.size());
+        const std::string expectedHex = hexEncode(found->fileHash.data(), found->fileHash.size());
+        if (computedHex != expectedHex)
+            throw std::runtime_error("Verificacao de integridade BLAKE3 falhou: hash divergente apos restaurar '" + rp + "'");}
     if (restoreFsyncEnabled())
         fsyncRestoredFile(tempTarget);
     fs::rename(tempTarget, target, ec);
