@@ -31,11 +31,9 @@ namespace keeply {
 Blob Compactador::aesGcmEncrypt(
     const std::array<unsigned char, 32>& key,
     const std::array<unsigned char, 12>& iv,
-    const unsigned char* data, std::size_t len)
-{
+    const unsigned char* data, std::size_t len){
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) throw std::runtime_error("EVP_CIPHER_CTX_new falhou (encrypt).");
-    // Saida: [16-byte tag][ciphertext]; GCM nao altera tamanho do texto
     Blob out(16 + len);
     int outLen = 0;
     if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1 ||
@@ -57,9 +55,8 @@ bool Compactador::aesGcmDecrypt(
     const std::array<unsigned char, 32>& key,
     const std::array<unsigned char, 12>& iv,
     const unsigned char* data, std::size_t len,
-    Blob& plainOut)
-{
-    if (len < 16) return false;  // precisa de pelo menos 16 bytes de tag
+    Blob& plainOut){
+    if (len < 16) return false;
     const unsigned char* tag        = data;
     const unsigned char* ciphertext = data + 16;
     const std::size_t    cipherLen  = len - 16;
@@ -87,7 +84,6 @@ bool Compactador::deriveKeyFromEnv(std::array<unsigned char, 32>& keyOut) {
     const char* raw = std::getenv("KEEPLY_BACKUP_KEY");
     if (!raw || raw[0] == '\0') return false;
     const std::string s(raw);
-    // 64 chars hex -> 32 bytes direto
     if (s.size() == 64) {
         bool validHex = true;
         for (std::size_t i = 0; i < 32 && validHex; ++i) {
@@ -100,10 +96,8 @@ bool Compactador::deriveKeyFromEnv(std::array<unsigned char, 32>& keyOut) {
             if (hi < 0 || lo < 0) { validHex = false; break; }
             keyOut[i] = static_cast<unsigned char>((hi << 4) | lo);}
         if (validHex) return true;}
-    // Qualquer outra string: SHA-256 como chave
     SHA256(reinterpret_cast<const unsigned char*>(s.data()), s.size(), keyOut.data());
     return true;}
-
 std::string Compactador::blake3Hex(const void* data, std::size_t len) {
     unsigned char digest[32]{};
     blake3_hasher hasher;

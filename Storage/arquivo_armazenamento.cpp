@@ -658,7 +658,6 @@ std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset
     Blob comp(expectedCompSize);
     if (expectedCompSize > 0) in.read(reinterpret_cast<char*>(comp.data()), static_cast<std::streamsize>(comp.size()));
     if (!in) throw std::runtime_error("Falha lendo blob comprimido do pack.");
-    // Descriptografa AES-256-GCM se houver IV registrado no SQLite
     if (!encryptIv.empty()) {
         if (encryptIv.size() != 12) throw std::runtime_error("IV invalido: esperado 12 bytes para AES-GCM.");
         std::array<unsigned char, 32> key{};

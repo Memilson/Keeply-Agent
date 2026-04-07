@@ -1,20 +1,15 @@
 #include "../WebSocket/websocket_interno.hpp"
 #include "../Cloud/fila_upload.hpp"
 #include "http_util.hpp"
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
 #include <sys/stat.h>
 #endif
 #include <array>
@@ -25,9 +20,11 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 namespace keeply::ws_internal {
 namespace {
 struct HttpTls {
@@ -58,7 +55,8 @@ void configurePeerVerification(SSL* ssl, const ParsedUrl& url, bool allowInsecur
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
     if (SSL_set1_host(ssl, url.host.c_str()) != 1) {
         throw std::runtime_error("Falha ao configurar validacao de hostname TLS.");}
-#endif}
+#endif
+}
 std::string decodeChunkedBody(const std::string& body) {
     std::string decoded;
     std::size_t cursor = 0;
@@ -143,6 +141,13 @@ std::string readHttpResponseBody(int fd, SSL* ssl) {
         if (n == 0) break;
         data.append(buf, n);}
     return data;}}
+std::size_t computeUploadWorkerCount(std::size_t blobPartCount) {
+    if (blobPartCount <= 1) return blobPartCount;
+    const std::size_t hw = std::max<std::size_t>(std::thread::hardware_concurrency(), 2);
+    const std::size_t cpuBased = hw >= 8 ? hw * 2 : hw;
+    const std::size_t target = std::clamp<std::size_t>(cpuBased, 2, 20);
+    return std::min<std::size_t>(blobPartCount, target);
+}
 HttpResponse httpPostJson(const std::string& url,
                           const std::string& body,
                           const std::optional<fs::path>& certPemPath,
@@ -429,10 +434,11 @@ void saveIdentityMeta(const AgentIdentity& identity) {
     out << "key_pem=" << pathToUtf8(identity.keyPemPath) << "\n";
     out.flush();
     if (!out) throw std::runtime_error("Falha ao finalizar identity.meta do agente.");
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
     if (::chmod(identity.metaPath.c_str(), static_cast<mode_t>(0600)) != 0) {
         throw std::runtime_error("Falha ao ajustar permissoes de identity.meta.");}
-#endif}
+#endif
+}
 std::vector<std::string> splitPipe(const std::string& value) {
     std::vector<std::string> out;
     std::size_t start = 0;
@@ -533,9 +539,19 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
             if (!item.path.empty()) {
                 std::error_code cleanupEc;
                 fs::remove(item.path, cleanupEc);}}
+        const std::size_t uploadWorkers = computeUploadWorkerCount(bundle.blobPartCount);
+        std::cout << "[keeply][upload] workers=" << uploadWorkers
+                  << " | blob_parts=" << bundle.blobPartCount
+                  << " | files_total=" << filesTotal << "\n";
+        std::cout.flush();
+        if (onProgress && bundle.blobPartCount > 0) {
+            onProgress(UploadProgressSnapshot{
+                uploadedCount.load(), filesTotal, 0, bundle.blobPartCount,
+                "workers=" + std::to_string(uploadWorkers), "scheduler"
+            });}
         runParallelUploadQueue(
             bundle.blobPartCount,
-            ParallelUploadOptions{2, 3, std::chrono::milliseconds(750)},
+            ParallelUploadOptions{uploadWorkers, 3, std::chrono::milliseconds(750)},
             [&](std::size_t partIndex, std::size_t attempt) {
                 auto blobFile = archive.materializeCloudBundleBlob(bundle, partIndex);
                 try {
@@ -557,4 +573,5 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
     result.filesUploaded = uploadedCount.load();
     result.blobPartCount = uploadedBlobCount.load();
     if (result.manifestResponse.status == 0) throw std::runtime_error("Manifest do bundle cloud nao foi enviado.");
-    return result;}}
+    return result;}
+}

@@ -5,13 +5,8 @@
 #include <fstream>
 #include <system_error>
 #include <vector>
-#if defined(_WIN32)
-#include <fcntl.h>
-#include <io.h>
-#else
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 namespace keeply {
 namespace {
 bool restoreFsyncEnabled() {
@@ -21,19 +16,11 @@ bool restoreFsyncEnabled() {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return value == "1" || value == "true" || value == "yes" || value == "on";}
 void fsyncRestoredFile(const fs::path& target) {
-#if defined(_WIN32)
-    const int fd = _wopen(target.wstring().c_str(), _O_BINARY | _O_RDWR);
-    if (fd < 0) throw std::runtime_error("Falha abrindo arquivo para flush fisico: " + target.string());
-    const int rc = _commit(fd);
-    _close(fd);
-    if (rc != 0) throw std::runtime_error("Falha no flush fisico do arquivo restaurado: " + target.string());
-#else
     const int fd = ::open(target.c_str(), O_RDWR);
     if (fd < 0) throw std::runtime_error("Falha abrindo arquivo para fsync: " + target.string());
     const int rc = ::fsync(fd);
     ::close(fd);
-    if (rc != 0) throw std::runtime_error("Falha no fsync do arquivo restaurado: " + target.string());
-#endif}
+    if (rc != 0) throw std::runtime_error("Falha no fsync do arquivo restaurado: " + target.string());}
 void applyRestoredMtime(const fs::path& target, sqlite3_int64 unixSecs) {
     std::error_code ec;
     const auto nowFileClock = fs::file_time_type::clock::now();

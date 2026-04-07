@@ -66,12 +66,9 @@ public:
     std::vector<StoredChunkRow> loadFileChunks(sqlite3_int64 fileId);
     std::vector<std::string> listSnapshotPaths(sqlite3_int64 snapshotId);
     void updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint64_t token);
-    // Encriptacao: grava IV por chunk apos backup criptografado
     void setChunkEncryptIv(const ChunkHash& hash, const Blob& iv);
-    // Assinaturas rsync: salva/carrega sig para delta incremental byte-level
     void saveFileSignature(sqlite3_int64 snapshotId, const std::string& path, const Blob& sigBlob);
     std::optional<Blob> loadFileSignature(const std::string& path);
-    // Checkpoint de upload multipart: persiste parts ja enviadas para retomada
     void markPartUploaded(const std::string& bundleId, int partIndex,
                           const std::string& uploadId, const std::string& etag);
     std::vector<std::pair<int,std::string>> loadUploadedParts(const std::string& bundleId);

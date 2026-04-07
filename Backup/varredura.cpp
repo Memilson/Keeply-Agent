@@ -9,9 +9,6 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 namespace keeply {
 namespace {
 static Blob hexToBlob(const std::string& hex) {
@@ -38,15 +35,6 @@ static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_po
     if (discoveredFiles <= 1) return true;
     if ((discoveredFiles % 200u) == 0u) return true;
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - lastEmit).count() >= 1200;}
-#ifdef _WIN32
-static DWORD windowsFileAttributes(const fs::path& path) {
-    const DWORD attrs = GetFileAttributesW(path.wstring().c_str());
-    return attrs == INVALID_FILE_ATTRIBUTES ? 0 : attrs;}
-static bool isWindowsOfflinePlaceholder(const fs::path& path) {
-    const DWORD attrs = windowsFileAttributes(path);
-    if (attrs == 0) return false;
-    return (attrs & FILE_ATTRIBUTE_OFFLINE) != 0;}
-#endif
 static bool parseBoolConfigValue(const std::string& rawValue, bool defaultValue) {
     std::string value = trim(rawValue);
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -254,15 +242,6 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.filesCompleted;
                 progressEmit(progressCallback, progress);
                 continue;}
-#ifdef _WIN32
-            if (isWindowsOfflinePlaceholder(filePath)) {
-                snapshotPaths.erase(rel);
-                ++progress.stats.warnings;
-                ++progress.filesCompleted;
-                progress.phase = "backup";
-                progressEmit(progressCallback, progress);
-                continue;}
-#endif
             const auto prevIt = prevMap.find(rel);
             if (prevIt != prevMap.end() && prevIt->second.size == size && prevIt->second.mtime == mtime) {
                 arc.cloneFileFromPrevious(snapshotId, rel, prevIt->second);
@@ -301,8 +280,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                             arc.setChunkEncryptIv(ch, ivBlob);}
                     } else {
                     if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
-                        ++progress.stats.uniqueChunksInserted;}
-                    }
+                        ++progress.stats.uniqueChunksInserted;}}
                     StorageArchive::PendingFileChunk row;
                     row.chunkIdx = chunkIdx++;
                     row.chunkHash = ch;
@@ -311,14 +289,11 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 const Blob fileHash = buildFileHashFromChunkSequence(chunkSeq);
                 arc.addFileChunksBulk(fileId, rows);
                 arc.updateFileHash(fileId, fileHash);
-                // Gera e persiste assinatura rsync para suporte a delta byte-level
-                // no proximo backup incremental deste arquivo (requer librsync)
 #if KEEPLY_HAVE_RSYNC
                 try {
                     const Blob sig = rsyncGenerateSignature(filePath);
                     arc.saveFileSignature(snapshotId, rel, sig);
                 } catch (...) {
-                    // Falha na geracao da assinatura nao e fatal
                     ++progress.stats.warnings;}
 #endif
                 ++progress.stats.added;
@@ -345,13 +320,6 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
         throw;}}
 std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
     std::vector<std::string> out;
-#ifdef _WIN32
-    for (char d = 'A'; d <= 'Z'; ++d) {
-        std::string root;
-        root += d;
-        root += ":\\";
-        if (fs::exists(root)) out.push_back(root);}
-#else
     if (fs::exists("/")) out.push_back("/");
     const std::vector<KnownDirectory> knownDirs = {
         KnownDirectory::Home,
@@ -366,6 +334,5 @@ std::vector<std::string> ScanEngine::listAvailableSourceRoots() {
         if (const auto path = knownDirectoryPath(dir); path && fs::exists(*path)) {
             const std::string value = path->string();
             if (std::find(out.begin(), out.end(), value) == out.end()) out.push_back(value);}}
-#endif
     if (out.empty()) out.push_back(defaultSourceRootPath().string());
     return out;}}

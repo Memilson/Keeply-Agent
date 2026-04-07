@@ -1,28 +1,12 @@
 #include "http_util.hpp"
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
 #include <cerrno>
 #include <cstring>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 #include <cctype>
 #include <stdexcept>
 namespace keeply::http_internal {
-namespace {
-#ifdef _WIN32
-struct WinsockInit {
-    WinsockInit() {
-        WSADATA data{};
-        if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
-            throw std::runtime_error("WSAStartup falhou.");}}
-    ~WinsockInit() {
-        WSACleanup();}
-};
-#endif}
 std::string toLower(std::string value) {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return value;}
@@ -75,49 +59,17 @@ std::string urlEncode(const std::string& value) {
             out.push_back(kHex[(c >> 4) & 0x0F]);
             out.push_back(kHex[c & 0x0F]);}}
     return out;}
-void ensureSocketRuntime() {
-#ifdef _WIN32
-    static WinsockInit init;
-    (void)init;
-#endif}
+void ensureSocketRuntime() {}
 int closeSocketFd(int fd) {
-#ifdef _WIN32
-    return closesocket(static_cast<SOCKET>(fd));
-#else
-    return ::close(fd);
-#endif}
+    return ::close(fd);}
 int lastSocketError() {
-#ifdef _WIN32
-    return WSAGetLastError();
-#else
-    return errno;
-#endif}
+    return errno;}
 bool socketInterrupted(int err) {
-#ifdef _WIN32
-    return err == WSAEINTR;
-#else
-    return err == EINTR;
-#endif}
+    return err == EINTR;}
 bool socketTimeoutOrWouldBlock(int err) {
-#ifdef _WIN32
-    return err == WSAETIMEDOUT || err == WSAEWOULDBLOCK;
-#else
-    return err == EAGAIN || err == EWOULDBLOCK;
-#endif}
+    return err == EAGAIN || err == EWOULDBLOCK;}
 std::string socketErrorMessage(int err) {
-#ifdef _WIN32
-    char* buffer = nullptr;
-    const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
-    const DWORD len = FormatMessageA(flags, nullptr, static_cast<DWORD>(err),
-                                     MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                                     reinterpret_cast<LPSTR>(&buffer), 0, nullptr);
-    std::string out = (len && buffer) ? std::string(buffer, len) : ("WSA error " + std::to_string(err));
-    if (buffer) LocalFree(buffer);
-    while (!out.empty() && (out.back() == '\r' || out.back() == '\n' || out.back() == ' ')) out.pop_back();
-    return out;
-#else
-    return std::strerror(err);
-#endif}
+    return std::strerror(err);}
 int openTcpSocket(const std::string& host, int port) {
     ensureSocketRuntime();
     addrinfo hints{};

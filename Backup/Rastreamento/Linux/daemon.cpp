@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
     try {
         keeply::rastreamento_eventos_base::OpcoesDaemonMonitor options;
         try {
-            options = keeply::rastreamento_eventos_base::parseDaemonMonitorArgs(argc, argv, false);
+            options = keeply::rastreamento_eventos_base::parseDaemonMonitorArgs(argc, argv);
         } catch (const std::runtime_error& ex) {
             if (std::string(ex.what()) == "__KEEPLY_DAEMON_HELP__") {
                 std::cout << "Uso: keeply_daemon --root <diretorio> [--foreground]\n";

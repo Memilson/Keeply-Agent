@@ -12,6 +12,7 @@ namespace fs = std::filesystem;
 struct ChangedFile {
     std::string relPath;
     bool isDeleted = false;
+    std::string eventType;
 };
 class EventStore {
 public:
@@ -91,9 +92,6 @@ private:
 struct OpcoesDaemonMonitor {
     fs::path rootPath;
     bool foreground = false;
-    bool installService = false;
-    bool uninstallService = false;
-    bool serviceMode = false;
 };
 class MonitorRunner {
 public:
@@ -106,11 +104,9 @@ private:
 };
 std::unique_ptr<MotorMonitor> createLinuxMotorMonitor(const fs::path& rootPath,
                                                       bool respectSystemExclusionPolicy);
-std::unique_ptr<MotorMonitor> createWindowsMotorMonitor(const fs::path& rootPath,
-                                                        bool respectSystemExclusionPolicy);
 std::unique_ptr<MotorMonitor> createPlatformMotorMonitor(const fs::path& rootPath,
                                                          bool respectSystemExclusionPolicy);
-OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServiceOptions);
+OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv);
 fs::path resolveDaemonMonitorRootOrThrow(const fs::path& rootFromArgs);
 void prepareDaemonMonitorState(const fs::path& rootPath, const std::string& pidValue);
 fs::path resolveAndPrepareDaemonMonitorRootOrThrow(const fs::path& rootFromArgs,

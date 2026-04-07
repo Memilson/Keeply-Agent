@@ -1,14 +1,11 @@
 #define KEEPLY_DAEMON_PROGRAM 1
 #define main keeply_cbt_main
-#ifdef _WIN32
-  #include "Backup/Rastreamento/Windows/daemon.cpp"
-#else
-  #include "Backup/Rastreamento/Linux/daemon.cpp"
-#endif
+#include "Backup/Rastreamento/Linux/daemon.cpp"
 #undef main
 #undef KEEPLY_DAEMON_PROGRAM
 #include "WebSocket/websocket_agente.hpp"
 #include "Backup/Rastreamento/rastreamento_mudancas.hpp"
+#include <atomic>
 #include <filesystem>
 #include <cerrno>
 #include <cctype>
@@ -21,11 +18,7 @@
 #include <string>
 #include <thread>
 #include <vector>
-#ifdef _WIN32
-#include <windows.h>
-#include <tlhelp32.h>
-#endif
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
 #include <csignal>
 #include <sys/file.h>
 #include <sys/types.h>
@@ -50,23 +43,15 @@ static bool envTruthyAny(std::initializer_list<const char*> keys) {
 static std::string detectOsName() {
 #if defined(__linux__)
     return "linux";
-#elif defined(_WIN32)
-    return "windows";
-#elif defined(__APPLE__)
-    return "macos";
 #else
     return "unknown";
-#endif}
+#endif
+}
 static std::string detectHostName() {
-#if defined(_WIN32)
-    auto v = eventos::envOrEmpty("COMPUTERNAME");
-    return v.empty() ? "keeply-host" : v;
-#else
     char buf[256]{};
     if (::gethostname(buf, sizeof(buf) - 1) == 0 && buf[0]) return std::string(buf);
     auto v = eventos::envOrEmpty("HOSTNAME");
-    return v.empty() ? "keeply-host" : v;
-#endif}
+    return v.empty() ? "keeply-host" : v;}
 static std::string argOrEmpty(int argc, char** argv, int i) {
     return (i < argc && argv[i]) ? std::string(argv[i]) : std::string();}
 static fs::path pickDataDir() {
@@ -85,20 +70,9 @@ static std::string findExecutableOnPath(const char* name) {
     auto pathEnv = eventos::envOrEmpty("PATH");
     if (pathEnv.empty()) return {};
     const char separator =
-#ifdef _WIN32
-        ';';
-#else
         ':';
-#endif
     std::vector<std::string> candidates;
     candidates.emplace_back(name);
-#ifdef _WIN32
-    const std::string baseName = name ? std::string(name) : std::string();
-    if (baseName.find('.') == std::string::npos) {
-        candidates.push_back(baseName + ".exe");
-        candidates.push_back(baseName + ".cmd");
-        candidates.push_back(baseName + ".bat");}
-#endif
     std::size_t start = 0;
     while (start <= pathEnv.size()) {
         const std::size_t end = pathEnv.find(separator, start);
@@ -108,12 +82,8 @@ static std::string findExecutableOnPath(const char* name) {
                 fs::path candidate = fs::path(entry) / candidateName;
                 std::error_code ec;
                 if (!fs::exists(candidate, ec) || ec) continue;
-#ifdef _WIN32
-                if (fs::is_regular_file(candidate, ec) && !ec) return candidate.string();
-#else
                 const auto perms = fs::status(candidate, ec).permissions();
-                if (!ec && (perms & fs::perms::owner_exec) != fs::perms::none) return candidate.string();
-#endif}}
+                if (!ec && (perms & fs::perms::owner_exec) != fs::perms::none) return candidate.string();}}
         if (end == std::string::npos) break;
         start = end + 1;}
     return {};}
@@ -123,31 +93,13 @@ static void writePidFile(const fs::path& pidFile) {
     if (ec) throw std::runtime_error("Falha criando diretorio do PID file: " + ec.message());
     std::ofstream out(pidFile, std::ios::trunc);
     if (!out) throw std::runtime_error("Falha criando PID file: " + pidFile.string());
-#ifdef _WIN32
-    out << GetCurrentProcessId() << "\n";
-#else
-    out << getpid() << "\n";
-#endif}
+    out << getpid() << "\n";}
 class SingleInstanceGuard {
 public:
     explicit SingleInstanceGuard(const fs::path& pidFile) : pidFile_(pidFile) {
         std::error_code ec;
         fs::create_directories(pidFile.parent_path(), ec);
         if (ec) throw std::runtime_error("Falha criando diretorio do PID file: " + ec.message());
-#ifdef _WIN32
-        std::string mutexName = "keeply_agent_";
-        const std::string rawPath = pidFile.string();
-        mutexName.reserve(mutexName.size() + rawPath.size());
-        for (unsigned char ch : rawPath) {
-            mutexName.push_back(std::isalnum(ch) ? static_cast<char>(ch) : '_');}
-        mutex_ = CreateMutexA(nullptr, FALSE, mutexName.c_str());
-        if (!mutex_) throw std::runtime_error("Falha criando mutex de instancia unica do agente.");
-        if (GetLastError() == ERROR_ALREADY_EXISTS) {
-            CloseHandle(mutex_);
-            mutex_ = nullptr;
-            throw std::runtime_error("Ja existe outra instancia do Keeply Agent em execucao.");}
-        writePidFile(pidFile_);
-#else
         fd_ = ::open(pidFile_.c_str(), O_CREAT | O_RDWR, 0644);
         if (fd_ < 0) throw std::runtime_error("Falha abrindo PID file para lock: " + pidFile_.string());
         if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
@@ -169,32 +121,19 @@ public:
             ::flock(fd_, LOCK_UN);
             ::close(fd_);
             fd_ = -1;
-            throw std::runtime_error(message);}
-#endif}
+            throw std::runtime_error(message);}}
     ~SingleInstanceGuard() {
-#ifdef _WIN32
-        std::error_code ec;
-        fs::remove(pidFile_, ec);
-        if (mutex_) {
-            CloseHandle(mutex_);
-            mutex_ = nullptr;}
-#else
         std::error_code ec;
         fs::remove(pidFile_, ec);
         if (fd_ >= 0) {
             ::flock(fd_, LOCK_UN);
             ::close(fd_);
-            fd_ = -1;}
-#endif}
+            fd_ = -1;}}
     SingleInstanceGuard(const SingleInstanceGuard&) = delete;
     SingleInstanceGuard& operator=(const SingleInstanceGuard&) = delete;
 private:
     fs::path pidFile_;
-#ifdef _WIN32
-    HANDLE mutex_ = nullptr;
-#else
     int fd_ = -1;
-#endif
 };
 #ifdef __linux__
 static fs::path currentExecutablePath() {
@@ -361,78 +300,59 @@ public:
     void stop() noexcept {}
 };
 #endif
+class CbtEventLogger {
+public:
+    void start(const fs::path& watchRoot) {
+        stop();
+        root_ = fs::absolute(watchRoot).lexically_normal();
+        stopRequested_.store(false);
+        worker_ = std::thread([this]() {
+            try {
+                keeply::EventStore store(keeply::defaultEventStorePath());
+                lastToken_ = store.latestToken(root_).value_or(0);
+                while (!stopRequested_.load()) {
+                    std::uint64_t newToken = lastToken_;
+                    auto changes = store.loadChangesSince(root_, lastToken_, newToken);
+                    if (!changes.empty()) {
+                        for (const auto& change : changes) logChange_(change);
+                        lastToken_ = newToken;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(750));
+                }
+            } catch (const std::exception& ex) {
+                std::cerr << "[keeply][cbt][warn] logger de eventos indisponivel: " << ex.what() << "\n";
+            }
+        });
+    }
+    void stop() noexcept {
+        stopRequested_.store(true);
+        if (worker_.joinable()) worker_.join();
+    }
+    ~CbtEventLogger() { stop(); }
+private:
+    static const char* labelFor_(const keeply::ChangedFile& change) {
+        if (change.isDeleted || change.eventType == "delete") return "removido";
+        if (change.eventType == "modify") return "modificado";
+        return "adicionado";
+    }
+    static void logChange_(const keeply::ChangedFile& change) {
+        if (change.relPath.empty()) return;
+        std::cout << "[keeply][cbt] " << labelFor_(change) << " | " << change.relPath << "\n";
+        std::cout.flush();
+    }
+    fs::path root_;
+    std::atomic<bool> stopRequested_{false};
+    std::thread worker_;
+    std::uint64_t lastToken_ = 0;
+};
 struct AgentRuntimeOptions {
     std::string url;
     std::string deviceName;
     fs::path watchRoot;
     bool foreground = false;
     bool enableTray = true;
-#ifdef _WIN32
-    bool allowInsecureTls = true;
-    bool installService = false;
-    bool uninstallService = false;
-    bool background = false;
-#else
     bool allowInsecureTls = false;
-#endif
 };
-#ifdef _WIN32
-static fs::path agentCurrentExePath() {
-    std::wstring buf(MAX_PATH, L'\0');
-    for (;;) {
-        DWORD n = GetModuleFileNameW(nullptr, buf.data(), (DWORD)buf.size());
-        if (n == 0) throw std::runtime_error("Falha resolvendo executavel.");
-        if (n < buf.size() - 1) { buf.resize(n); return fs::path(buf); }
-        buf.resize(buf.size() * 2, L'\0');}}
-static constexpr const wchar_t* kRunKey   = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
-static constexpr const wchar_t* kRunValue = L"KeeplyAgent";
-static void agentLaunchBackground(const AgentRuntimeOptions& opts) {
-    const fs::path exe = agentCurrentExePath();
-    std::wstring cmd = L"\"" + exe.wstring() + L"\" --background";
-    if (!opts.url.empty())        cmd += L" --url \"" + std::wstring(opts.url.begin(), opts.url.end()) + L"\"";
-    if (!opts.deviceName.empty()) cmd += L" --device \"" + std::wstring(opts.deviceName.begin(), opts.deviceName.end()) + L"\"";
-    if (!opts.watchRoot.empty())  cmd += L" --root \"" + opts.watchRoot.wstring() + L"\"";
-    STARTUPINFOW si{}; si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::wstring cmdMut = cmd;
-    if (CreateProcessW(nullptr, cmdMut.data(), nullptr, nullptr, FALSE,
-                       DETACHED_PROCESS | CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);}}
-static void agentRegisterAutorun(const AgentRuntimeOptions& opts) {
-    const fs::path exe = agentCurrentExePath();
-    std::wstring cmd = L"\"" + exe.wstring() + L"\" --background";
-    if (!opts.url.empty())        cmd += L" --url \"" + std::wstring(opts.url.begin(), opts.url.end()) + L"\"";
-    if (!opts.deviceName.empty()) cmd += L" --device \"" + std::wstring(opts.deviceName.begin(), opts.deviceName.end()) + L"\"";
-    if (!opts.watchRoot.empty())  cmd += L" --root \"" + opts.watchRoot.wstring() + L"\"";
-    HKEY hkey = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
-        RegSetValueExW(hkey, kRunValue, 0, REG_SZ,
-            reinterpret_cast<const BYTE*>(cmd.c_str()),
-            static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(hkey);}}
-static void agentInstallService(const AgentRuntimeOptions& opts) {
-    agentRegisterAutorun(opts);
-    agentLaunchBackground(opts);
-    std::cout << "Keeply Agent instalado e iniciado em background.\n";}
-static void agentUninstallService() {
-    HKEY hkey = nullptr;
-    LONG res = RegOpenKeyExW(HKEY_CURRENT_USER, kRunKey, 0, KEY_SET_VALUE, &hkey);
-    if (res != ERROR_SUCCESS) throw std::runtime_error("Falha abrindo chave de registro. Erro=" + std::to_string(res));
-    RegDeleteValueW(hkey, kRunValue);
-    RegCloseKey(hkey);
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32W pe{}; pe.dwSize = sizeof(pe);
-        if (Process32FirstW(snap, &pe)) {
-            do {
-                if (std::wstring(pe.szExeFile).find(L"keeply") != std::wstring::npos) {
-                    HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
-                    if (h) { TerminateProcess(h, 0); CloseHandle(h); }}
-            } while (Process32NextW(snap, &pe));}
-        CloseHandle(snap);}
-    std::cout << "Keeply Agent removido do inicio automatico.\n";}
-#endif
 static AgentRuntimeOptions parseArgs(int argc, char** argv) {
     AgentRuntimeOptions options;
     static const std::string kDefaultWsUrl = "wss://backend.keeply.app.br/ws/agent";
@@ -440,11 +360,7 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
     options.deviceName = envOrEmptyAny({"KEEPLY_DEVICE_NAME", "KEEPly_DEVICE_NAME"});
     options.watchRoot  = pickWatchRoot();
     options.enableTray     = !envTruthyAny({"KEEPLY_DISABLE_TRAY", "KEEPly_DISABLE_TRAY"});
-#ifdef _WIN32
-    options.allowInsecureTls = true;
-#else
     options.allowInsecureTls = envTruthyAny({"KEEPLY_INSECURE_TLS", "KEEPly_INSECURE_TLS"});
-#endif
     int positionalIndex = 0;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argOrEmpty(argc, argv, i);
@@ -460,11 +376,6 @@ static AgentRuntimeOptions parseArgs(int argc, char** argv) {
         if (arg == "--foreground")   { options.foreground = true; continue; }
         if (arg == "--no-tray")      { options.enableTray = false; continue; }
         if (arg == "--insecure-tls") { options.allowInsecureTls = true; continue; }
-#ifdef _WIN32
-        if (arg == "--install-service")   { options.installService   = true; continue; }
-        if (arg == "--uninstall-service") { options.uninstallService = true; continue; }
-        if (arg == "--background")        { options.background       = true; continue; }
-#endif
         if (!arg.empty() && arg[0] == '-') throw std::runtime_error("Argumento invalido: " + arg);
         if (positionalIndex == 0) options.url = arg;
         else if (positionalIndex == 1) options.deviceName = arg;
@@ -496,6 +407,7 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     OptionalTrayIndicator tray;
     if (options.enableTray) tray.start();
     keeply::BackgroundCbtWatcher watcher;
+    CbtEventLogger cbtLogger;
     bool cbtStarted = false;
 #ifdef __linux__
     try {
@@ -508,6 +420,7 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     try { watcher.start(watchRoot); cbtStarted = watcher.running(); }
     catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
 #endif
+    if (options.foreground && cbtStarted) cbtLogger.start(watchRoot);
     constexpr int kBackoffInitialMs = 1000;
     constexpr int kBackoffMaxMs     = 60000;
     constexpr double kBackoffJitterFactor = 0.25;
@@ -555,43 +468,13 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
         backoffMs = std::min(backoffMs * 2, kBackoffMaxMs);}}
 int main(int argc, char** argv) {
     try {
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
         std::signal(SIGPIPE, SIG_IGN);
 #endif
         if (argc >= 2 && std::string(argv[1]) == "cbt") {
             argv[1] = argv[0];
             return keeply_cbt_main(argc - 1, argv + 1);}
         const AgentRuntimeOptions options = parseArgs(argc, argv);
-#ifdef _WIN32
-        if (options.installService)   { agentInstallService(options); return 0; }
-        if (options.uninstallService) { agentUninstallService(); return 0; }
-        if (options.background) {
-            runAgentLoop(options);
-            return 0;}
-        agentRegisterAutorun(options);{
-            auto dataDir = pickDataDir();
-            std::error_code ec;
-            fs::create_directories(dataDir, ec);
-            keeply::WsClientConfig config;
-            config.url              = options.url;
-            config.allowInsecureTls = options.allowInsecureTls;
-            config.hostName         = detectHostName();
-            config.deviceName       = config.hostName;
-            if (!options.deviceName.empty()) config.deviceName = options.deviceName;
-            config.osName           = detectOsName();
-            config.identityDir      = dataDir / "agent_identity";
-            auto existing = keeply::KeeplyAgentBootstrap::loadPersistedIdentity(config);
-            if (existing.deviceId.empty()) {
-                try {
-                    keeply::KeeplyAgentBootstrap::ensureRegistered(config);
-                } catch (const std::exception& ex) {
-                    std::wstring msg = L"Falha ao registrar dispositivo:\n";
-                    msg += std::wstring(ex.what(), ex.what() + ::strlen(ex.what()));
-                    MessageBoxW(nullptr, msg.c_str(), L"Keeply - Erro", MB_OK | MB_ICONERROR);
-                    return 1;}}}
-        agentLaunchBackground(options);
-        return 0;
-#endif
 #ifdef __linux__
         if (!options.foreground) daemonizeProcess();
 #endif

@@ -13,16 +13,13 @@
 #include <system_error>
 #include <thread>
 #include <utility>
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
 #include <csignal>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#endif
-#ifdef _WIN32
-#include <windows.h>
 #endif
 namespace keeply {
 namespace {
@@ -52,15 +49,6 @@ constexpr const char* kFallbackHost   = "desconhecido";
 constexpr const char* kWindowTitle    = "Keeply";
 constexpr int kWindowWidth  = 460;
 constexpr int kWindowHeight = 340;
-#ifdef _WIN32
-constexpr COLORREF kWinBrandBlue = RGB(0x1E, 0x88, 0xE5);
-constexpr COLORREF kWinBlueDark  = RGB(0x15, 0x65, 0xC0);
-constexpr COLORREF kWinWhite     = RGB(0xFF, 0xFF, 0xFF);
-constexpr COLORREF kWinCodeBg    = RGB(0xEF, 0xF6, 0xFF);
-constexpr COLORREF kWinBorder    = RGB(0xBF, 0xDB, 0xFE);
-constexpr COLORREF kWinTextDark  = RGB(0x1E, 0x29, 0x3B);
-constexpr COLORREF kWinTextMuted = RGB(0x64, 0x74, 0x8B);
-#endif
 inline std::string buildHtmlPopup(const std::string& code,
                                   const std::string& deviceName,
                                   const std::string& hostName) {
@@ -171,176 +159,7 @@ private:
             if (i > 0 && i % 4 == 0) out += ' ';
             out += code[i];}
         return out;}
-#ifdef _WIN32
-    HWND   hwnd_         = nullptr;
-    HANDLE threadHandle_  = nullptr;
-    DWORD  threadId_      = 0;
-    struct PopupContext {
-        PairingPopupHandle* self;
-        std::wstring codeFormatted;
-        std::wstring deviceName;
-        std::wstring hostName;
-    };
-    static std::wstring toWide(const std::string& utf8) {
-        if (utf8.empty()) return {};
-        const int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
-        if (len <= 0) return {};
-        std::wstring wide(static_cast<std::size_t>(len), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, wide.data(), len);
-        if (!wide.empty() && wide.back() == L'\0') wide.pop_back();
-        return wide;}
-    static void paintWindow(HWND hwnd, const PopupContext* ctx) {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        const int W = rc.right;
-        HBRUSH whiteBrush = CreateSolidBrush(ui::kWinWhite);
-        FillRect(hdc, &rc, whiteBrush);
-        DeleteObject(whiteBrush);
-        RECT topBar = {0, 0, W, 48};
-        HBRUSH blueBrush = CreateSolidBrush(ui::kWinBrandBlue);
-        FillRect(hdc, &topBar, blueBrush);
-        DeleteObject(blueBrush);
-        SetBkMode(hdc, TRANSPARENT);
-        HFONT titleFont = CreateFontW(-18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                                       DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-        HFONT oldFont = (HFONT)SelectObject(hdc, titleFont);
-        SetTextColor(hdc, ui::kWinWhite);
-        RECT titleRect = {20, 0, W, 48};
-        DrawTextW(hdc, L"Keeply", -1, &titleRect, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-        SelectObject(hdc, oldFont);
-        DeleteObject(titleFont);
-        int y = 68;
-        HFONT subtitleFont = CreateFontW(-13, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
-                                          DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-        SelectObject(hdc, subtitleFont);
-        SetTextColor(hdc, ui::kWinTextMuted);
-        RECT subRect = {0, y, W, y + 20};
-        DrawTextW(hdc, L"C\x00f3" L"digo de ativa\x00e7\x00e3o do agente", -1, &subRect,
-                  DT_SINGLELINE | DT_CENTER);
-        SelectObject(hdc, oldFont);
-        DeleteObject(subtitleFont);
-        y += 32;
-        const int boxMargin = 40;
-        const int boxH = 64;
-        RECT codeBox = {boxMargin, y, W - boxMargin, y + boxH};
-        HBRUSH codeBg = CreateSolidBrush(ui::kWinCodeBg);
-        FillRect(hdc, &codeBox, codeBg);
-        DeleteObject(codeBg);
-        HPEN borderPen = CreatePen(PS_SOLID, 2, ui::kWinBorder);
-        HPEN oldPen = (HPEN)SelectObject(hdc, borderPen);
-        HBRUSH nullBrush = (HBRUSH)GetStockObject(NULL_BRUSH);
-        SelectObject(hdc, nullBrush);
-        RoundRect(hdc, codeBox.left, codeBox.top, codeBox.right, codeBox.bottom, 16, 16);
-        SelectObject(hdc, oldPen);
-        DeleteObject(borderPen);
-        if (ctx) {
-            HFONT codeFont = CreateFontW(-32, 0, 0, 0, FW_EXTRABOLD, FALSE, FALSE, FALSE,
-                                          DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
-            SelectObject(hdc, codeFont);
-            SetTextColor(hdc, ui::kWinBlueDark);
-            DrawTextW(hdc, ctx->codeFormatted.c_str(), -1, &codeBox,
-                      DT_SINGLELINE | DT_CENTER | DT_VCENTER);
-            SelectObject(hdc, oldFont);
-            DeleteObject(codeFont);}
-        y += boxH + 24;
-        if (ctx) {
-            HFONT infoFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                          DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-            SelectObject(hdc, infoFont);
-            SetTextColor(hdc, ui::kWinTextMuted);
-            std::wstring devLine = L"Dispositivo: " + ctx->deviceName;
-            std::wstring hostLine = L"Host: " + ctx->hostName;
-            RECT devRect = {0, y, W, y + 18};
-            DrawTextW(hdc, devLine.c_str(), -1, &devRect, DT_SINGLELINE | DT_CENTER);
-            y += 20;
-            RECT hostRect = {0, y, W, y + 18};
-            DrawTextW(hdc, hostLine.c_str(), -1, &hostRect, DT_SINGLELINE | DT_CENTER);
-            y += 28;
-            SelectObject(hdc, oldFont);
-            DeleteObject(infoFont);}
-        RECT divider = {(W - 48) / 2, y, (W + 48) / 2, y + 3};
-        HBRUSH divBrush = CreateSolidBrush(ui::kWinBrandBlue);
-        FillRect(hdc, &divider, divBrush);
-        DeleteObject(divBrush);
-        y += 16;
-        HFONT hintFont = CreateFontW(-11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                      DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-        SelectObject(hdc, hintFont);
-        SetTextColor(hdc, ui::kWinTextMuted);
-        RECT hintRect = {20, y, W - 20, y + 30};
-        DrawTextW(hdc, L"Insira este c\x00f3" L"digo no painel Keeply \x2014 mantenha esta janela aberta.",
-                  -1, &hintRect, DT_CENTER | DT_WORDBREAK);
-        SelectObject(hdc, oldFont);
-        DeleteObject(hintFont);
-        EndPaint(hwnd, &ps);}
-    static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-        if (msg == WM_NCCREATE) {
-            auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));}
-        auto* ctx = reinterpret_cast<PopupContext*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        switch (msg) {
-        case WM_PAINT:
-            paintWindow(hwnd, ctx);
-            return 0;
-        case WM_ERASEBKGND:
-            return 1;
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-        default:
-            return DefWindowProcW(hwnd, msg, wParam, lParam);}}
-    static DWORD WINAPI popupThread(LPVOID param) {
-        std::unique_ptr<PopupContext> ctx(static_cast<PopupContext*>(param));
-        const wchar_t* className = L"KeeplyActivationWindow";
-        WNDCLASSW wc{};
-        wc.lpfnWndProc   = wndProc;
-        wc.hInstance      = GetModuleHandleW(nullptr);
-        wc.lpszClassName  = className;
-        wc.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground  = nullptr;
-        RegisterClassW(&wc);
-        const auto title = toWide(ui::kWindowTitle);
-        HWND hwnd = CreateWindowExW(
-            WS_EX_TOPMOST, className, title.c_str(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            ui::kWindowWidth, ui::kWindowHeight,
-            nullptr, nullptr, GetModuleHandleW(nullptr), ctx.get());
-        if (!hwnd) return 1;
-        ctx->self->hwnd_ = hwnd;
-        ShowWindow(hwnd, SW_SHOW);
-        UpdateWindow(hwnd);
-        MSG msg{};
-        while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);}
-        ctx->self->hwnd_ = nullptr;
-        return 0;}
-    void launchNativePopup(const std::string& code,
-                           const std::string& device,
-                           const std::string& host){
-        auto ctx = std::make_unique<PopupContext>();
-        ctx->self          = this;
-        ctx->codeFormatted = toWide(formatCode(code));
-        ctx->deviceName    = toWide(device.empty() ? ui::kFallbackDevice : device);
-        ctx->hostName      = toWide(host.empty()   ? ui::kFallbackHost   : host);
-        threadHandle_ = CreateThread(nullptr, 0, popupThread, ctx.get(), 0, &threadId_);
-        if (threadHandle_) {
-            ctx.release();}}
-    void closeNativePopup() {
-        if (hwnd_) PostMessageW(hwnd_, WM_CLOSE, 0, 0);
-        if (threadHandle_) {
-            WaitForSingleObject(threadHandle_, 2000);
-            CloseHandle(threadHandle_);
-            threadHandle_ = nullptr;
-            threadId_     = 0;}
-        hwnd_ = nullptr;}
-#elif defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
     pid_t pid_ = -1;
     fs::path scriptPath_;
     static bool popupDisabled_() {
@@ -458,8 +277,8 @@ w = max(content_width, 620)
 h = max(frame.winfo_reqheight() + 40, 400)
 sw = root.winfo_screenwidth()
 sh = root.winfo_screenheight()
-x = max((sw - w)
-y = max((sh - h)
+x = max((sw - w) // 2, 0)
+y = max((sh - h) // 2, 0)
 root.geometry(f"{w}x{h}+{x}+{y}")
 root.mainloop()
 )PY";}
@@ -514,13 +333,14 @@ root.mainloop()
 #endif
 };
 void tightenPermissions(const fs::path& path, bool executable) {
-#if defined(__linux__) || defined(__APPLE__)
+#ifdef __linux__
     const mode_t mode = executable ? mode_t{0700} : mode_t{0600};
     if (::chmod(path.c_str(), mode) != 0) {
         throw std::runtime_error("Falha ao ajustar permissoes de " + path.string());}
 #else
     (void)path; (void)executable;
-#endif}
+#endif
+}
 void ensureIdentityPermissions(const AgentIdentity& id) {
     if (fs::exists(id.certPemPath)) tightenPermissions(id.certPemPath, false);
     if (fs::exists(id.keyPemPath))  tightenPermissions(id.keyPemPath,  false);
@@ -613,6 +433,16 @@ PairingStatusResponse startPairing(const WsClientConfig& config,
         throw std::runtime_error("Falha ao iniciar pareamento. HTTP " +
                                  std::to_string(resp.status) + " | body=" + resp.body);}
     return parsePairingResponse(resp);}
+bool isDuplicateFingerprintError(const std::string& message) {
+    return message.find("devices_cert_fingerprint_sha256_key") != std::string::npos ||
+           message.find("cert_fingerprint_sha256") != std::string::npos;}
+void removeIdentityArtifacts(const AgentIdentity& identity) {
+    std::error_code ec;
+    if (!identity.certPemPath.empty()) fs::remove(identity.certPemPath, ec);
+    ec.clear();
+    if (!identity.keyPemPath.empty()) fs::remove(identity.keyPemPath, ec);
+    ec.clear();
+    if (!identity.metaPath.empty()) fs::remove(identity.metaPath, ec);}
 PairingStatusResponse pollPairingStatus(const WsClientConfig& config,
                                         const AgentIdentity& identity,
                                         const std::string& code){
@@ -674,7 +504,17 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     for (;;) {
         if (identity.pairingCode.empty()) identity.pairingCode = trim(config.pairingCode);
         if (identity.pairingCode.empty()) identity.pairingCode = ws_internal::randomDigits(8);
-        auto started = startPairing(config, identity, identity.pairingCode);
+        PairingStatusResponse started;
+        try {
+            started = startPairing(config, identity, identity.pairingCode);
+        } catch (const std::exception& ex) {
+            if (isDuplicateFingerprintError(ex.what())) {
+                removeIdentityArtifacts(identity);
+                identity = generateSelfSignedIdentity(config);
+                ensureIdentityPermissions(identity);
+                identity.pairingCode.clear();
+                continue;}
+            throw;}
         if (started.isConflict()) {
             identity.pairingCode.clear();
             continue;}

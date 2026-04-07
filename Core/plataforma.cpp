@@ -2,12 +2,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <system_error>
-#ifdef _WIN32
-#include <shlobj.h>
-#include <windows.h>
-#else
 #include <unistd.h>
-#endif
 namespace keeply {
 namespace detail {
 inline std::string trimAscii(const std::string& value) { return keeply::trim(value); }
@@ -27,21 +22,6 @@ inline void appendUnique(std::vector<fs::path>& out, const fs::path& path) {
     for (const auto& current : out) {
         if (normalized == current) return;}
     out.push_back(normalized);}
-#ifdef _WIN32
-inline std::optional<fs::path> knownFolderPath(REFKNOWNFOLDERID folderId) {
-    PWSTR raw = nullptr;
-    const HRESULT hr = SHGetKnownFolderPath(folderId, KF_FLAG_DEFAULT, nullptr, &raw);
-    if (FAILED(hr) || !raw) return std::nullopt;
-    const fs::path path(raw);
-    CoTaskMemFree(raw);
-    return normalizedOrEmpty(path);}
-inline std::wstring widenAscii(const char* text) {
-    std::wstring out;
-    if (!text) return out;
-    while (*text) out.push_back(static_cast<wchar_t>(*text++));
-    return out;}
-#endif
-#if !defined(_WIN32)
 inline std::optional<std::string> readXdgUserDir(const fs::path& homeDir, const std::string& key) {
     const fs::path configPath = homeDir / ".config" / "user-dirs.dirs";
     std::ifstream input(configPath);
@@ -61,16 +41,8 @@ inline std::optional<std::string> readXdgUserDir(const fs::path& homeDir, const 
             value.replace(homePos, homeToken.size(), homeDir.string());}
         return value;}
     return std::nullopt;}
-#endif
 inline std::optional<fs::path> homeFromEnvironment() {
-#ifdef _WIN32
-    if (const auto fromProfile = envValue("USERPROFILE")) return normalizedOrEmpty(pathFromUtf8(*fromProfile));
-    const auto drive = envValue("HOMEDRIVE");
-    const auto homePath = envValue("HOMEPATH");
-    if (drive && homePath) return normalizedOrEmpty(pathFromUtf8(*drive + *homePath));
-#else
     if (const auto fromHome = envValue("HOME")) return normalizedOrEmpty(pathFromUtf8(*fromHome));
-#endif
     return std::nullopt;}
 inline fs::path fallbackCurrentPath() {
     std::error_code ec;
@@ -81,32 +53,6 @@ std::string pathToUtf8(const fs::path& path) {
 fs::path pathFromUtf8(const std::string& utf8Path) {
     return fs::u8path(utf8Path);}
 std::optional<fs::path> knownDirectoryPath(KnownDirectory dir) {
-#ifdef _WIN32
-    switch (dir) {
-        case KnownDirectory::Home:
-            return detail::knownFolderPath(FOLDERID_Profile);
-        case KnownDirectory::Desktop:
-            return detail::knownFolderPath(FOLDERID_Desktop);
-        case KnownDirectory::Documents:
-            return detail::knownFolderPath(FOLDERID_Documents);
-        case KnownDirectory::Downloads:
-            return detail::knownFolderPath(FOLDERID_Downloads);
-        case KnownDirectory::Pictures:
-            return detail::knownFolderPath(FOLDERID_Pictures);
-        case KnownDirectory::Music:
-            return detail::knownFolderPath(FOLDERID_Music);
-        case KnownDirectory::Videos:
-            return detail::knownFolderPath(FOLDERID_Videos);
-        case KnownDirectory::LocalData:
-        case KnownDirectory::StateData:
-        case KnownDirectory::CacheData:
-            return detail::knownFolderPath(FOLDERID_LocalAppData);
-        case KnownDirectory::Temp:
-            if (const auto temp = detail::envValue("TEMP")) return detail::normalizedOrEmpty(pathFromUtf8(*temp));
-            if (const auto tmp = detail::envValue("TMP")) return detail::normalizedOrEmpty(pathFromUtf8(*tmp));
-            return std::nullopt;}
-    return std::nullopt;
-#else
     const fs::path home = homeDirectoryPath();
     switch (dir) {
         case KnownDirectory::Home:
@@ -131,52 +77,30 @@ std::optional<fs::path> knownDirectoryPath(KnownDirectory dir) {
             if (const auto value = detail::readXdgUserDir(home, "XDG_VIDEOS_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return detail::normalizedOrEmpty(home / "Videos");
         case KnownDirectory::LocalData:
-#if defined(__APPLE__)
-            return detail::normalizedOrEmpty(home / "Library" / "Application Support");
-#else
             if (const auto value = detail::envValue("XDG_DATA_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return detail::normalizedOrEmpty(home / ".local" / "share");
-#endif
         case KnownDirectory::StateData:
-#if defined(__APPLE__)
-            return detail::normalizedOrEmpty(home / "Library" / "Application Support");
-#else
             if (const auto value = detail::envValue("XDG_STATE_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return detail::normalizedOrEmpty(home / ".local" / "state");
-#endif
         case KnownDirectory::CacheData:
-#if defined(__APPLE__)
-            return detail::normalizedOrEmpty(home / "Library" / "Caches");
-#else
             if (const auto value = detail::envValue("XDG_CACHE_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return detail::normalizedOrEmpty(home / ".cache");
-#endif
         case KnownDirectory::Temp:
             if (const auto value = detail::envValue("TMPDIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return std::nullopt;}
-    return std::nullopt;
-#endif}
+    return std::nullopt;}
 fs::path homeDirectoryPath() {
-#ifdef _WIN32
-    if (const auto home = knownDirectoryPath(KnownDirectory::Home)) return *home;
-#endif
     if (const auto home = detail::homeFromEnvironment()) return *home;
     return detail::fallbackCurrentPath();}
 fs::path defaultKeeplyDataDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::LocalData)) {
-#if defined(__APPLE__)
-        return *base / "Keeply";
-#else
         return *base / "keeply";
-#endif}
+    }
     return detail::fallbackCurrentPath() / ".keeply";}
 fs::path defaultKeeplyStateDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::StateData)) {
-#if defined(__APPLE__)
-        return *base / "Keeply" / "state";
-#else
         return *base / "keeply";
-#endif}
+    }
     return defaultKeeplyDataDir();}
 fs::path defaultKeeplyTempDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::Temp)) {
@@ -195,17 +119,6 @@ fs::path defaultRestoreRootPath() {
     return defaultKeeplyDataDir() / "restore";}
 std::vector<fs::path> defaultSystemExcludedRoots() {
     std::vector<fs::path> out;
-#ifdef _WIN32
-    if (const auto systemRoot = detail::envValue("SystemRoot")) detail::appendUnique(out, pathFromUtf8(*systemRoot));
-    if (const auto windir = detail::envValue("WINDIR")) detail::appendUnique(out, pathFromUtf8(*windir));
-    if (const auto programFiles = detail::envValue("ProgramFiles")) detail::appendUnique(out, pathFromUtf8(*programFiles));
-    if (const auto programFilesX86 = detail::envValue("ProgramFiles(x86)")) detail::appendUnique(out, pathFromUtf8(*programFilesX86));
-    if (const auto programData = detail::envValue("ProgramData")) detail::appendUnique(out, pathFromUtf8(*programData));
-    detail::appendUnique(out, defaultKeeplyTempDir());
-    if (const auto home = homeDirectoryPath(); !home.root_path().empty()) {
-        detail::appendUnique(out, home.root_path() / "$Recycle.Bin");
-        detail::appendUnique(out, home.root_path() / "System Volume Information");}
-#else
     detail::appendUnique(out, "/proc");
     detail::appendUnique(out, "/sys");
     detail::appendUnique(out, "/dev");
@@ -216,7 +129,6 @@ std::vector<fs::path> defaultSystemExcludedRoots() {
     detail::appendUnique(out, "/lost+found");
     detail::appendUnique(out, "/var/run");
     detail::appendUnique(out, "/var/tmp");
-#endif
     return out;}
 bool isFilesystemRootPath(const fs::path& path) {
     if (path.empty()) return false;
@@ -224,12 +136,7 @@ bool isFilesystemRootPath(const fs::path& path) {
     const fs::path root = normalized.root_path();
     return !root.empty() && normalized == root;}
 FILE* fopenPath(const fs::path& path, const char* mode) {
-#ifdef _WIN32
-    const std::wstring wideMode = detail::widenAscii(mode);
-    return _wfopen(path.wstring().c_str(), wideMode.c_str());
-#else
-    return std::fopen(path.c_str(), mode);
-#endif}
+    return std::fopen(path.c_str(), mode);}
 int sqlite3_open_path(const fs::path& path, sqlite3** db) {
     return sqlite3_open(pathToUtf8(path).c_str(), db);}
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs) {

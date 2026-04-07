@@ -4,21 +4,13 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
-#if !defined(_WIN32)
 #  include <unistd.h>
-#endif
 namespace keeply {
 namespace {
 static FILE* openTempFile(char outPath[256]) {
-#if defined(_WIN32)
-    if (std::tmpnam(outPath) == nullptr)
-        throw std::runtime_error("tmpnam falhou (rsync).");
-    FILE* f = std::fopen(outPath, "w+b");
-#else
     std::strcpy(outPath, "/tmp/keeply_rsync_XXXXXX");
     const int fd = ::mkstemp(outPath);
     FILE* f = (fd >= 0) ? ::fdopen(fd, "w+b") : nullptr;
-#endif
     if (!f) throw std::runtime_error("Falha criando arquivo temporario (rsync).");
     return f;}
 static FILE* blobToTempReadFile(const Blob& blob, char tmpPath[256]) {

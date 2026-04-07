@@ -16,10 +16,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#ifdef _WIN32
-#include <windows.h>
-#include <winioctl.h>
-#endif
 namespace keeply {
 namespace {
 enum class TokenBackend : std::uint64_t { Native = 1, Daemon = 2 };
@@ -53,31 +49,7 @@ void execSql(sqlite3* db, const char* sql, const char* ctx) {
         std::string msg = err ? err : "erro sqlite";
         if (err) sqlite3_free(err);
         throw std::runtime_error(std::string(ctx) + ": " + msg);}}
-#ifdef _WIN32
-std::string normWinPath(std::string s) {
-    for (char& c : s) if (c == '/') c = '\\';
-    if (s.rfind("\\\\?\\", 0) == 0) s = s.substr(4);
-    while (!s.empty() && s.back() == '\\') s.pop_back();
-    return keeply::lowerAscii(std::move(s));}
-struct WinHandle {
-    HANDLE h = INVALID_HANDLE_VALUE;
-    WinHandle() = default;
-    explicit WinHandle(HANDLE x) : h(x) {}
-    ~WinHandle() {
-        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);}
-    WinHandle(const WinHandle&) = delete;
-    WinHandle& operator=(const WinHandle&) = delete;
-    WinHandle(WinHandle&& o) noexcept : h(o.h) {
-        o.h = INVALID_HANDLE_VALUE;}
-    WinHandle& operator=(WinHandle&& o) noexcept {
-        if (this != &o) {
-            if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-            h = o.h;
-            o.h = INVALID_HANDLE_VALUE;}
-        return *this;}
-    bool valid() const { return h != INVALID_HANDLE_VALUE; }
-};
-#endif}
+}
 class EventStore::Db {
     sqlite3* db_ = nullptr;
 public:
@@ -172,7 +144,7 @@ std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, 
         const auto* typeText = sqlite3_column_text(st.get(), 1);
         const std::string relPath = reinterpret_cast<const char*>(relText);
         const std::string eventType = typeText ? normalizeEventType(reinterpret_cast<const char*>(typeText)) : std::string{};
-        out.push_back({relPath, eventType == "delete"});}
+        out.push_back({relPath, eventType == "delete", eventType});}
     return out;}
 fs::path defaultEventStorePath() {
     return defaultKeeplyStateDir() / "keeplyintf.kipy";}
@@ -232,14 +204,13 @@ std::unique_ptr<MotorMonitor> createPlatformMotorMonitor(const fs::path& rootPat
                                                          bool respectSystemExclusionPolicy) {
 #ifdef __linux__
     return createLinuxMotorMonitor(rootPath, respectSystemExclusionPolicy);
-#elif defined(_WIN32)
-    return createWindowsMotorMonitor(rootPath, respectSystemExclusionPolicy);
 #else
     static_cast<void>(rootPath);
     static_cast<void>(respectSystemExclusionPolicy);
-    throw std::runtime_error("Watcher CBT em background disponivel apenas no Linux e Windows.");
-#endif}
-OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServiceOptions) {
+    throw std::runtime_error("Watcher CBT em background disponivel apenas no Linux.");
+#endif
+}
+OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv) {
     OpcoesDaemonMonitor options;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -247,12 +218,6 @@ OpcoesDaemonMonitor parseDaemonMonitorArgs(int argc, char** argv, bool allowServ
             options.rootPath = fs::path(argv[++i]);
         } else if (arg == "--foreground") {
             options.foreground = true;
-        } else if (allowServiceOptions && arg == "--install-service") {
-            options.installService = true;
-        } else if (allowServiceOptions && arg == "--uninstall-service") {
-            options.uninstallService = true;
-        } else if (allowServiceOptions && arg == "--service") {
-            options.serviceMode = true;
         } else if (arg == "--help") {
             throw std::runtime_error("__KEEPLY_DAEMON_HELP__");
         } else {
@@ -304,7 +269,8 @@ void writeMonitorRootFile(const fs::path& metadataPath, const fs::path& rootPath
     fs::create_directories(metadataPath.parent_path());
     std::ofstream rootFile(metadataPath, std::ios::trunc);
     if (!rootFile) throw std::runtime_error("Falha criando arquivo de root do daemon.");
-    rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";}}
+    rootFile << fs::absolute(rootPath).lexically_normal().generic_string() << "\n";}
+}
 class BackgroundCbtWatcher::Impl {
 public:
     void start(const fs::path& rootPath) {
@@ -337,87 +303,7 @@ BackgroundCbtWatcher::~BackgroundCbtWatcher() = default;
 void BackgroundCbtWatcher::start(const fs::path& rootPath) { impl_->start(rootPath); }
 void BackgroundCbtWatcher::stop() noexcept { impl_->stop(); }
 bool BackgroundCbtWatcher::running() const noexcept { return impl_->running(); }
-#ifdef _WIN32
-namespace {
-class WindowsUSNTracker : public ChangeTracker {
-    WinHandle hVol_;
-    fs::path root_;
-    std::string rootNorm_;
-    fs::path resolvePathFromFileId(std::uint64_t fileId) {
-        FILE_ID_DESCRIPTOR fd{};
-        fd.dwSize = sizeof(FILE_ID_DESCRIPTOR);
-        fd.Type = FileIdType;
-        fd.FileId.QuadPart = static_cast<LONGLONG>(fileId);
-        HANDLE hFile = OpenFileById(hVol_.h, &fd, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, FILE_FLAG_BACKUP_SEMANTICS);
-        if (hFile == INVALID_HANDLE_VALUE) return {};
-        WinHandle hf(hFile);
-        DWORD need = GetFinalPathNameByHandleW(hf.h, nullptr, 0, FILE_NAME_NORMALIZED);
-        if (need == 0) return {};
-        std::wstring buf(need, L'\0');
-        DWORD got = GetFinalPathNameByHandleW(hf.h, buf.data(), need, FILE_NAME_NORMALIZED);
-        if (got == 0 || got >= need) return {};
-        buf.resize(got);
-        return fs::path(buf).lexically_normal();}
-public:
-    bool isAvailable() const override { return true; }
-    const char* backendName() const override { return "usn_journal"; }
-    void startTracking(const fs::path& rootPath) override {
-        root_ = fs::absolute(rootPath).lexically_normal();
-        rootNorm_ = normWinPath(pathToUtf8(root_));
-        const auto rn = root_.root_name().string();
-        if (rn.size() < 2 || rn[1] != ':') throw std::runtime_error("Root invalido para USN Tracker.");
-        const std::wstring volPath = L"\\\\.\\" + root_.root_name().wstring();
-        HANDLE hv = CreateFileW(volPath.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-        if (hv == INVALID_HANDLE_VALUE) throw std::runtime_error("Falha ao abrir volume NTFS. Keeply precisa rodar como Administrador.");
-        hVol_ = WinHandle(hv);
-        USN_JOURNAL_DATA jd{};
-        DWORD br = 0;
-        if (!DeviceIoControl(hVol_.h, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &jd, sizeof(jd), &br, nullptr)) throw std::runtime_error("Falha ao consultar USN Journal. O volume e NTFS?");}
-    std::vector<ChangedFile> getChanges(std::uint64_t lastToken, std::uint64_t& newToken) override {
-        std::vector<ChangedFile> changes;
-        std::unordered_set<std::string> seen;
-        USN_JOURNAL_DATA jd{};
-        DWORD br = 0;
-        if (!DeviceIoControl(hVol_.h, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &jd, sizeof(jd), &br, nullptr)) throw std::runtime_error("Falha ao consultar USN Journal.");
-        if (lastToken == 0) {
-            newToken = static_cast<std::uint64_t>(jd.NextUsn);
-            return changes;}
-        READ_USN_JOURNAL_DATA rd{};
-        rd.StartUsn = static_cast<USN>(lastToken);
-        rd.ReasonMask = USN_REASON_DATA_OVERWRITE | USN_REASON_DATA_EXTEND | USN_REASON_DATA_TRUNCATION | USN_REASON_FILE_CREATE | USN_REASON_FILE_DELETE | USN_REASON_RENAME_OLD_NAME | USN_REASON_RENAME_NEW_NAME | USN_REASON_BASIC_INFO_CHANGE | USN_REASON_SECURITY_CHANGE;
-        rd.ReturnOnlyOnClose = FALSE;
-        rd.Timeout = 0;
-        rd.BytesToWaitFor = 0;
-        rd.UsnJournalID = jd.UsnJournalID;
-        alignas(8) char buffer[1 << 16];
-        DWORD bytesRead = 0;
-        newToken = static_cast<std::uint64_t>(jd.NextUsn);
-        while (true) {
-            if (!DeviceIoControl(hVol_.h, FSCTL_READ_USN_JOURNAL, &rd, sizeof(rd), buffer, sizeof(buffer), &bytesRead, nullptr)) break;
-            if (bytesRead <= sizeof(USN)) break;
-            auto* nextUsn = reinterpret_cast<USN*>(buffer);
-            rd.StartUsn = *nextUsn;
-            newToken = static_cast<std::uint64_t>(*nextUsn);
-            auto* rec = reinterpret_cast<USN_RECORD*>(reinterpret_cast<unsigned char*>(buffer) + sizeof(USN));
-            while (reinterpret_cast<unsigned char*>(rec) < reinterpret_cast<unsigned char*>(buffer) + bytesRead) {
-                if (rec->RecordLength == 0) break;
-                if ((rec->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
-                    const bool isDeleted = (rec->Reason & USN_REASON_FILE_DELETE) != 0;
-                    const fs::path full = resolvePathFromFileId(static_cast<std::uint64_t>(rec->FileReferenceNumber));
-                    if (!full.empty()) {
-                        std::string fullNorm = normWinPath(pathToUtf8(full));
-                        if (fullNorm.size() >= rootNorm_.size() && fullNorm.compare(0, rootNorm_.size(), rootNorm_) == 0) {
-                            std::error_code relEc;
-                            fs::path relPath = fs::relative(full, root_, relEc);
-                            if (!relEc && !relPath.empty()) {
-                                const std::string rel = relPath.generic_string();
-                                if (!rel.empty() && seen.insert(rel).second) changes.push_back({rel, isDeleted});}}}}
-                rec = reinterpret_cast<USN_RECORD*>(reinterpret_cast<unsigned char*>(rec) + rec->RecordLength);}}
-        return changes;}
-};
-std::unique_ptr<ChangeTracker> makePlatformTracker() {
-    return std::make_unique<WindowsUSNTracker>();}}
-#elif defined(__linux__)
+#if defined(__linux__)
 namespace {
 struct LinuxTrackedFile {
     sqlite3_int64 size = 0;
@@ -541,9 +427,10 @@ public:
         std::vector<ChangedFile> changes;
         for (const auto& [relPath, info] : currentFiles) {
             const auto prevIt = previousFiles.find(relPath);
-            if (prevIt == previousFiles.end() || prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false});}
+            if (prevIt == previousFiles.end()) changes.push_back({relPath, false, "upsert"});
+            else if (prevIt->second.size != info.size || prevIt->second.mtime != info.mtime) changes.push_back({relPath, false, "modify"});}
         for (const auto& [relPath, _] : previousFiles) {
-            if (currentFiles.find(relPath) == currentFiles.end()) changes.push_back({relPath, true});}
+            if (currentFiles.find(relPath) == currentFiles.end()) changes.push_back({relPath, true, "delete"});}
         const sqlite3_int64 nextToken = storedToken_ + 1;
         persistCurrentState(currentFiles, nextToken);
         newToken = static_cast<std::uint64_t>(nextToken);

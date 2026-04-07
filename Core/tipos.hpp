@@ -199,7 +199,7 @@ struct StoredChunkRow {
     std::size_t compSize{};
     std::string algo;
     std::vector<unsigned char> blob;
-    Blob encryptIv;  // 12 bytes se AES-256-GCM, vazio se nao criptografado
+    Blob encryptIv;
 };
 struct RestorableFileRef {
     sqlite3_int64 fileId{};

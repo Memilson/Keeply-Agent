@@ -1,14 +1,9 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
 #include "../HTTP/http_util.hpp"
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#endif
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <algorithm>
@@ -55,6 +50,14 @@ struct DiskMountCandidate{
     std::string mountpoint;
     int score=0;
 };
+std::string backupPhaseLabelForLog(const std::string& phase){
+    if(phase=="discovery") return "scan";
+    if(phase=="backup") return "compactacao";
+    if(phase=="commit") return "finalizacao";
+    if(phase=="done") return "concluido";
+    if(phase=="uploading") return "uploading";
+    return phase.empty()?"idle":phase;
+}
 std::string jsonBool(bool v){return v?"true":"false";}
 std::string jsonStrField(const std::string& key,const std::string& value){return "\"" + key + "\":\"" + escapeJson(value) + "\"";}
 std::string jsonNumField(const std::string& key,std::uintmax_t value){return "\"" + key + "\":" + std::to_string(value);}
@@ -152,11 +155,6 @@ void appendRootRow(std::vector<FsListRow>& rows,std::unordered_set<std::string>&
 std::vector<FsListRow> listRootRows(){
     std::vector<FsListRow> rows;
     std::unordered_set<std::string> seen;
-#if defined(_WIN32)
-    for(char drive='A';drive<='Z';++drive){
-        const std::string root=std::string(1,drive)+":\\";
-        appendRootRow(rows,seen,fs::path(root));}
-#else
 #if defined(__linux__)
     std::vector<LsblkEntry> entries;
     if(FILE* pipe=popen("lsblk -P -o NAME,LABEL,MODEL,TYPE,MOUNTPOINT,PKNAME 2>/dev/null","r")){
@@ -209,17 +207,7 @@ std::vector<FsListRow> listRootRows(){
             std::getline(mounts,restOfLine);
             if(shouldSkipMountType(fsType)) continue;
             if(mountPoint=="/"||mountPoint.rfind("/mnt/",0)==0||mountPoint.rfind("/media/",0)==0||mountPoint.rfind("/run/media/",0)==0) appendRootRow(rows,seen,fs::path(mountPoint));}}
-#elif defined(__APPLE__)
     appendRootRow(rows,seen,fs::path("/"));
-    std::error_code volumesEc;
-    for(fs::directory_iterator it(fs::path("/Volumes"),fs::directory_options::skip_permission_denied,volumesEc),end;it!=end;it.increment(volumesEc)){
-        if(volumesEc){
-            volumesEc.clear();
-            continue;}
-        appendRootRow(rows,seen,it->path());}
-#else
-    appendRootRow(rows,seen,fs::path("/"));
-#endif
 #endif
     std::sort(rows.begin(),rows.end(),[](const FsListRow& a,const FsListRow& b){return toLower(a.name)<toLower(b.name);});
     return rows;}
@@ -383,16 +371,6 @@ void KeeplyAgentWsClient::run(){
                 hasBufferedData=!recvBuffer_.empty();}
             if(fd<0) return false;
             if(hasBufferedData||(tls&&tls->ssl&&SSL_pending(tls->ssl)>0)) return true;
-#ifdef _WIN32
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            const SOCKET sock=static_cast<SOCKET>(fd);
-            FD_SET(sock,&readfds);
-            TIMEVAL tv{};
-            tv.tv_sec=static_cast<long>(timeout.count()/1000);
-            tv.tv_usec=static_cast<long>((timeout.count()%1000)*1000);
-            const int rc=::select(0,&readfds,nullptr,nullptr,&tv);
-#else
             fd_set readfds;
             FD_ZERO(&readfds);
             FD_SET(fd,&readfds);
@@ -400,7 +378,6 @@ void KeeplyAgentWsClient::run(){
             tv.tv_sec=static_cast<long>(timeout.count()/1000);
             tv.tv_usec=static_cast<long>((timeout.count()%1000)*1000);
             const int rc=::select(fd+1,&readfds,nullptr,nullptr,&tv);
-#endif
             if(rc>0) return true;
             if(rc==0) return false;
             const int err=keeply::http_internal::lastSocketError();
@@ -464,11 +441,7 @@ void KeeplyAgentWsClient::close(){
         recvBuffer_.clear();
         tls=std::move(tls_);}
     if(fd>=0){
-#ifdef _WIN32
-        ::shutdown(fd, SD_BOTH);
-#else
         ::shutdown(fd, SHUT_RDWR);
-#endif
         keeply::http_internal::closeSocketFd(fd);}}
 bool KeeplyAgentWsClient::isConnected() const{std::lock_guard<std::mutex> lock(mu_);return connected_;}
 void KeeplyAgentWsClient::sendText(const std::string& payload){sendFrame_(0x1,payload);}
@@ -505,7 +478,8 @@ void KeeplyAgentWsClient::configureTls_(const UrlParts& url){
     if(!config_.allowInsecureTls){
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
         if(SSL_set1_host(tls->ssl,url.host.c_str())!=1) throw std::runtime_error("Falha ao configurar validacao de hostname do websocket.");
-#endif}
+#endif
+    }
     if(SSL_connect(tls->ssl)!=1) throw std::runtime_error("Falha no handshake TLS do websocket.");
     if(!config_.allowInsecureTls && SSL_get_verify_result(tls->ssl)!=X509_V_OK){
         throw std::runtime_error("Validacao do certificado TLS do websocket falhou.");}
@@ -700,6 +674,7 @@ void KeeplyAgentWsClient::sendBackupFailed_(const std::string& label,const Backu
 void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const BackupStoragePolicy& storagePolicy){
     try{
         const std::string storageMode=storageModeToString(storagePolicy.mode);
+        std::cout<<"[backup][fase] uploading"<<" | destino="<<storageMode<<"\n";
         sendJson_(std::string("{\"type\":\"backup.upload.started\",\"label\":\"")+escapeJson_(label)+"\",\"source\":\""+escapeJson_(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+",\"storageMode\":\""+escapeJson_(storageMode)+"\"}");
         const UploadBundleResult uploadResp=uploadArchiveBackup(
             config_,
@@ -758,6 +733,11 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
             latestProgress=progress;
             const auto now=std::chrono::steady_clock::now();
             const bool phaseChanged=progress.phase!=lastPhase;
+            if(phaseChanged){
+                std::cout<<"[backup][fase] "<<backupPhaseLabelForLog(progress.phase);
+                if(!progress.currentFile.empty()) std::cout<<" | arquivo="<<progress.currentFile;
+                std::cout<<"\n";
+            }
             const bool forceSend=phaseChanged||progress.phase=="discovery"||progress.phase=="commit"||progress.phase=="done";
             if(forceSend||now-lastProgressSent>=std::chrono::seconds(2)){
                 sendBackupProgress_(label,progress);
@@ -998,4 +978,5 @@ std::size_t KeeplyAgentWsClient::readRaw_(void* data,std::size_t size){
         if(tls&&tls->ssl) return readSomeSsl(tls->ssl,data,size);
         return readSomeFd(fd,data,size);}}
 void KeeplyAgentWsClient::ensureConnected_() const{
-    if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");}}
+    if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");}
+}

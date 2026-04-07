@@ -1,14 +1,9 @@
 #include "servidor_rest.hpp"
 #include "http_util.hpp"
 #include "../Core/utilitarios.hpp"
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#endif
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -36,11 +31,7 @@ using keeply::http_internal::toLower;
 static constexpr std::size_t MAX_HEADER_BYTES=(1u<<20);
 static constexpr std::size_t MAX_BODY_BYTES=(8u<<20);
 using SocketLen =
-#ifdef _WIN32
-    int;
-#else
     socklen_t;
-#endif
 static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
@@ -108,17 +99,10 @@ static void sendHttpError(int fd,int status,const std::string& msg){
     r.body=std::string("{\"ok\":false,\"error\":\"")+escapeJson(msg)+"\"}";
     sendHttpResponse(fd,r);}
 static void setSocketTimeouts(int fd,int recvMs,int sendMs){
-#ifdef _WIN32
-    const DWORD rtv=(DWORD)recvMs;
-    const DWORD stv=(DWORD)sendMs;
-    (void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<const char*>(&rtv),sizeof(rtv));
-    (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,reinterpret_cast<const char*>(&stv),sizeof(stv));
-#else
     timeval rtv{recvMs/1000,(recvMs%1000)*1000};
     timeval stv{sendMs/1000,(sendMs%1000)*1000};
     (void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&rtv,sizeof(rtv));
-    (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&stv,sizeof(stv));
-#endif}
+    (void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&stv,sizeof(stv));}
 static bool recvHttpRequest(int fd,RestRequest& req){
     std::string buf;
     buf.reserve(8192);
@@ -178,17 +162,10 @@ static bool recvHttpRequest(int fd,RestRequest& req){
     req.body.assign(buf.data()+(std::ptrdiff_t)bodyStart,contentLen);
     return true;}
 static int createListenSocket(int port){
-#ifdef _WIN32
-    ensureSocketRuntime();
-#endif
     int fd=::socket(AF_INET,SOCK_STREAM,0);
     if(fd<0) throw std::runtime_error(std::string("socket falhou: ")+socketErrorMessage(lastSocketError()));
     int one=1;
-#ifdef _WIN32
-    (void)::setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,reinterpret_cast<const char*>(&one),sizeof(one));
-#else
     (void)::setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));
-#endif
     sockaddr_in addr{};
     addr.sin_family=AF_INET;
     addr.sin_addr.s_addr=htonl(INADDR_LOOPBACK);

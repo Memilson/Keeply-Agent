@@ -10,7 +10,7 @@
 #include <sstream>
 #include <system_error>
 #include <vector>
-#if defined(__unix__) || defined(__APPLE__)
+#ifdef __linux__
 #include <unistd.h>
 #endif
 namespace keeply {
@@ -33,18 +33,14 @@ void validateSourceRootAllowed(const fs::path& sourcePath) {
     ec.clear();
     if (!fs::is_directory(normalized, ec) || ec) {
         throw std::runtime_error("Origem precisa ser um diretorio: " + normalized.string());}
-#if defined(__unix__) || defined(__APPLE__)
+#ifdef __linux__
     if (::access(normalized.c_str(), R_OK | X_OK) != 0) {
         throw std::runtime_error(
             "Sem permissao para acessar a origem configurada: " + normalized.string()
         );}
-#endif}
+#endif
+}
 std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::string& key) {
-#if defined(_WIN32)
-    (void)homeDir;
-    (void)key;
-    return std::nullopt;
-#else
     const fs::path configPath = homeDir / ".config" / "user-dirs.dirs";
     std::ifstream input(configPath);
     if (!input) return std::nullopt;
@@ -62,8 +58,7 @@ std::optional<std::string> readXdgDirValue(const fs::path& homeDir, const std::s
         if (homePos != std::string::npos) {
             value.replace(homePos, homeToken.size(), homeDir.string());}
         return value;}
-    return std::nullopt;
-#endif}
+    return std::nullopt;}
 fs::path pickExistingPath(const std::vector<fs::path>& candidates) {
     std::error_code ec;
     for (const auto& candidate : candidates) {
@@ -131,11 +126,7 @@ ScanScopeState resolveCustomScope(const fs::path& sourcePath) {
 std::string nowIsoLocal() {
     std::time_t t = std::time(nullptr);
     std::tm tmv{};
-#if defined(_WIN32)
-    localtime_s(&tmv, &t);
-#else
     localtime_r(&t, &tmv);
-#endif
     std::ostringstream oss;
     oss << std::put_time(&tmv, "%Y-%m-%d %H:%M:%S");
     return oss.str();}
@@ -251,4 +242,5 @@ void KeeplyApi::restoreSnapshot(const std::string& snapshotInput,
     fs::create_directories(outRoot, ec);
     StorageArchive arc(pathFromUtf8(state_.archive));
     sqlite3_int64 sid = arc.resolveSnapshotId(snapshotInput);
-    RestoreEngine::restoreSnapshot(pathFromUtf8(state_.archive), sid, outRoot);}}
+    RestoreEngine::restoreSnapshot(pathFromUtf8(state_.archive), sid, outRoot);}
+}

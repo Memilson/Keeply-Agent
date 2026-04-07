@@ -27,7 +27,8 @@ struct PackRecHeader {
     unsigned char hash[32];
     std::uint32_t algoLen;
     std::uint32_t version;};
-#pragma pack(pop)}
+#pragma pack(pop)
+}
 VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbose) {
     VerifyResult result;
     result.ok = true;
@@ -178,4 +179,5 @@ VerifyResult VerifyEngine::verifyArchive(const fs::path& archivePath, bool verbo
     else
         std::cerr << "[FALHA] Verificacao encontrou " << result.errors.size()
                   << " problema(s).\n";
-    return result;}}
+    return result;}
+}
