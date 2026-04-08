@@ -6,6 +6,7 @@
 #include "WebSocket/websocket_agente.hpp"
 #include "Backup/Rastreamento/rastreamento_mudancas.hpp"
 #include <atomic>
+#include <algorithm>
 #include <filesystem>
 #include <cerrno>
 #include <cctype>
@@ -19,15 +20,19 @@
 #include <thread>
 #include <vector>
 #ifdef __linux__
+#include <arpa/inet.h>
 #include <csignal>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 #ifdef __linux__
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
 #endif
 namespace fs = std::filesystem;
 namespace eventos = keeply::rastreamento_eventos_base;
@@ -52,6 +57,73 @@ static std::string detectHostName() {
     if (::gethostname(buf, sizeof(buf) - 1) == 0 && buf[0]) return std::string(buf);
     auto v = eventos::envOrEmpty("HOSTNAME");
     return v.empty() ? "keeply-host" : v;}
+static std::vector<std::string> detectLocalIps() {
+    std::vector<std::string> out;
+#ifdef __linux__
+    ifaddrs* ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) != 0 || !ifaddr) return out;
+    auto addUnique = [&](const std::string& ip) {
+        if (ip.empty() || ip == "127.0.0.1" || ip == "::1") return;
+        if (std::find(out.begin(), out.end(), ip) == out.end()) out.push_back(ip);
+    };
+    for (ifaddrs* current = ifaddr; current; current = current->ifa_next) {
+        if (!current->ifa_addr || !current->ifa_name) continue;
+        if ((current->ifa_flags & IFF_UP) == 0 || (current->ifa_flags & IFF_LOOPBACK) != 0) continue;
+        char host[INET6_ADDRSTRLEN]{};
+        if (current->ifa_addr->sa_family == AF_INET) {
+            const auto* addr = reinterpret_cast<sockaddr_in*>(current->ifa_addr);
+            if (inet_ntop(AF_INET, &addr->sin_addr, host, sizeof(host))) addUnique(host);
+            continue;
+        }
+        if (current->ifa_addr->sa_family == AF_INET6) {
+            const auto* addr = reinterpret_cast<sockaddr_in6*>(current->ifa_addr);
+            if (IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr)) continue;
+            if (inet_ntop(AF_INET6, &addr->sin6_addr, host, sizeof(host))) addUnique(host);
+        }
+    }
+    freeifaddrs(ifaddr);
+#endif
+    return out;}
+static std::string readCpuModel() {
+#ifdef __linux__
+    std::ifstream input("/proc/cpuinfo");
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto pos = line.find(':');
+        if (pos == std::string::npos) continue;
+        const std::string key = keeply::lowerAscii(keeply::trim(line.substr(0, pos)));
+        if (key == "model name" || key == "hardware") {
+            const std::string value = keeply::trim(line.substr(pos + 1));
+            if (!value.empty()) return value;
+        }
+    }
+#endif
+    return {};}
+static std::uint64_t readTotalMemoryBytes() {
+#ifdef __linux__
+    std::ifstream input("/proc/meminfo");
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.rfind("MemTotal:", 0) != 0) continue;
+        const std::string value = keeply::trim(line.substr(9));
+        const std::size_t unitPos = value.find("kB");
+        const std::string numeric = keeply::trim(unitPos == std::string::npos ? value : value.substr(0, unitPos));
+        try { return static_cast<std::uint64_t>(std::stoull(numeric)) * 1024ull; } catch (...) { return 0; }
+    }
+#endif
+    return 0;}
+static std::string detectCpuArchitecture() {
+#ifdef __linux__
+    utsname info{};
+    if (uname(&info) == 0 && info.machine[0]) return std::string(info.machine);
+#endif
+    return {};}
+static std::string detectKernelVersion() {
+#ifdef __linux__
+    utsname info{};
+    if (uname(&info) == 0 && info.release[0]) return std::string(info.release);
+#endif
+    return {};}
 static std::string argOrEmpty(int argc, char** argv, int i) {
     return (i < argc && argv[i]) ? std::string(argv[i]) : std::string();}
 static fs::path pickDataDir() {
@@ -395,6 +467,12 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     config.deviceName       = config.hostName;
     if (!options.deviceName.empty()) config.deviceName = options.deviceName;
     config.osName           = detectOsName();
+    config.localIps         = detectLocalIps();
+    config.cpuModel         = readCpuModel();
+    config.cpuArchitecture  = detectCpuArchitecture();
+    config.kernelVersion    = detectKernelVersion();
+    config.totalMemoryBytes = readTotalMemoryBytes();
+    config.cpuCores         = std::thread::hardware_concurrency();
     config.identityDir      = dataDir / "agent_identity";
     std::error_code ec;
     fs::create_directories(dataDir, ec);

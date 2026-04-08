@@ -769,6 +769,7 @@ void KeeplyAgentWsClient::sendHello_(){
        <<"\"source\":\""<<escapeJson_(s.source)<<"\","
        <<"\"archive\":\""<<escapeJson_(s.archive)<<"\","
        <<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","
+       <<"\"deviceDetails\":"<<buildDeviceDetailsJson_()<<","
        <<"\"scanScope\":"<<buildScanScopeJson_()
        <<"}";
     sendJson_(oss.str());}
@@ -863,10 +864,28 @@ std::string KeeplyAgentWsClient::buildScanScopeJson_() const{
     std::ostringstream oss;
     oss<<"{"<<"\"id\":\""<<escapeJson_(scanScope.id)<<"\","<<"\"label\":\""<<escapeJson_(scanScope.label)<<"\","<<"\"requestedPath\":\""<<escapeJson_(scanScope.requestedPath)<<"\","<<"\"resolvedPath\":\""<<escapeJson_(scanScope.resolvedPath)<<"\""<<"}";
     return oss.str();}
+std::string KeeplyAgentWsClient::buildDeviceDetailsJson_() const{
+    std::ostringstream oss;
+    oss<<"{";
+    oss<<"\"localIps\":[";
+    for(std::size_t i=0;i<config_.localIps.size();++i){
+        if(i>0) oss<<",";
+        oss<<"\""<<escapeJson_(config_.localIps[i])<<"\"";
+    }
+    oss<<"],";
+    oss<<"\"hardware\":{";
+    oss<<"\"cpuModel\":\""<<escapeJson_(config_.cpuModel)<<"\",";
+    oss<<"\"cpuArchitecture\":\""<<escapeJson_(config_.cpuArchitecture)<<"\",";
+    oss<<"\"kernelVersion\":\""<<escapeJson_(config_.kernelVersion)<<"\",";
+    oss<<"\"cpuCores\":"<<config_.cpuCores<<",";
+    oss<<"\"totalMemoryBytes\":"<<config_.totalMemoryBytes;
+    oss<<"}";
+    oss<<"}";
+    return oss.str();}
 std::string KeeplyAgentWsClient::buildStateJson_() const{
     const auto& s=api_->state();
     std::ostringstream oss;
-    oss<<"{"<<"\"type\":\"state\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
+    oss<<"{"<<"\"type\":\"state\","<<"\"deviceId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"agentId\":\""<<escapeJson_(config_.agentId)<<"\","<<"\"source\":\""<<escapeJson_(s.source)<<"\","<<"\"archive\":\""<<escapeJson_(s.archive)<<"\","<<"\"restoreRoot\":\""<<escapeJson_(s.restoreRoot)<<"\","<<"\"deviceDetails\":"<<buildDeviceDetailsJson_()<<","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"archiveSplitEnabled\":"<<(s.archiveSplitEnabled?"true":"false")<<","<<"\"archiveSplitMaxBytes\":"<<s.archiveSplitMaxBytes<<"}";
     return oss.str();}
 std::string KeeplyAgentWsClient::buildSnapshotsJson_(){
     const auto rows=api_->listSnapshots();

@@ -4,8 +4,10 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 namespace keeply {
 namespace ws_internal {
 struct BackupStoragePolicy;}
@@ -35,6 +37,12 @@ struct WsClientConfig{
     std::string deviceName="keeply-agent";
     std::string hostName="keeply-host";
     std::string osName="linux";
+    std::vector<std::string> localIps;
+    std::string cpuModel;
+    std::string cpuArchitecture;
+    std::string kernelVersion;
+    std::uint64_t totalMemoryBytes=0;
+    unsigned cpuCores=0;
     std::string pairingCode;
     fs::path identityDir=defaultKeeplyDataDir()/"agent_identity";
     bool allowInsecureTls=false;
@@ -123,6 +131,7 @@ private:
     void sendFrame_(unsigned char opcode,const std::string& payload);
     std::string readHttpHeader_();
     bool readFrame_(unsigned char& opcode,std::string& payload);
+    std::string buildDeviceDetailsJson_() const;
     std::string buildScanScopeJson_() const;
     std::string buildStateJson_() const;
     std::string buildSnapshotsJson_();
