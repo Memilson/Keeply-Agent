@@ -31,6 +31,7 @@ list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
 set(KEEPLY_CORE
     Core/plataforma.cpp
     Core/compactacao.cpp
+    Core/tls_context.cpp
     API/keeply_api.cpp
     Backup/Rastreamento/rastreamento_mudancas.cpp
     Backup/verificacao.cpp
@@ -47,6 +48,9 @@ set(KEEPLY_API_WS
     HTTP/http_util.cpp
     Cloud/fila_upload.cpp
     WebSocket/websocket_agente.cpp
+    WebSocket/ws_cmd_backup.cpp
+    WebSocket/ws_cmd_restore.cpp
+    WebSocket/ws_cmd_fs.cpp
     HTTP/cliente_http.cpp
     WebSocket/inicializacao.cpp
     HTTP/servidor_rest.cpp)

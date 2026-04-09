@@ -108,10 +108,6 @@ private:
     bool closeSent_=false;
     std::string recvBuffer_;
     std::shared_ptr<TlsState> tls_;
-    static UrlParts parseUrl_(const std::string& url);
-    static std::string escapeJson_(const std::string& value);
-    static std::string urlEncode_(const std::string& value);
-    static std::string httpUrlFromWsUrl_(const std::string& wsUrl,const std::string& path);
     void connectSocket_(const UrlParts& url);
     void performHandshake_(const UrlParts& url);
     void handleServerMessage_(const std::string& payload);

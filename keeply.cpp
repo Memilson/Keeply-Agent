@@ -42,9 +42,7 @@ static std::string envOrEmptyAny(std::initializer_list<const char*> keys) {
         if (!value.empty()) return value;}
     return {};}
 static bool envTruthyAny(std::initializer_list<const char*> keys) {
-    auto value = envOrEmptyAny(keys);
-    for (auto& c : value) c = char(std::tolower((unsigned char)c));
-    return value == "1" || value == "true" || value == "yes" || value == "on";}
+    return keeply::parseTruthyValue(envOrEmptyAny(keys));}
 static std::string detectOsName() {
 #if defined(__linux__)
     return "linux";
@@ -217,13 +215,12 @@ static fs::path currentExecutablePath() {
             buffer[static_cast<std::size_t>(n)] = '\0';
             return fs::path(buffer.data());}
         buffer.resize(buffer.size() * 2, '\0');}}
-static inline std::string trimCopy(const std::string& value) { return keeply::trim(value); }
 static std::string readSmallTextFile(const fs::path& path) {
     std::ifstream in(path);
     if (!in) return {};
     std::ostringstream oss;
     oss << in.rdbuf();
-    return trimCopy(oss.str());}
+    return keeply::trim(oss.str());}
 static std::optional<pid_t> readDaemonPid() {
     const auto text = readSmallTextFile(keeply::defaultEventStorePidPath());
     if (text.empty()) return std::nullopt;

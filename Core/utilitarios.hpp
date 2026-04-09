@@ -9,6 +9,7 @@ inline std::string lowerAscii(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     return s;}
+inline std::string toLower(std::string s) { return lowerAscii(std::move(s)); }
 inline std::string trim(const std::string& s) {
     const auto front = s.find_first_not_of(" \t\r\n");
     if (front == std::string::npos) return {};

@@ -1,4 +1,5 @@
 #include "http_util.hpp"
+#include "../Core/utilitarios.hpp"
 #include <cerrno>
 #include <cstring>
 #include <netdb.h>
@@ -8,8 +9,7 @@
 #include <stdexcept>
 namespace keeply::http_internal {
 std::string toLower(std::string value) {
-    for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return value;}
+    return keeply::lowerAscii(std::move(value));}
 std::string escapeJson(const std::string& value) {
     std::string out;
     out.reserve(value.size() + 8);

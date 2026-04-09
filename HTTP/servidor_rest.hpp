@@ -60,7 +60,6 @@ private:
     static RestResponse jsonMethodNotAllowed(const std::string& message);
     static RestResponse jsonNotFound(const std::string& message);
     static RestResponse jsonError(const std::string& message);
-    static std::string escapeJson(const std::string& s);
     static std::string getPathParamAfterPrefix(const std::string& fullPath,const std::string& prefix);};
 struct RestHttpServerConfig{
     std::shared_ptr<KeeplyApi> api;

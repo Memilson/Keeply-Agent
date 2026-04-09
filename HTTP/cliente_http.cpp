@@ -1,5 +1,6 @@
 #include "../WebSocket/websocket_interno.hpp"
 #include "../Cloud/fila_upload.hpp"
+#include "../Core/tls_context.hpp"
 #include "http_util.hpp"
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -45,18 +46,7 @@ struct HttpTls {
         if (ctx) { SSL_CTX_free(ctx); ctx = nullptr; }}
     ~HttpTls() { cleanup(); }
 };
-std::string trimAscii(std::string value) {
-    const auto isSpace = [](unsigned char c) { return std::isspace(c) != 0; };
-    while (!value.empty() && isSpace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
-    while (!value.empty() && isSpace(static_cast<unsigned char>(value.back()))) value.pop_back();
-    return value;}
-void configurePeerVerification(SSL* ssl, const ParsedUrl& url, bool allowInsecureTls) {
-    if (allowInsecureTls) return;
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    if (SSL_set1_host(ssl, url.host.c_str()) != 1) {
-        throw std::runtime_error("Falha ao configurar validacao de hostname TLS.");}
-#endif
-}
+inline std::string trimAscii(const std::string& value) { return keeply::trim(value); }
 std::string decodeChunkedBody(const std::string& body) {
     std::string decoded;
     std::size_t cursor = 0;
@@ -109,29 +99,13 @@ HttpTls connectTls(int fd,
                    const std::optional<fs::path>& certPemPath,
                    const std::optional<fs::path>& keyPemPath,
                    bool allowInsecureTls) {
+    keeply::TlsContextConfig tlsCfg;
+    tlsCfg.host = url.host;
+    tlsCfg.allowInsecure = allowInsecureTls;
+    tlsCfg.certPemPath = certPemPath;
+    tlsCfg.keyPemPath = keyPemPath;
     HttpTls tls;
-    tls.ctx = SSL_CTX_new(TLS_client_method());
-    if (!tls.ctx) throw std::runtime_error("Falha ao criar SSL_CTX.");
-    if (allowInsecureTls) {
-        SSL_CTX_set_verify(tls.ctx, SSL_VERIFY_NONE, nullptr);
-    } else {
-        SSL_CTX_set_verify(tls.ctx, SSL_VERIFY_PEER, nullptr);
-        if (SSL_CTX_set_default_verify_paths(tls.ctx) != 1) {
-            throw std::runtime_error("Falha ao configurar trust store do TLS.");}}
-    if (certPemPath && keyPemPath) {
-        if (SSL_CTX_use_certificate_file(tls.ctx, certPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
-            throw std::runtime_error("Falha ao carregar certificado do agente.");}
-        if (SSL_CTX_use_PrivateKey_file(tls.ctx, keyPemPath->string().c_str(), SSL_FILETYPE_PEM) != 1) {
-            throw std::runtime_error("Falha ao carregar chave privada do agente.");}}
-    tls.ssl = SSL_new(tls.ctx);
-    if (!tls.ssl) throw std::runtime_error("Falha ao criar SSL.");
-    SSL_set_mode(tls.ssl, SSL_MODE_AUTO_RETRY | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-    SSL_set_fd(tls.ssl, fd);
-    SSL_set_tlsext_host_name(tls.ssl, url.host.c_str());
-    configurePeerVerification(tls.ssl, url, allowInsecureTls);
-    if (SSL_connect(tls.ssl) != 1) throw std::runtime_error("Falha no handshake TLS com o backend.");
-    if (!allowInsecureTls && SSL_get_verify_result(tls.ssl) != X509_V_OK) {
-        throw std::runtime_error("Validacao do certificado TLS do backend falhou.");}
+    tls.ssl = keeply::createConnectedTlsSession(fd, tlsCfg, tls.ctx);
     return tls;}
 std::string readHttpResponseBody(int fd, SSL* ssl) {
     std::string data;
@@ -295,13 +269,7 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         if (fd >= 0) http_internal::closeSocketFd(fd);
         throw;}}}
 std::string hexEncode(const unsigned char* data, std::size_t size) {
-    static const char* h = "0123456789abcdef";
-    std::string out;
-    out.resize(size * 2);
-    for (std::size_t i = 0; i < size; ++i) {
-        out[i * 2] = h[(data[i] >> 4) & 0x0F];
-        out[i * 2 + 1] = h[data[i] & 0x0F];}
-    return out;}
+    return keeply::hexEncode(data, size);}
 std::string base64Encode(const unsigned char* data, std::size_t size) {
     std::string out;
     out.resize(((size + 2) / 3) * 4);

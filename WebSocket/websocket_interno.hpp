@@ -1,6 +1,7 @@
 #pragma once
 #include "websocket_agente.hpp"
 #include "../HTTP/http_util.hpp"
+#include "../Core/tls_context.hpp"
 #include <cstddef>
 #include <functional>
 #include <map>

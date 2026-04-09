@@ -32,7 +32,6 @@ static constexpr std::size_t MAX_HEADER_BYTES=(1u<<20);
 static constexpr std::size_t MAX_BODY_BYTES=(8u<<20);
 using SocketLen =
     socklen_t;
-static inline std::string trimHttp(const std::string& s){ return keeply::trim(s); }
 static std::string toUpper(std::string s){
     for(char& c:s) c=(char)std::toupper((unsigned char)c);
     return s;}
@@ -136,7 +135,7 @@ static bool recvHttpRequest(int fd,RestRequest& req){
         if(line.empty()) continue;
         auto colon=line.find(':');
         if(colon==std::string::npos) continue;
-        req.headers[toLower(trimHttp(line.substr(0,colon)))]=trimHttp(line.substr(colon+1));}
+        req.headers[toLower(keeply::trim(line.substr(0,colon)))]=keeply::trim(line.substr(colon+1));}
     req.query.clear();
     auto qpos=target.find('?');
     req.path=qpos==std::string::npos?target:target.substr(0,qpos);
@@ -325,11 +324,11 @@ RestResponse KeeplyRestApi::handlePostBackup(const RestRequest& req){
             it->second.finishedAtMs=Impl::nowMs();
             if(err.empty()){
                 it->second.status="finished";
-                eventJson=std::string("{\"type\":\"backup.finished\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\"}";
+                eventJson=std::string("{\"type\":\"backup.finished\",\"jobId\":\"")+escapeJson(id)+"\"}";
             }else{
                 it->second.status="failed";
                 it->second.error=err;
-                eventJson=std::string("{\"type\":\"backup.failed\",\"jobId\":\"")+KeeplyRestApi::escapeJson(id)+"\",\"error\":\""+KeeplyRestApi::escapeJson(err)+"\"}";}}
+                eventJson=std::string("{\"type\":\"backup.failed\",\"jobId\":\"")+escapeJson(id)+"\",\"error\":\""+escapeJson(err)+"\"}";}}
         if(impl->ws) impl->ws->broadcastJson(eventJson);
     }));
     return jsonAccepted(std::string("{\"ok\":true,\"jobId\":\"")+escapeJson(id)+"\"}");}
@@ -393,9 +392,9 @@ RestResponse KeeplyRestApi::handlePostRestoreFile(const RestRequest& req){
     std::string snapshot,relPath,outRoot;
     if(!std::getline(iss,snapshot,'|')||!std::getline(iss,relPath,'|')) return jsonBadRequest("Formato invalido. Use: snapshot|relpath|outRoot(opcional)");
     std::getline(iss,outRoot);
-    snapshot=trimHttp(snapshot);
-    relPath=trimHttp(relPath);
-    outRoot=trimHttp(outRoot);
+    snapshot=keeply::trim(snapshot);
+    relPath=keeply::trim(relPath);
+    outRoot=keeply::trim(outRoot);
     if(snapshot.empty()||relPath.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|relpath|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreFile(snapshot,relPath,std::nullopt);
@@ -407,8 +406,8 @@ RestResponse KeeplyRestApi::handlePostRestoreSnapshot(const RestRequest& req){
     std::string snapshot,outRoot;
     if(!std::getline(iss,snapshot,'|')) return jsonBadRequest("Formato invalido. Use: snapshot|outRoot(opcional)");
     std::getline(iss,outRoot);
-    snapshot=trimHttp(snapshot);
-    outRoot=trimHttp(outRoot);
+    snapshot=keeply::trim(snapshot);
+    outRoot=keeply::trim(outRoot);
     if(snapshot.empty()) return jsonBadRequest("Formato invalido. Use: snapshot|outRoot(opcional)");
     { std::lock_guard<std::mutex> lock(impl_->mu);
       if(outRoot.empty()) impl_->api->restoreSnapshot(snapshot,std::nullopt);
@@ -447,8 +446,6 @@ RestResponse KeeplyRestApi::jsonError(const std::string& message){
     RestResponse r; r.status=500; r.contentType="application/json; charset=utf-8";
     r.body=kVersionPrefix+"\"ok\":false,\"code\":500,\"error\":\""+escapeJson(message)+"\"}";
     return r;}
-std::string KeeplyRestApi::escapeJson(const std::string& s){
-    return http_internal::escapeJson(s);}
 std::string KeeplyRestApi::getPathParamAfterPrefix(const std::string& fullPath,const std::string& prefix){
     if(fullPath.rfind(prefix,0)!=0) return "";
     return fullPath.substr(prefix.size());}
