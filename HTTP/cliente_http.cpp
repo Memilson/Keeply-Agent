@@ -23,6 +23,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -269,6 +270,183 @@ HttpResponse httpPostMultipartFile(const std::string& url,
         tls.cleanup();
         if (fd >= 0) http_internal::closeSocketFd(fd);
         throw;}}}
+std::vector<std::string> extractJsonStringArrayField(const std::string& json,const std::string& field){
+    const std::string needle="\""+field+"\"";
+    std::size_t keyPos=json.find(needle);
+    if(keyPos==std::string::npos) return {};
+    std::size_t cursor=keyPos+needle.size();
+    while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+    if(cursor>=json.size()||json[cursor]!=':') return {};
+    ++cursor;
+    while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+    if(cursor>=json.size()||json[cursor]!='[') return {};
+    ++cursor;
+    std::vector<std::string> out;
+    std::string current;
+    bool inString=false;
+    bool escaped=false;
+    while(cursor<json.size()){
+        const char c=json[cursor++];
+        if(!inString){
+            if(c==']') return out;
+            if(c=='"'){
+                inString=true;
+                current.clear();}
+            continue;}
+        if(escaped){
+            switch(c){
+                case '"': current.push_back('"'); break;
+                case '\\': current.push_back('\\'); break;
+                case '/': current.push_back('/'); break;
+                case 'b': current.push_back('\b'); break;
+                case 'f': current.push_back('\f'); break;
+                case 'n': current.push_back('\n'); break;
+                case 'r': current.push_back('\r'); break;
+                case 't': current.push_back('\t'); break;
+                case 'u': current.push_back('?'); for(int i=0;i<4&&cursor<json.size();++i,++cursor){} break;
+                default: current.push_back(c); break;}
+            escaped=false;
+            continue;}
+        if(c=='\\'){
+            escaped=true;
+            continue;}
+        if(c=='"'){
+            inString=false;
+            out.push_back(current);
+            continue;}
+        current.push_back(c);}
+    return {};}
+std::map<std::string,std::string> extractJsonStringMapField(const std::string& json,const std::string& field){
+    const std::string needle="\""+field+"\"";
+    std::size_t keyPos=json.find(needle);
+    if(keyPos==std::string::npos) return {};
+    std::size_t cursor=keyPos+needle.size();
+    while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+    if(cursor>=json.size()||json[cursor]!=':') return {};
+    ++cursor;
+    while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+    if(cursor>=json.size()||json[cursor]!='{') return {};
+    ++cursor;
+    std::map<std::string,std::string> out;
+    auto readJsonString=[&](std::string& value)->bool{
+        while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+        if(cursor>=json.size()||json[cursor]!='"') return false;
+        ++cursor;
+        value.clear();
+        bool escaped=false;
+        while(cursor<json.size()){
+            const char c=json[cursor++];
+            if(escaped){
+                switch(c){
+                    case '"': value.push_back('"'); break;
+                    case '\\': value.push_back('\\'); break;
+                    case '/': value.push_back('/'); break;
+                    case 'b': value.push_back('\b'); break;
+                    case 'f': value.push_back('\f'); break;
+                    case 'n': value.push_back('\n'); break;
+                    case 'r': value.push_back('\r'); break;
+                    case 't': value.push_back('\t'); break;
+                    case 'u': value.push_back('?'); for(int i=0;i<4&&cursor<json.size();++i,++cursor){} break;
+                    default: value.push_back(c); break;}
+                escaped=false;
+                continue;}
+            if(c=='\\'){
+                escaped=true;
+                continue;}
+            if(c=='"') return true;
+            value.push_back(c);}
+        return false;};
+    while(cursor<json.size()){
+        while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+        if(cursor<json.size()&&json[cursor]=='}') return out;
+        std::string key;
+        if(!readJsonString(key)) return {};
+        while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+        if(cursor>=json.size()||json[cursor]!=':') return {};
+        ++cursor;
+        std::string value;
+        if(!readJsonString(value)) return {};
+        out[key]=value;
+        while(cursor<json.size()&&std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
+        if(cursor<json.size()&&json[cursor]==','){++cursor;continue;}
+        if(cursor<json.size()&&json[cursor]=='}') return out;}
+    return {};}
+fs::path writeTempUploadFile(const std::string& prefix,const std::string& suffix,const unsigned char* data,std::size_t size){
+    const fs::path dir=defaultKeeplyTempDir()/"cloud_upload";
+    std::error_code ec;
+    fs::create_directories(dir,ec);
+    if(ec) throw std::runtime_error("Falha criando diretorio temporario de upload: "+ec.message());
+    const fs::path path=dir/(prefix+"-"+randomDigits(12)+suffix);
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);
+    if(!out) throw std::runtime_error("Falha criando arquivo temporario de upload: "+path.string());
+    if(size>0) out.write(reinterpret_cast<const char*>(data),static_cast<std::streamsize>(size));
+    out.flush();
+    if(!out) throw std::runtime_error("Falha escrevendo arquivo temporario de upload: "+path.string());
+    return path;}
+fs::path writeTempUploadFile(const std::string& prefix,const std::string& suffix,const std::string& content){
+    return writeTempUploadFile(prefix,suffix,reinterpret_cast<const unsigned char*>(content.data()),content.size());}
+fs::path compressArchiveForUpload(const fs::path& archivePath){
+    std::ifstream in(archivePath,std::ios::binary);
+    if(!in) throw std::runtime_error("Falha abrindo archive para compactar: "+archivePath.string());
+    in.seekg(0,std::ios::end);
+    const std::streamoff endPos=in.tellg();
+    if(endPos<0) throw std::runtime_error("Falha lendo tamanho do archive para compactar.");
+    const std::size_t rawSize=static_cast<std::size_t>(endPos);
+    in.seekg(0,std::ios::beg);
+    std::vector<unsigned char> raw(rawSize);
+    if(rawSize>0) in.read(reinterpret_cast<char*>(raw.data()),static_cast<std::streamsize>(rawSize));
+    if(!in&&rawSize>0) throw std::runtime_error("Falha lendo archive para compactar.");
+    std::vector<unsigned char> comp;
+    Compactador::zstdCompress(raw.data(),raw.size(),9,comp);
+    std::vector<unsigned char> payload(sizeof(std::uint64_t)+comp.size());
+    const std::uint64_t rawSize64=static_cast<std::uint64_t>(raw.size());
+    std::memcpy(payload.data(),&rawSize64,sizeof(rawSize64));
+    if(!comp.empty()) std::memcpy(payload.data()+sizeof(rawSize64),comp.data(),comp.size());
+    return writeTempUploadFile("archive",".kipy.zst",payload.data(),payload.size());}
+std::string jsonStringArray(const std::vector<std::string>& values){
+    std::ostringstream oss;
+    oss<<"[";
+    for(std::size_t i=0;i<values.size();++i){
+        if(i>0) oss<<",";
+        oss<<"\""<<escapeJson(values[i])<<"\"";}
+    oss<<"]";
+    return oss.str();}
+std::vector<std::string> requestMissingHashes(const std::string& url,
+                                              const AgentIdentity& identity,
+                                              const AppState& state,
+                                              const std::string& label,
+                                              const std::string& bundleId,
+                                              sqlite3_int64 latestSnapshotId,
+                                              const std::vector<std::string>& hashes,
+                                              bool allowInsecureTls){
+    if(hashes.empty()) return {};
+    std::ostringstream body;
+    body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(hashes)<<"}";
+    const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
+    if(response.status==404) return hashes;
+    if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
+    auto missing=extractJsonStringArrayField(response.body,"missingHashes");
+    if(missing.empty()) missing=extractJsonStringArrayField(response.body,"missing");
+    if(missing.empty()) missing=extractJsonStringArrayField(response.body,"hashes");
+    return missing;}
+std::map<std::string,std::string> requestChunkKeys(const std::string& url,
+                                                   const AgentIdentity& identity,
+                                                   const AppState& state,
+                                                   const std::string& label,
+                                                   const std::string& bundleId,
+                                                   sqlite3_int64 latestSnapshotId,
+                                                   const std::vector<std::string>& hashes,
+                                                   bool allowInsecureTls){
+    if(hashes.empty()) return {};
+    std::ostringstream body;
+    body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(hashes)<<"}";
+    const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
+    if(response.status==404) return {};
+    if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
+    auto out=extractJsonStringMapField(response.body,"keys");
+    if(out.empty()) out=extractJsonStringMapField(response.body,"chunkKeys");
+    if(out.empty()) out=extractJsonStringMapField(response.body,"s3Keys");
+    return out;}
 std::string hexEncode(const unsigned char* data, std::size_t size) {
     return keeply::hexEncode(data, size);}
 std::string base64Encode(const unsigned char* data, std::size_t size) {
@@ -456,95 +634,118 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
     const fs::path archivePath = pathFromUtf8(state.archive);
     if (!fs::exists(archivePath)) throw std::runtime_error("Arquivo de backup local nao encontrado para upload.");
     StorageArchive archive(archivePath);
+    const auto plan=archive.prepareCloudUpload(identity.deviceId);
     const auto snapshots = archive.listSnapshots();
     std::string backupType = snapshots.empty() ? "full" : (snapshots.back().backupType == "incremental" ? "incremental" : "full");
-    const auto bundle = archive.exportCloudBundle(defaultCloudBundleExportRoot(), 16ull * 1024ull * 1024ull);
     const std::string url = httpUrlFromWsUrl(config.url, "/api/agent/backups/upload");
+    const std::string missingHashesUrl=httpUrlFromWsUrl(config.url,"/api/agent/backups/missing-hashes");
+    const std::string chunkKeysUrl=httpUrlFromWsUrl(config.url,"/api/agent/backups/chunk-keys");
     UploadBundleResult result;
-    result.bundleId = bundle.bundleId;
-    const std::size_t filesTotal = bundle.files.size();
+    result.bundleId = plan.bundleId;
+    std::vector<std::string> allHashes;
+    allHashes.reserve(plan.chunks.size());
+    for(const auto& chunk:plan.chunks) allHashes.push_back(hexEncode(chunk.hash.data(),chunk.hash.size()));
+    const std::vector<std::string> missingHashes=requestMissingHashes(missingHashesUrl,identity,state,label,plan.bundleId,plan.latestSnapshotId,allHashes,config.allowInsecureTls);
+    const std::set<std::string> missingSet(missingHashes.begin(),missingHashes.end());
+    const auto chunkKeys=requestChunkKeys(chunkKeysUrl,identity,state,label,plan.bundleId,plan.latestSnapshotId,missingHashes,config.allowInsecureTls);
+    std::vector<StorageArchive::CloudChunkRef> missingChunks;
+    missingChunks.reserve(missingHashes.size());
+    for(const auto& chunk:plan.chunks){
+        const std::string hashHex=hexEncode(chunk.hash.data(),chunk.hash.size());
+        if(missingSet.find(hashHex)!=missingSet.end()) missingChunks.push_back(chunk);}
+    const std::size_t filesTotal=missingChunks.size()+2;
     std::atomic<std::size_t> uploadedCount{0};
     std::atomic<std::size_t> uploadedBlobCount{0};
     try {
-        auto uploadOne = [&](const StorageArchive::CloudBundleFile& item, std::size_t attempt) {
-            const std::string role = item.manifest ? "manifest" : (item.blobPart ? "blob" : "metadata");
-            std::size_t blobPartIndex = 0;
-            if (item.blobPart) {
-                const std::size_t marker = item.uploadName.find_last_of('-');
-                const std::size_t dot = item.uploadName.rfind('.');
-                if (marker != std::string::npos && dot != std::string::npos && dot > marker + 1) {
-                    blobPartIndex = static_cast<std::size_t>(
-                        std::strtoull(item.uploadName.substr(marker + 1, dot - marker - 1).c_str(), nullptr, 10));}}
-            if (onProgress) {
+        auto uploadFile=[&](const fs::path& filePath,
+                            const std::string& uploadName,
+                            const std::string& role,
+                            std::size_t blobPartIndex,
+                            const std::vector<MultipartField>& extraFields,
+                            std::size_t attempt,
+                            const std::string& contentType){
+            if(onProgress){
                 onProgress(UploadProgressSnapshot{
-                    uploadedCount.load(), filesTotal, blobPartIndex, bundle.blobPartCount, item.uploadName, role
+                    uploadedCount.load(),filesTotal,blobPartIndex,missingChunks.size(),uploadName,role
                 });}
             std::vector<MultipartField> fields;
-            fields.push_back({"userId", identity.userId});
-            fields.push_back({"agentId", identity.deviceId});
-            fields.push_back({"folderName", label});
-            fields.push_back({"mode", "manual"});
-            fields.push_back({"backupType", backupType});
-            fields.push_back({"sourcePath", state.source});
-            fields.push_back({"bundleId", bundle.bundleId});
-            fields.push_back({"bundleFileName", item.uploadName});
-            fields.push_back({"bundleRole", role});
-            const HttpResponse response = httpPostMultipartFile(
-                url, fields, "file", item.path, item.uploadName, item.contentType, std::nullopt, std::nullopt, config.allowInsecureTls);
-            if (response.status < 200 || response.status >= 300) {
-                throw std::runtime_error(
-                    "HTTP " + std::to_string(response.status) +
-                    " | tentativa=" + std::to_string(attempt) +
-                    " | body=" + response.body);}
-            const std::size_t completed = uploadedCount.fetch_add(1) + 1;
-            if (item.blobPart) uploadedBlobCount.fetch_add(1);
-            if (item.manifest) result.manifestResponse = response;
-            if (onProgress) {
+            fields.push_back({"userId",identity.userId});
+            fields.push_back({"agentId",identity.deviceId});
+            fields.push_back({"folderName",label});
+            fields.push_back({"mode","manual"});
+            fields.push_back({"backupType",backupType});
+            fields.push_back({"sourcePath",state.source});
+            fields.push_back({"bundleId",plan.bundleId});
+            fields.push_back({"bundleFileName",uploadName});
+            fields.push_back({"bundleRole",role});
+            for(const auto& field:extraFields) fields.push_back(field);
+            const HttpResponse response=httpPostMultipartFile(url,fields,"file",filePath,uploadName,contentType,std::nullopt,std::nullopt,config.allowInsecureTls);
+            if(response.status<200||response.status>=300){
+                throw std::runtime_error("HTTP "+std::to_string(response.status)+" | tentativa="+std::to_string(attempt)+" | body="+response.body);}
+            const std::size_t completed=uploadedCount.fetch_add(1)+1;
+            if(role=="chunk") uploadedBlobCount.fetch_add(1);
+            if(role=="manifest") result.manifestResponse=response;
+            if(onProgress){
                 onProgress(UploadProgressSnapshot{
-                    completed, filesTotal, blobPartIndex, bundle.blobPartCount, item.uploadName, role
-                });}
-        };
-        const StorageArchive::CloudBundleFile* manifestFile = nullptr;
-        for (const auto& item : bundle.files) {
-            if (item.manifest) {
-                manifestFile = &item;
-                continue;}
-            if (item.blobPart) continue;
-            uploadOne(item, 1);
-            if (!item.path.empty()) {
-                std::error_code cleanupEc;
-                fs::remove(item.path, cleanupEc);}}
-        const std::size_t uploadWorkers = computeUploadWorkerCount(bundle.blobPartCount);
+                    completed,filesTotal,blobPartIndex,missingChunks.size(),uploadName,role
+                });}};
+        const fs::path archiveUploadPath=compressArchiveForUpload(plan.archiveDbPath);
+        try{
+            uploadFile(archiveUploadPath,plan.archiveDbPath.filename().string()+".zst","archive",0,{{"snapshotId",std::to_string(plan.latestSnapshotId)},{"contentEncoding","zstd"}},1,"application/octet-stream");
+        }catch(...){
+            std::error_code cleanupEc;
+            fs::remove(archiveUploadPath,cleanupEc);
+            throw;}
+        std::error_code archiveCleanupEc;
+        fs::remove(archiveUploadPath,archiveCleanupEc);
+        const std::size_t uploadWorkers=computeUploadWorkerCount(missingChunks.size());
         std::cout << "[keeply][upload] workers=" << uploadWorkers
-                  << " | blob_parts=" << bundle.blobPartCount
+                  << " | missing_chunks=" << missingChunks.size()
+                  << " | total_chunks=" << plan.chunks.size()
                   << " | files_total=" << filesTotal << "\n";
         std::cout.flush();
-        if (onProgress && bundle.blobPartCount > 0) {
+        if(onProgress&&missingChunks.size()>0){
             onProgress(UploadProgressSnapshot{
-                uploadedCount.load(), filesTotal, 0, bundle.blobPartCount,
+                uploadedCount.load(),filesTotal,0,missingChunks.size(),
                 "workers=" + std::to_string(uploadWorkers), "scheduler"
             });}
         runParallelUploadQueue(
-            bundle.blobPartCount,
-            ParallelUploadOptions{uploadWorkers, 3, std::chrono::milliseconds(750)},
-            [&](std::size_t partIndex, std::size_t attempt) {
-                auto blobFile = archive.materializeCloudBundleBlob(bundle, partIndex);
+            missingChunks.size(),
+            ParallelUploadOptions{uploadWorkers==0?1:uploadWorkers,3,std::chrono::milliseconds(750)},
+            [&](std::size_t partIndex,std::size_t attempt){
+                const auto& chunk=missingChunks[partIndex];
+                const std::string hashHex=hexEncode(chunk.hash.data(),chunk.hash.size());
+                const auto data=archive.readPackRecord(chunk);
+                const fs::path chunkPath=writeTempUploadFile("chunk-"+hashHex,".bin",data.data(),data.size());
                 try {
-                    uploadOne(blobFile, attempt);
+                    std::vector<MultipartField> extraFields;
+                    extraFields.push_back({"chunkHash",hashHex});
+                    extraFields.push_back({"chunkAlgo","pack-record"});
+                    extraFields.push_back({"snapshotId",std::to_string(plan.latestSnapshotId)});
+                    const auto keyIt=chunkKeys.find(hashHex);
+                    if(keyIt!=chunkKeys.end()&&!keyIt->second.empty()) extraFields.push_back({"objectKey",keyIt->second});
+                    uploadFile(chunkPath,hashHex+".bin","chunk",partIndex+1,extraFields,attempt,"application/octet-stream");
                 } catch (...) {
                     std::error_code cleanupEc;
-                    if (!blobFile.path.empty()) fs::remove(blobFile.path, cleanupEc);
+                    fs::remove(chunkPath,cleanupEc);
                     throw;}
                 std::error_code cleanupEc;
-                if (!blobFile.path.empty()) fs::remove(blobFile.path, cleanupEc);}
+                fs::remove(chunkPath,cleanupEc);}
         );
-        if (manifestFile) uploadOne(*manifestFile, 1);
+        const std::size_t latestSnapshotChunkCount=plan.latestSnapshotId>0?archive.snapshotChunkHashes(plan.latestSnapshotId).size():0;
+        std::ostringstream manifestJson;
+        manifestJson<<"{"<<"\"bundleId\":\""<<escapeJson(plan.bundleId)<<"\","<<"\"snapshotId\":"<<plan.latestSnapshotId<<","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"backupType\":\""<<escapeJson(backupType)<<"\","<<"\"archiveFile\":\""<<escapeJson(plan.archiveDbPath.filename().string())<<"\","<<"\"totalChunks\":"<<plan.chunks.size()<<","<<"\"latestSnapshotChunkCount\":"<<latestSnapshotChunkCount<<","<<"\"missingChunksUploaded\":"<<missingChunks.size()<<"}";
+        const fs::path manifestPath=writeTempUploadFile("manifest-"+plan.bundleId,".json",manifestJson.str());
+        try{
+            uploadFile(manifestPath,"manifest.json","manifest",0,{{"snapshotId",std::to_string(plan.latestSnapshotId)}},1,"application/json");
+        }catch(...){
+            std::error_code cleanupEc;
+            fs::remove(manifestPath,cleanupEc);
+            throw;}
+        std::error_code manifestCleanupEc;
+        fs::remove(manifestPath,manifestCleanupEc);
     } catch (...) {
-        std::error_code cleanupEc;
-        fs::remove_all(bundle.rootDir, cleanupEc);
         throw;}
-    std::error_code cleanupEc;
-    fs::remove_all(bundle.rootDir, cleanupEc);
     result.filesUploaded = uploadedCount.load();
     result.blobPartCount = uploadedBlobCount.load();
     if (result.manifestResponse.status == 0) throw std::runtime_error("Manifest do bundle cloud nao foi enviado.");

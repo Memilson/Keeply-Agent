@@ -508,6 +508,11 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
     } else if (identity.fingerprintSha256.empty()) {
         identity.fingerprintSha256 = computeFingerprintFromFile(identity.certPemPath);}
     ensureIdentityPermissions(identity);
+    if(!identity.userId.empty()){
+        identity.pairingCode.clear();
+        ws_internal::saveIdentityMeta(identity);
+        tightenPermissions(identity.metaPath, false);
+        return identity;}
     for (;;) {
         if (identity.pairingCode.empty()) identity.pairingCode = trim(config.pairingCode);
         if (identity.pairingCode.empty()) identity.pairingCode = ws_internal::randomDigits(8);

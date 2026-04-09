@@ -1,11 +1,15 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
 #include "../HTTP/http_util.hpp"
+#include "../Storage/backend_armazenamento.hpp"
+#include "../Core/tipos.hpp"
 #include <array>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -29,6 +33,29 @@ void writeBinaryFile(const fs::path& path,const std::string& bytes){
     if(!out) throw std::runtime_error("Falha criando arquivo temporario: " + path.string());
     if(!bytes.empty()) out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     if(!out) throw std::runtime_error("Falha gravando arquivo temporario: " + path.string());}
+fs::path maybeInflateArchiveForRestore(const fs::path& path){
+    const std::string fileName = path.filename().string();
+    if(fileName.size()<4||fileName.substr(fileName.size()-4)!=".zst") return path;
+    std::ifstream in(path,std::ios::binary);
+    if(!in) throw std::runtime_error("Falha abrindo archive compactado: " + path.string());
+    in.seekg(0,std::ios::end);
+    const std::streamoff endPos=in.tellg();
+    if(endPos<static_cast<std::streamoff>(sizeof(std::uint64_t))) throw std::runtime_error("Archive compactado invalido.");
+    in.seekg(0,std::ios::beg);
+    std::vector<unsigned char> payload(static_cast<std::size_t>(endPos));
+    in.read(reinterpret_cast<char*>(payload.data()),static_cast<std::streamsize>(payload.size()));
+    if(!in) throw std::runtime_error("Falha lendo archive compactado.");
+    std::uint64_t rawSize=0;
+    std::memcpy(&rawSize,payload.data(),sizeof(rawSize));
+    std::vector<unsigned char> raw;
+    keeply::Compactador::zstdDecompress(payload.data()+sizeof(rawSize),payload.size()-sizeof(rawSize),static_cast<std::size_t>(rawSize),raw);
+    fs::path outPath=path;
+    outPath.replace_extension({});
+    std::ofstream out(outPath,std::ios::binary|std::ios::trunc);
+    if(!out) throw std::runtime_error("Falha criando archive descompactado: " + outPath.string());
+    if(!raw.empty()) out.write(reinterpret_cast<const char*>(raw.data()),static_cast<std::streamsize>(raw.size()));
+    if(!out) throw std::runtime_error("Falha gravando archive descompactado: " + outPath.string());
+    return outPath;}
 void appendFileToStream(std::ofstream& out,const fs::path& path){
     std::ifstream in(path, std::ios::binary);
     if(!in) throw std::runtime_error("Falha abrindo parte do bundle: " + path.string());
@@ -68,21 +95,15 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
     if(cmd.snapshot.empty()) throw std::runtime_error("restore.cloud.snapshot requer snapshot.");
     if(cmd.downloadPathBase.empty()) throw std::runtime_error("restore.cloud.snapshot requer downloadPathBase.");
     if(cmd.archiveFile.empty()) throw std::runtime_error("restore.cloud.snapshot requer archiveFile.");
-    const std::vector<std::string> blobFiles = splitNonEmptyPipe(cmd.blobFiles);
-    if(blobFiles.empty()) throw std::runtime_error("restore.cloud.snapshot requer ao menos um blob do pack.");
     const std::string requestId = cmd.requestId.empty() ? randomDigits(12) : cmd.requestId;
-    const std::string packFileName = !cmd.packFile.empty() ? cmd.packFile : blobFiles.front();
-    const std::size_t filesTotal = 1 + (cmd.indexFile.empty() ? 0 : 1) + blobFiles.size();
     const std::string resolvedOutRoot = !cmd.outRoot.empty() ? cmd.outRoot : api_->state().restoreRoot;
-    std::ostringstream startedJson;
-    startedJson<<"{"<<"\"type\":\"restore.cloud.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesTotal\":"<<filesTotal<<"}";
-    sendJson_(startedJson.str());
     const fs::path tempRoot = defaultKeeplyTempDir() / "cloud_restore" / requestId;
     std::error_code cleanupEc;
     fs::remove_all(tempRoot, cleanupEc);
     ensureDirectory(tempRoot);
     try{
         std::size_t completedDownloads = 0;
+        std::size_t filesTotal = 1;
         auto sendProgress = [&](const std::string& phase,const std::string& currentFile){
             std::ostringstream progressJson;
             progressJson<<"{"<<"\"type\":\"restore.cloud.progress\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("phase",phase)<<","<<jsonStrField("currentFile",currentFile)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesCompleted\":"<<completedDownloads<<","<<"\"filesTotal\":"<<filesTotal<<"}";
@@ -103,29 +124,49 @@ void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
             sendProgress("downloaded", fileName);
             return outPath;
         };
-        const fs::path archivePath = downloadOne(cmd.archiveFile);
-        if(!cmd.indexFile.empty()) downloadOne(cmd.indexFile);
-        std::vector<fs::path> blobPaths;
-        blobPaths.reserve(blobFiles.size());
-        for(const auto& blobFile : blobFiles){
-            blobPaths.push_back(downloadOne(blobFile));}
-        const fs::path finalPackPath = tempRoot / packFileName;
-        if(blobPaths.size() == 1 && blobPaths.front().filename() == finalPackPath.filename()){
-        }else{
-            sendProgress("assembling", packFileName);
-            if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
-            std::ofstream packOut(finalPackPath, std::ios::binary | std::ios::trunc);
-            if(!packOut) throw std::runtime_error("Falha criando pack temporario para restore cloud.");
-            for(const auto& partPath : blobPaths){
-                appendFileToStream(packOut, partPath);}
-            packOut.close();
-            if(!packOut) throw std::runtime_error("Falha finalizando pack temporario para restore cloud.");}
+        const fs::path downloadedArchivePath = downloadOne(cmd.archiveFile);
+        const fs::path archivePath = maybeInflateArchiveForRestore(downloadedArchivePath);
+        StorageArchive archive(archivePath);
+        const sqlite3_int64 snapshotId = archive.resolveSnapshotId(cmd.snapshot);
+        const auto plan = archive.prepareCloudUpload(identity_.deviceId);
+        const std::vector<ChunkHash> snapshotHashes = archive.snapshotChunkHashes(snapshotId);
+        std::set<std::string> neededHashes;
+        neededHashes.clear();
+        for(const auto& hash : snapshotHashes) neededHashes.insert(hexEncode(hash.data(), hash.size()));
+        std::vector<StorageArchive::CloudChunkRef> neededChunks;
+        neededChunks.reserve(neededHashes.size());
+        for(const auto& chunk : plan.chunks){
+            const std::string hashHex = hexEncode(chunk.hash.data(), chunk.hash.size());
+            if(neededHashes.find(hashHex) != neededHashes.end()) neededChunks.push_back(chunk);}
+        if(neededChunks.empty()) throw std::runtime_error("Nenhum chunk encontrado para o snapshot solicitado.");
+        filesTotal = 1 + neededChunks.size();
+        std::ostringstream startedJson;
+        startedJson<<"{"<<"\"type\":\"restore.cloud.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("backupId",cmd.backupId)<<","<<jsonStrField("backupRef",cmd.backupRef)<<","<<jsonStrField("bundleId",cmd.bundleId)<<","<<jsonStrField("snapshot",cmd.snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<"\"filesTotal\":"<<filesTotal<<"}";
+        sendJson_(startedJson.str());
+        const fs::path finalPackPath = describeArchiveStorage(archivePath).packPath;
+        if(!finalPackPath.parent_path().empty()) ensureDirectory(finalPackPath.parent_path());
+        sendProgress("assembling", finalPackPath.filename().string());
+        std::ofstream packOut(finalPackPath, std::ios::binary | std::ios::trunc);
+        if(!packOut) throw std::runtime_error("Falha criando pack temporario para restore cloud.");
+        std::uint64_t currentOffset = 0;
+        for(const auto& chunk : neededChunks){
+            const std::string hashHex = hexEncode(chunk.hash.data(), chunk.hash.size());
+            const std::string chunkFileName = hashHex + ".bin";
+            const fs::path chunkPath = downloadOne(chunkFileName);
+            std::ifstream in(chunkPath, std::ios::binary);
+            if(!in) throw std::runtime_error("Falha abrindo chunk baixado: " + chunkPath.string());
+            packOut.seekp(static_cast<std::streamoff>(currentOffset), std::ios::beg);
+            if(!packOut) throw std::runtime_error("Falha posicionando pack temporario.");
+            appendFileToStream(packOut, chunkPath);
+            archive.setChunkPackOffsetForRestore(chunk.hash, currentOffset);
+            currentOffset += chunk.recordSize;
+        }
+        packOut.close();
+        if(!packOut) throw std::runtime_error("Falha finalizando pack temporario para restore cloud.");
         sendProgress("restoring", cmd.snapshot);
         const std::optional<fs::path> outRoot = resolvedOutRoot.empty()
             ? std::nullopt
             : std::optional<fs::path>(fs::path(resolvedOutRoot));
-        StorageArchive archive(archivePath);
-        const sqlite3_int64 snapshotId = archive.resolveSnapshotId(cmd.snapshot);
         const fs::path finalOutRoot = outRoot.value_or(pathFromUtf8(api_->state().restoreRoot));
         const std::string normalizedRelPath = normalizeRelPath(cmd.relPath);
         const std::string normalizedEntryType = trim(cmd.entryType);
