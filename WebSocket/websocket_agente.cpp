@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -79,7 +80,8 @@ keeply::WsCommand parseLegacyCommand(const std::string& payload){
         if(!parts.empty()) cmd.label=parts[0];
         for(std::size_t i=1;i<parts.size();++i){
             if(parts[i].rfind("storage=",0)==0) cmd.storage=parts[i].substr(8);
-            else if(parts[i].rfind("source=",0)==0) cmd.sourcePath=parts[i].substr(7);}
+            else if(parts[i].rfind("source=",0)==0) cmd.sourcePath=parts[i].substr(7);
+            else if(parts[i].rfind("key=",0)==0) cmd.encryptionKey=parts[i].substr(4);}
         return cmd;}
     if(payload.rfind("restore.file:",0)==0){
         cmd.type="restore.file";
@@ -87,12 +89,16 @@ keeply::WsCommand parseLegacyCommand(const std::string& payload){
         if(parts.size()>=1) cmd.snapshot=parts[0];
         if(parts.size()>=2) cmd.relPath=parts[1];
         if(parts.size()>=3) cmd.outRoot=parts[2];
+        for(std::size_t i=3;i<parts.size();++i){
+            if(parts[i].rfind("key=",0)==0) cmd.encryptionKey=parts[i].substr(4);}
         return cmd;}
     if(payload.rfind("restore.snapshot:",0)==0){
         cmd.type="restore.snapshot";
         const auto parts=splitPipe(payload.substr(17));
         if(parts.size()>=1) cmd.snapshot=parts[0];
         if(parts.size()>=2) cmd.outRoot=parts[1];
+        for(std::size_t i=2;i<parts.size();++i){
+            if(parts[i].rfind("key=",0)==0) cmd.encryptionKey=parts[i].substr(4);}
         return cmd;}
     cmd.type="unsupported";
     return cmd;}
@@ -121,6 +127,7 @@ keeply::WsCommand parseJsonCommand(const std::string& payload){
     cmd.blobFiles=extractJsonStringField(payload,"blobFiles");
     cmd.sourceRoot=extractJsonStringField(payload,"sourceRoot");
     cmd.entryType=extractJsonStringField(payload,"entryType");
+    cmd.encryptionKey=extractJsonStringField(payload,"key");
     return cmd;}}
 namespace keeply {
 struct KeeplyAgentWsClient::TlsState{
@@ -354,13 +361,21 @@ void KeeplyAgentWsClient::executeCommand_(const WsCommand& cmd){
         return;}
     if(cmd.type=="config.archive"){api_->setArchive(cmd.path);sendJson_(R"({"type":"config.updated","field":"archive"})");return;}
     if(cmd.type=="config.restoreRoot"){api_->setRestoreRoot(cmd.path);sendJson_(R"({"type":"config.updated","field":"restoreRoot"})");return;}
+    struct KeyEnvGuard{
+        bool applied=false;
+        explicit KeyEnvGuard(const std::string& key){
+            if(!key.empty()){setenv("KEEPLY_BACKUP_KEY",key.c_str(),1);applied=true;}
+        }
+        ~KeyEnvGuard(){if(applied) unsetenv("KEEPLY_BACKUP_KEY");}
+    };
     if(cmd.type=="backup"){
         if(!cmd.sourcePath.empty()) api_->setSource(cmd.sourcePath);
+        KeyEnvGuard guard(cmd.encryptionKey);
         runBackupCommand_(cmd.label,cmd.storage);
         return;}
-    if(cmd.type=="restore.file"){runRestoreFileCommand_(cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
-    if(cmd.type=="restore.snapshot"){runRestoreSnapshotCommand_(cmd.snapshot,cmd.outRoot);return;}
-    if(cmd.type=="restore.cloud.snapshot"){runRestoreCloudSnapshotCommand_(cmd);return;}
+    if(cmd.type=="restore.file"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreFileCommand_(cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
+    if(cmd.type=="restore.snapshot"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreSnapshotCommand_(cmd.snapshot,cmd.outRoot);return;}
+    if(cmd.type=="restore.cloud.snapshot"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreCloudSnapshotCommand_(cmd);return;}
     throw std::runtime_error("Comando websocket nao suportado: "+(cmd.type.empty()?cmd.raw:cmd.type));}
 void KeeplyAgentWsClient::sendHello_(){
     const auto& s=api_->state();

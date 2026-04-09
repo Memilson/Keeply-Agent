@@ -3,22 +3,17 @@
 namespace keeply {
 class StorageArchive {
 public:
-    struct CloudBundleFile {
-        fs::path path;
-        std::string uploadName;
-        std::string objectKey;
-        std::string contentType = "application/octet-stream";
-        std::uintmax_t size = 0;
-        bool manifest = false;
-        bool blobPart = false;
+    struct CloudChunkRef {
+        ChunkHash hash{};
+        std::uint64_t packOffset = 0;
+        std::uint64_t recordSize = 0;
     };
-    struct CloudBundleExport {
+    struct CloudUploadPlan {
         std::string bundleId;
-        fs::path rootDir;
+        fs::path archiveDbPath;
         fs::path packPath;
-        std::uint64_t blobMaxBytes = 0;
-        std::size_t blobPartCount = 0;
-        std::vector<CloudBundleFile> files;
+        sqlite3_int64 latestSnapshotId = 0;
+        std::vector<CloudChunkRef> chunks;
     };
     explicit StorageArchive(const fs::path& path);
     ~StorageArchive();
@@ -27,7 +22,7 @@ public:
     void commit();
     void endRead();
     void rollback();
-    sqlite3_int64 createSnapshot(const std::string& sourceRoot, const std::string& label);
+    sqlite3_int64 createSnapshot(const std::string& sourceRoot, const std::string& label, const std::string& backupType);
     std::optional<sqlite3_int64> latestSnapshotId();
     std::optional<std::uint64_t> latestSnapshotCbtToken();
     std::optional<sqlite3_int64> previousSnapshotId();
@@ -71,14 +66,10 @@ public:
     void setChunkEncryptIv(const ChunkHash& hash, const Blob& iv);
     void saveFileSignature(sqlite3_int64 snapshotId, const std::string& path, const Blob& sigBlob);
     std::optional<Blob> loadFileSignature(const std::string& path);
-    void markPartUploaded(const std::string& bundleId, int partIndex,
-                          const std::string& uploadId, const std::string& etag);
-    std::vector<std::pair<int,std::string>> loadUploadedParts(const std::string& bundleId);
-    void clearUploadParts(const std::string& bundleId);
-    CloudBundleExport exportCloudBundle(const fs::path& tempRoot,
-                                        std::uint64_t blobMaxBytes = 16ull * 1024ull * 1024ull) const;
-    CloudBundleFile materializeCloudBundleBlob(const CloudBundleExport& bundle,
-                                               std::size_t partIndex) const;
+    CloudUploadPlan prepareCloudUpload(const std::string& deviceExternalId);
+    std::vector<unsigned char> readPackRecord(const CloudChunkRef& ref) const;
+    std::vector<ChunkHash> snapshotChunkHashes(sqlite3_int64 snapshotId);
+    void setChunkPackOffsetForRestore(const ChunkHash& hash, std::uint64_t newOffset);
 private:
     struct HotStmts {
         std::unique_ptr<Stmt> insertSnapshot;

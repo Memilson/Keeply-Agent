@@ -457,7 +457,7 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
     if (!fs::exists(archivePath)) throw std::runtime_error("Arquivo de backup local nao encontrado para upload.");
     StorageArchive archive(archivePath);
     const auto snapshots = archive.listSnapshots();
-    std::string backupType = snapshots.size() > 1 ? "incremental" : "full";
+    std::string backupType = snapshots.empty() ? "full" : (snapshots.back().backupType == "incremental" ? "incremental" : "full");
     const auto bundle = archive.exportCloudBundle(defaultCloudBundleExportRoot(), 16ull * 1024ull * 1024ull);
     const std::string url = httpUrlFromWsUrl(config.url, "/api/agent/backups/upload");
     UploadBundleResult result;
@@ -488,7 +488,6 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
             fields.push_back({"sourcePath", state.source});
             fields.push_back({"bundleId", bundle.bundleId});
             fields.push_back({"bundleFileName", item.uploadName});
-            fields.push_back({"objectKey", item.objectKey});
             fields.push_back({"bundleRole", role});
             const HttpResponse response = httpPostMultipartFile(
                 url, fields, "file", item.path, item.uploadName, item.contentType, std::nullopt, std::nullopt, config.allowInsecureTls);

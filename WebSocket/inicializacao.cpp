@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <system_error>
 #include <thread>
@@ -345,6 +346,11 @@ void ensureIdentityPermissions(const AgentIdentity& id) {
     if (fs::exists(id.certPemPath)) tightenPermissions(id.certPemPath, false);
     if (fs::exists(id.keyPemPath))  tightenPermissions(id.keyPemPath,  false);
     if (fs::exists(id.metaPath))    tightenPermissions(id.metaPath,    false);}
+std::string generateDeviceId() {
+    std::random_device rd;
+    unsigned char bytes[16];
+    for (auto& byte : bytes) byte = static_cast<unsigned char>(rd());
+    return "dev_" + ws_internal::hexEncode(bytes, sizeof(bytes));}
 std::string computeFingerprint(X509* cert) {
     const int derLen = i2d_X509(cert, nullptr);
     if (derLen <= 0) throw std::runtime_error("Falha ao serializar certificado DER.");
@@ -474,6 +480,7 @@ AgentIdentity loadPersistedIdentity(const WsClientConfig& config) {
     const std::string keyMeta  = get("key_pem");
     identity.certPemPath = certMeta.empty() ? (config.identityDir / "agent-cert.pem") : pathFromUtf8(certMeta);
     identity.keyPemPath  = keyMeta.empty()  ? (config.identityDir / "agent-key.pem")  : pathFromUtf8(keyMeta);
+    if (identity.deviceId.empty()) identity.deviceId = generateDeviceId();
     return identity;}
 bool awaitPairingConfirmation(const WsClientConfig& config,
                               AgentIdentity& identity){

@@ -79,6 +79,7 @@ struct WsCommand{
     std::string blobFiles;
     std::string sourceRoot;
     std::string entryType;
+    std::string encryptionKey;
     std::string raw;
 };
 class KeeplyAgentBootstrap final{

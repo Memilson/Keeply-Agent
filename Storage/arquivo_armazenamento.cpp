@@ -158,115 +158,7 @@ private:
     std::uint64_t packTxnStart_ = 0;
     std::uint64_t indexTxnStart_ = 0;
     bool inTxn_ = false;
-};
-class LocalCloudExporter final : public StorageCloudExporter {
-public:
-    explicit LocalCloudExporter(const fs::path& archivePath)
-        : paths_(describeArchiveStorage(archivePath)) {}
-    StorageArchive::CloudBundleExport exportBundle(const fs::path& tempRoot,
-                                                   std::uint64_t blobMaxBytes) const override;
-    StorageArchive::CloudBundleFile materializeBlob(const StorageArchive::CloudBundleExport& bundle,
-                                                    std::size_t partIndex) const override;
-private:
-    ArchiveStoragePaths paths_;
-};
-StorageArchive::CloudBundleExport LocalCloudExporter::exportBundle(const fs::path& tempRoot,
-                                                                  std::uint64_t blobMaxBytes) const {
-    const std::string bundleId = "bundle-" + safeFileComponent(nowIsoLocal());
-    const fs::path rootDir = tempRoot / bundleId;
-    std::error_code ec;
-    fs::create_directories(rootDir, ec);
-    if (ec) throw std::runtime_error("Falha criando root do bundle: " + ec.message());
-    const fs::path dbCopy = rootDir / paths_.archivePath.filename();
-    const fs::path idxCopy = rootDir / paths_.indexPath.filename();
-    fs::copy_file(paths_.archivePath, dbCopy, fs::copy_options::overwrite_existing, ec);
-    if (ec) throw std::runtime_error("Falha copiando DB do bundle: " + ec.message());
-    if (fs::exists(paths_.indexPath)) {
-        fs::copy_file(paths_.indexPath, idxCopy, fs::copy_options::overwrite_existing, ec);
-        if (ec) throw std::runtime_error("Falha copiando index do bundle: " + ec.message());}
-    StorageArchive::CloudBundleExport out;
-    out.bundleId = bundleId;
-    out.rootDir = rootDir;
-    out.packPath = paths_.packPath;
-    out.blobMaxBytes = blobMaxBytes;
-    StorageArchive::CloudBundleFile dbFile;
-    dbFile.path = dbCopy;
-    dbFile.uploadName = dbCopy.filename().string();
-    dbFile.objectKey = bundleId + "/" + dbFile.uploadName;
-    dbFile.size = fs::file_size(dbCopy, ec);
-    out.files.push_back(dbFile);
-    if (fs::exists(idxCopy)) {
-        StorageArchive::CloudBundleFile idxFile;
-        idxFile.path = idxCopy;
-        idxFile.uploadName = idxCopy.filename().string();
-        idxFile.objectKey = bundleId + "/" + idxFile.uploadName;
-        idxFile.size = fs::file_size(idxCopy, ec);
-        out.files.push_back(idxFile);}
-    const std::uint64_t packSize =
-        fs::exists(paths_.packPath) ? static_cast<std::uint64_t>(fs::file_size(paths_.packPath, ec)) : 0ull;
-    if (blobMaxBytes == 0 || packSize <= blobMaxBytes) {
-        const fs::path packCopy = rootDir / paths_.packPath.filename();
-        fs::copy_file(paths_.packPath, packCopy, fs::copy_options::overwrite_existing, ec);
-        if (ec) throw std::runtime_error("Falha copiando pack do bundle: " + ec.message());
-        StorageArchive::CloudBundleFile packFile;
-        packFile.path = packCopy;
-        packFile.uploadName = packCopy.filename().string();
-        packFile.objectKey = bundleId + "/" + packFile.uploadName;
-        packFile.size = fs::file_size(packCopy, ec);
-        packFile.blobPart = true;
-        out.files.push_back(packFile);
-        out.blobPartCount = 1;
-    } else {
-        out.blobPartCount = static_cast<std::size_t>((packSize + blobMaxBytes - 1) / blobMaxBytes);}
-    const fs::path manifest = rootDir / "bundle.manifest";{
-        std::ofstream mf(manifest, std::ios::binary | std::ios::trunc);
-        if (!mf) throw std::runtime_error("Falha criando manifest do bundle.");
-        mf << "bundle_id=" << bundleId << "\n";
-        mf << "archive_file=" << paths_.archivePath.filename().string() << "\n";
-        mf << "pack_file=" << paths_.packPath.filename().string() << "\n";
-        mf << "index_file=" << paths_.indexPath.filename().string() << "\n";
-        mf << "blob_max_bytes=" << blobMaxBytes << "\n";
-        mf << "blob_part_count=" << out.blobPartCount << "\n";}
-    StorageArchive::CloudBundleFile mfFile;
-    mfFile.path = manifest;
-    mfFile.uploadName = manifest.filename().string();
-    mfFile.objectKey = bundleId + "/" + mfFile.uploadName;
-    mfFile.size = fs::file_size(manifest, ec);
-    mfFile.manifest = true;
-    out.files.push_back(mfFile);
-    return out;}
-StorageArchive::CloudBundleFile LocalCloudExporter::materializeBlob(const StorageArchive::CloudBundleExport& bundle,
-                                                                    std::size_t partIndex) const {
-    if (bundle.blobPartCount == 0) throw std::runtime_error("Bundle nao possui blobs.");
-    if (partIndex >= bundle.blobPartCount) throw std::runtime_error("blob partIndex invalido.");
-    std::ifstream in(bundle.packPath, std::ios::binary);
-    if (!in) throw std::runtime_error("Falha abrindo pack para materializar blob.");
-    const std::uint64_t offset = bundle.blobMaxBytes * static_cast<std::uint64_t>(partIndex);
-    in.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-    if (!in) throw std::runtime_error("Falha posicionando no pack para blob.");
-    const std::string name =
-        bundle.packPath.stem().string() + ".part" + std::to_string(partIndex) + bundle.packPath.extension().string();
-    const fs::path outPath = bundle.rootDir / name;
-    std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
-    if (!out) throw std::runtime_error("Falha criando arquivo blob do bundle.");
-    Blob buf(1024 * 1024);
-    std::uint64_t remaining = bundle.blobMaxBytes;
-    while (remaining > 0 && in) {
-        const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buf.size()));
-        in.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(n));
-        const std::streamsize got = in.gcount();
-        if (got <= 0) break;
-        out.write(reinterpret_cast<const char*>(buf.data()), got);
-        if (!out) throw std::runtime_error("Falha escrevendo blob do bundle.");
-        remaining -= static_cast<std::uint64_t>(got);}
-    StorageArchive::CloudBundleFile f;
-    f.path = outPath;
-    f.uploadName = outPath.filename().string();
-    f.objectKey = bundle.bundleId + "/" + f.uploadName;
-    std::error_code ec;
-    f.size = fs::file_size(outPath, ec);
-    f.blobPart = true;
-    return f;}}
+};}
 ArchiveStoragePaths describeArchiveStorage(const fs::path& archivePath) {
     ArchiveStoragePaths paths;
     paths.archivePath = archivePath;
@@ -280,8 +172,6 @@ void ensureArchiveStorageParent(const fs::path& archivePath) {
     if (ec) throw std::runtime_error("Falha criando pasta do arquivo: " + ec.message());}
 std::shared_ptr<StorageBackend> makeLocalStorageBackend(const fs::path& archivePath) {
     return std::make_shared<LocalPackBackend>(archivePath);}
-std::unique_ptr<StorageCloudExporter> makeLocalCloudExporter(const fs::path& archivePath) {
-    return std::make_unique<LocalCloudExporter>(archivePath);}
 SqliteError::SqliteError(const std::string& msg) : std::runtime_error(msg) {}
 Stmt::Stmt(sqlite3* db, const std::string& sql) : db_(db) {
     if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt_, nullptr) != SQLITE_OK)
@@ -328,7 +218,7 @@ void DB::initSchema() {
     const int ver = readSchemaVersion(db_);
     if (ver < 1) {
         exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);");
-        exec("CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,source_root TEXT NOT NULL,label TEXT);");
+        exec("CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,source_root TEXT NOT NULL,label TEXT,backup_type TEXT NOT NULL DEFAULT 'full');");
         exec("CREATE TABLE IF NOT EXISTS chunks(chunk_hash BLOB PRIMARY KEY,raw_size INTEGER NOT NULL,comp_size INTEGER NOT NULL,comp_algo TEXT NOT NULL,pack_id TEXT NOT NULL DEFAULT 'main',pack_offset INTEGER NOT NULL,storage_state TEXT NOT NULL DEFAULT 'ready');");
         exec("CREATE TABLE IF NOT EXISTS files(id INTEGER PRIMARY KEY AUTOINCREMENT,snapshot_id INTEGER NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,file_hash BLOB,FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,UNIQUE(snapshot_id, path));");
         exec("CREATE TABLE IF NOT EXISTS file_chunks(file_id INTEGER NOT NULL,chunk_index INTEGER NOT NULL,chunk_hash BLOB NOT NULL,raw_size INTEGER NOT NULL,PRIMARY KEY(file_id,chunk_index),FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,FOREIGN KEY(chunk_hash) REFERENCES chunks(chunk_hash));");
@@ -394,6 +284,11 @@ void DB::initSchema() {
              "uploaded_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
              "PRIMARY KEY(bundle_id, part_index));");
         writeSchemaVersion(db_, 9);}
+    if (ver < 10) {
+        if (!tableHasColumn(db_, "snapshots", "backup_type"))
+            exec("ALTER TABLE snapshots ADD COLUMN backup_type TEXT NOT NULL DEFAULT 'full';");
+        exec("UPDATE snapshots SET backup_type=CASE WHEN id=(SELECT MIN(id) FROM snapshots) THEN 'full' ELSE 'incremental' END WHERE TRIM(COALESCE(backup_type,''))='';");
+        writeSchemaVersion(db_, 10);}
     exec("CREATE INDEX IF NOT EXISTS idx_files_snapshot ON files(snapshot_id);");
     exec("CREATE INDEX IF NOT EXISTS idx_fc_file ON file_chunks(file_id);");
     exec("CREATE INDEX IF NOT EXISTS idx_chunks_state_hash ON chunks(storage_state, chunk_hash);");}
@@ -445,7 +340,7 @@ void StorageArchive::prepareHotStatements() {
     auto prepare = [&](std::unique_ptr<Stmt>& out, const char* sql) {
         out = std::make_unique<Stmt>(db_.raw(), sql);
     };
-    prepare(hot_.insertSnapshot, "INSERT INTO snapshots(created_at,source_root,label) VALUES(?,?,?);");
+    prepare(hot_.insertSnapshot, "INSERT INTO snapshots(created_at,source_root,label,backup_type) VALUES(?,?,?,?);");
     prepare(hot_.updateSnapshotCbtToken, "UPDATE snapshots SET cbt_token=? WHERE id=?;");
     prepare(hot_.insertFilePlaceholder, "INSERT INTO files(snapshot_id,path,size,mtime,file_hash) VALUES(?,?,?,?,NULL);");
     prepare(hot_.cloneFileInsert, "INSERT INTO files(snapshot_id,path,size,mtime,file_hash) VALUES(?,?,?,?,?);");
@@ -462,13 +357,14 @@ void StorageArchive::finalizeHotStatements() {
     hot_.insertChunkIfMissing.reset();
     hot_.updateChunkOffset.reset();
     hot_.addFileChunk.reset();}
-sqlite3_int64 StorageArchive::createSnapshot(const std::string& sourceRoot, const std::string& label) {
+sqlite3_int64 StorageArchive::createSnapshot(const std::string& sourceRoot, const std::string& label, const std::string& backupType) {
     Stmt& st = *hot_.insertSnapshot;
     st.reset();
     st.bindText(1, nowIsoLocal());
     st.bindText(2, sourceRoot);
     if (label.empty()) st.bindNull(3);
     else st.bindText(3, label);
+    st.bindText(4, backupType == "incremental" ? "incremental" : "full");
     st.stepDone();
     return db_.lastInsertId();}
 std::optional<sqlite3_int64> StorageArchive::latestSnapshotId() {
@@ -744,14 +640,15 @@ void StorageArchive::updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint6
     if (sqlite3_changes(db_.raw()) != 1) throw std::runtime_error("Falha atualizando cbt_token do snapshot.");}
 std::vector<SnapshotRow> StorageArchive::listSnapshots() {
     std::vector<SnapshotRow> out;
-    Stmt st(db_.raw(), "SELECT s.id,s.created_at,s.source_root,COALESCE(s.label,''),COUNT(f.id) FROM snapshots s LEFT JOIN files f ON f.snapshot_id=s.id GROUP BY s.id,s.created_at,s.source_root,s.label ORDER BY s.id ASC;");
+    Stmt st(db_.raw(), "SELECT s.id,s.created_at,s.source_root,COALESCE(s.label,''),COALESCE(NULLIF(TRIM(s.backup_type),''),CASE WHEN s.id=(SELECT MIN(id) FROM snapshots) THEN 'full' ELSE 'incremental' END),COUNT(f.id) FROM snapshots s LEFT JOIN files f ON f.snapshot_id=s.id GROUP BY s.id,s.created_at,s.source_root,s.label,s.backup_type ORDER BY s.id ASC;");
     while (st.stepRow()) {
         SnapshotRow row;
         row.id = sqlite3_column_int64(st.get(), 0);
         row.createdAt = colText(st.get(), 1);
         row.sourceRoot = colText(st.get(), 2);
         row.label = colText(st.get(), 3);
-        row.fileCount = sqlite3_column_int64(st.get(), 4);
+        row.backupType = colText(st.get(), 4);
+        row.fileCount = sqlite3_column_int64(st.get(), 5);
         out.push_back(std::move(row));}
     return out;}
 std::vector<ChangeEntry> StorageArchive::diffSnapshots(sqlite3_int64 olderSnapshotId, sqlite3_int64 newerSnapshotId) {
@@ -798,26 +695,68 @@ std::optional<Blob> StorageArchive::loadFileSignature(const std::string& path) {
     st.bindText(1, path);
     if (!st.stepRow()) return std::nullopt;
     return colBlob(st.get(), 0);}
-void StorageArchive::markPartUploaded(const std::string& bundleId, int partIndex,
-                                      const std::string& uploadId, const std::string& etag) {
-    Stmt st(db_.raw(), "INSERT OR REPLACE INTO upload_parts(bundle_id,part_index,upload_id,etag) VALUES(?,?,?,?);");
-    st.bindText(1, bundleId);
-    st.bindInt(2, partIndex);
-    st.bindText(3, uploadId);
-    st.bindText(4, etag);
-    st.stepDone();}
-std::vector<std::pair<int,std::string>> StorageArchive::loadUploadedParts(const std::string& bundleId) {
-    std::vector<std::pair<int,std::string>> out;
-    Stmt st(db_.raw(), "SELECT part_index, etag FROM upload_parts WHERE bundle_id=? ORDER BY part_index;");
-    st.bindText(1, bundleId);
-    while (st.stepRow())
-        out.emplace_back(sqlite3_column_int(st.get(), 0), colText(st.get(), 1));
+StorageArchive::CloudUploadPlan StorageArchive::prepareCloudUpload(const std::string& deviceExternalId) {
+    CloudUploadPlan plan;
+    const ArchiveStoragePaths paths = describeArchiveStorage(path_);
+    plan.archiveDbPath = paths.archivePath;
+    plan.packPath = paths.packPath;
+    {
+        const std::string suffix = safeFileComponent(deviceExternalId);
+        plan.bundleId = suffix.empty() ? std::string("bundle") : ("bundle-" + suffix);
+    }
+    {
+        Stmt st(db_.raw(), "SELECT id FROM snapshots ORDER BY id DESC LIMIT 1;");
+        plan.latestSnapshotId = st.stepRow() ? sqlite3_column_int64(st.get(), 0) : 0;
+    }
+    Stmt st(db_.raw(),
+        "SELECT chunk_hash, comp_size, comp_algo, pack_offset FROM chunks "
+        "WHERE storage_state='ready' AND pack_offset >= 0 AND pack_id=? ORDER BY pack_offset ASC;");
+    st.bindText(1, kDefaultPackId);
+    while (st.stepRow()) {
+        CloudChunkRef ref{};
+        const void* hp = sqlite3_column_blob(st.get(), 0);
+        const int hb = sqlite3_column_bytes(st.get(), 0);
+        if (!hp || hb != static_cast<int>(ref.hash.size()))
+            throw std::runtime_error("chunk_hash invalido ao preparar upload cloud.");
+        std::memcpy(ref.hash.data(), hp, ref.hash.size());
+        const std::uint64_t compSize = static_cast<std::uint64_t>(sqlite3_column_int64(st.get(), 1));
+        const std::string algo = colText(st.get(), 2);
+        ref.packOffset = static_cast<std::uint64_t>(sqlite3_column_int64(st.get(), 3));
+        ref.recordSize = static_cast<std::uint64_t>(8 + 8 + 8 + 4) + ref.hash.size() + algo.size() + compSize;
+        plan.chunks.push_back(ref);}
+    return plan;}
+std::vector<unsigned char> StorageArchive::readPackRecord(const CloudChunkRef& ref) const {
+    const fs::path packPath = describeArchiveStorage(path_).packPath;
+    if (!packIn_ || !packIn_->is_open()) {
+        packIn_ = std::make_unique<std::ifstream>(packPath, std::ios::binary);
+        if (!packIn_ || !*packIn_) throw std::runtime_error("Falha abrindo pack para leitura cloud.");}
+    auto& in = *packIn_;
+    in.clear();
+    in.seekg(static_cast<std::streamoff>(ref.packOffset), std::ios::beg);
+    if (!in) throw std::runtime_error("Falha posicionando no pack para leitura de record.");
+    std::vector<unsigned char> out(static_cast<std::size_t>(ref.recordSize));
+    if (ref.recordSize > 0) {
+        in.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(ref.recordSize));
+        if (!in) throw std::runtime_error("Falha lendo record do pack.");}
     return out;}
-void StorageArchive::clearUploadParts(const std::string& bundleId) {
-    Stmt st(db_.raw(), "DELETE FROM upload_parts WHERE bundle_id=?;");
-    st.bindText(1, bundleId);
+std::vector<ChunkHash> StorageArchive::snapshotChunkHashes(sqlite3_int64 snapshotId) {
+    std::vector<ChunkHash> out;
+    Stmt st(db_.raw(),
+        "SELECT DISTINCT fc.chunk_hash FROM file_chunks fc "
+        "JOIN files f ON f.id = fc.file_id WHERE f.snapshot_id = ?;");
+    st.bindInt64(1, snapshotId);
+    while (st.stepRow()) {
+        const void* hp = sqlite3_column_blob(st.get(), 0);
+        const int hb = sqlite3_column_bytes(st.get(), 0);
+        if (!hp || hb != static_cast<int>(ChunkHash{}.size())) continue;
+        ChunkHash ch{};
+        std::memcpy(ch.data(), hp, ch.size());
+        out.push_back(ch);}
+    return out;}
+void StorageArchive::setChunkPackOffsetForRestore(const ChunkHash& hash, std::uint64_t newOffset) {
+    Stmt st(db_.raw(), "UPDATE chunks SET pack_id=?, pack_offset=?, storage_state='ready' WHERE chunk_hash=?;");
+    st.bindText(1, kDefaultPackId);
+    st.bindInt64(2, static_cast<sqlite3_int64>(newOffset));
+    st.bindBlob(3, hash.data(), static_cast<int>(hash.size()));
     st.stepDone();}
-StorageArchive::CloudBundleExport StorageArchive::exportCloudBundle(const fs::path& tempRoot, std::uint64_t blobMaxBytes) const {
-    return makeLocalCloudExporter(path_)->exportBundle(tempRoot, blobMaxBytes);}
-StorageArchive::CloudBundleFile StorageArchive::materializeCloudBundleBlob(const CloudBundleExport& bundle, std::size_t partIndex) const {
-    return makeLocalCloudExporter(path_)->materializeBlob(bundle, partIndex);}}
+}

@@ -175,7 +175,7 @@ Eventos enviados pelo agente: `agent.hello`, `backup.started|progress|finished|f
 O agente também bate em dois endpoints HTTP (mesma origem do WS):
 
 - `GET /api/agent/backups/latest-kply?userId&agentId&folderName&sourcePath` — devolve `{ url }` pré-assinado pro `.kply` anterior, usado como base pra incremental.
-- `POST /api/agent/backups/upload` (multipart `file` + campos `userId,agentId,bundleId,objectKey,bundleRole,...`) — grava o bundle no S3 e persiste o row de `backups`.
+- `POST /api/agent/backups/upload` (multipart `file` + campos `userId,agentId,bundleId,bundleFileName,bundleRole,...`) — grava o bundle no S3 e persiste o row de `backups`.
 
 > **Atenção:** na base atual do `Site/back/` os métodos (`StorageService.getLatestKplyUrl`, `StorageService.uploadAgentBackup`) existem mas **não há controller expondo essas rotas**. É preciso criar um `AgentBackupsController` em `api/agent/backups` antes de liberar o fluxo cloud.
 

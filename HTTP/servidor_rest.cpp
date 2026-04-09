@@ -359,7 +359,7 @@ RestResponse KeeplyRestApi::handleGetSnapshots(){
     for(std::size_t i=0;i<rows.size();++i){
         if(i) oss<<",";
         auto& r=rows[i];
-        oss<<"{"<<"\"id\":"<<r.id<<","<<"\"createdAt\":\""<<escapeJson(r.createdAt)<<"\","<<"\"sourceRoot\":\""<<escapeJson(r.sourceRoot)<<"\","<<"\"label\":\""<<escapeJson(r.label)<<"\","<<"\"fileCount\":"<<r.fileCount<<"}";}
+        oss<<"{"<<"\"id\":"<<r.id<<","<<"\"createdAt\":\""<<escapeJson(r.createdAt)<<"\","<<"\"sourceRoot\":\""<<escapeJson(r.sourceRoot)<<"\","<<"\"label\":\""<<escapeJson(r.label)<<"\","<<"\"backupType\":\""<<escapeJson(r.backupType)<<"\","<<"\"fileCount\":"<<r.fileCount<<"}";}
     oss<<"]}";
     return jsonOk(oss.str());}
 RestResponse KeeplyRestApi::handleGetDiff(const RestRequest& req){

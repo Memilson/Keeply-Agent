@@ -1,6 +1,7 @@
 #include "websocket_agente.hpp"
 #include "websocket_interno.hpp"
 #include "../HTTP/http_util.hpp"
+#include "../Storage/backend_armazenamento.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -12,7 +13,7 @@ namespace fs = std::filesystem;
 using namespace keeply::ws_internal;
 std::string backupPhaseLabelForLog(const std::string& phase){
     if(phase=="discovery") return "scan";
-    if(phase=="backup") return "compactacao";
+    if(phase=="backup") return "scan+compactacao";
     if(phase=="commit") return "finalizacao";
     if(phase=="done") return "concluido";
     if(phase=="uploading") return "uploading";
@@ -20,7 +21,15 @@ std::string backupPhaseLabelForLog(const std::string& phase){
 std::string storageModeToString(BackupStorageMode mode){
     switch(mode){
         case BackupStorageMode::CloudOnly: return "cloud_only";
-        default: return "cloud_only";}}}
+        default: return "cloud_only";}}
+bool hasUsableLocalArchiveBase(const keeply::AppState& state){
+    std::error_code ec;
+    const auto paths=keeply::describeArchiveStorage(keeply::pathFromUtf8(state.archive));
+    if(!fs::exists(paths.archivePath,ec)||ec) return false;
+    ec.clear();
+    if(!fs::is_regular_file(paths.archivePath,ec)||ec) return false;
+    ec.clear();
+    return fs::file_size(paths.archivePath,ec)>0&&!ec;}}
 namespace keeply {
 void KeeplyAgentWsClient::sendBackupProgress_(const std::string& label,const BackupProgress& progress){
     std::ostringstream progressJson;
@@ -36,8 +45,8 @@ void KeeplyAgentWsClient::sendBackupFailed_(const std::string& label,const Backu
     failedJson<<"{"<<"\"type\":\"backup.failed\","<<"\"label\":\""<<escapeJson(label)<<"\","<<"\"source\":\""<<escapeJson(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"phase\":\"failed\","<<"\"discoveryComplete\":"<<(latestProgress.discoveryComplete?"true":"false")<<","<<"\"currentFile\":\""<<escapeJson(latestProgress.currentFile)<<"\","<<"\"filesQueued\":"<<latestProgress.filesQueued<<","<<"\"filesCompleted\":"<<latestProgress.filesCompleted<<","<<"\"filesScanned\":"<<latestProgress.stats.scanned<<","<<"\"filesAdded\":"<<latestProgress.stats.added<<","<<"\"filesUnchanged\":"<<latestProgress.stats.reused<<","<<"\"chunksNew\":"<<latestProgress.stats.uniqueChunksInserted<<","<<"\"bytesRead\":"<<latestProgress.stats.bytesRead<<","<<"\"warnings\":"<<latestProgress.stats.warnings<<","<<"\"message\":\""<<escapeJson(message)<<"\""<<"}";
     sendJson_(failedJson.str());}
 void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const BackupStoragePolicy& storagePolicy){
+    const std::string storageMode=storageModeToString(storagePolicy.mode);
     try{
-        const std::string storageMode=storageModeToString(storagePolicy.mode);
         std::cout<<"[backup][fase] uploading"<<" | destino="<<storageMode<<"\n";
         sendJson_(std::string("{\"type\":\"backup.upload.started\",\"label\":\"")+escapeJson(label)+"\",\"source\":\""+escapeJson(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+",\"storageMode\":\""+escapeJson(storageMode)+"\"}");
         const UploadBundleResult uploadResp=uploadArchiveBackup(
@@ -59,10 +68,10 @@ void KeeplyAgentWsClient::runBackupUpload_(const std::string& label,const Backup
         uploadedJson<<"{"<<"\"type\":\"backup.uploaded\","<<"\"label\":\""<<escapeJson(label)<<"\","<<"\"source\":\""<<escapeJson(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"storageMode\":\""<<escapeJson(storageMode)<<"\","<<"\"storageId\":\""<<escapeJson(storageId)<<"\","<<"\"storageScope\":\""<<escapeJson(storageScope)<<"\","<<"\"bucket\":\""<<escapeJson(bucket)<<"\","<<"\"uri\":\""<<escapeJson(uri)<<"\","<<"\"bundleId\":\""<<escapeJson(uploadResp.bundleId)<<"\","<<"\"filesUploaded\":"<<uploadResp.filesUploaded<<","<<"\"blobPartCount\":"<<uploadResp.blobPartCount<<"}";
         sendJson_(uploadedJson.str());
     }catch(const std::exception& uploadEx){
-        const std::string storageMode=storageModeToString(storagePolicy.mode);
         std::ostringstream uploadFailedJson;
         uploadFailedJson<<"{"<<"\"type\":\"backup.upload.failed\","<<"\"label\":\""<<escapeJson(label)<<"\","<<"\"source\":\""<<escapeJson(api_->state().source)<<"\","<<"\"scanScope\":"<<buildScanScopeJson_()<<","<<"\"storageMode\":\""<<escapeJson(storageMode)<<"\","<<"\"message\":\""<<escapeJson(uploadEx.what())<<"\""<<"}";
-        sendJson_(uploadFailedJson.str());}}
+        sendJson_(uploadFailedJson.str());
+        throw;}}
 void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::string& storage){
     BackupStoragePolicy storagePolicy;
     BackupProgress latestProgress;
@@ -72,12 +81,11 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
     std::cout<<" | source="<<api_->state().source<<"\n";
     sendJson_(std::string("{\"type\":\"backup.started\",\"label\":\"")+escapeJson(label)+"\",\"source\":\""+escapeJson(api_->state().source)+"\",\"scanScope\":"+buildScanScopeJson_()+"}");
     try{
-        if (storagePolicy.uploadCloud && !keeply::fs::exists(keeply::pathFromUtf8(api_->state().archive))) {
+        if (storagePolicy.uploadCloud && !hasUsableLocalArchiveBase(api_->state())) {
             try {
                 std::string urlStr = ws_internal::httpUrlFromWsUrl(config_.url, "/api/agent/backups/latest-kply");
                 urlStr += "?userId=" + ws_internal::urlEncode(identity_.userId);
                 urlStr += "&agentId=" + ws_internal::urlEncode(identity_.deviceId);
-                urlStr += "&folderName=" + ws_internal::urlEncode(label);
                 urlStr += "&sourcePath=" + ws_internal::urlEncode(api_->state().source);
                 const ws_internal::HttpResponse latestResp = ws_internal::httpGet(urlStr, std::nullopt, std::nullopt, config_.allowInsecureTls);
                 if (latestResp.status >= 200 && latestResp.status < 300) {
@@ -99,7 +107,7 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
             const bool phaseChanged=progress.phase!=lastPhase;
             if(phaseChanged){
                 std::cout<<"[backup][fase] "<<backupPhaseLabelForLog(progress.phase);
-                if(!progress.currentFile.empty()) std::cout<<" | arquivo="<<progress.currentFile;
+                if((progress.phase=="discovery"||progress.phase=="backup")&&!progress.currentFile.empty()) std::cout<<" | arquivo="<<progress.currentFile;
                 std::cout<<"\n";
             }
             const bool forceSend=phaseChanged||progress.phase=="discovery"||progress.phase=="commit"||progress.phase=="done";
@@ -108,8 +116,10 @@ void KeeplyAgentWsClient::runBackupCommand_(const std::string& label,const std::
                 lastProgressSent=now;}
             lastPhase=progress.phase;
         });
+        if(storagePolicy.uploadCloud){
+            latestProgress.phase="uploading";
+            runBackupUpload_(label,storagePolicy);}
         sendBackupFinished_(label,stats);
-        runBackupUpload_(label,storagePolicy);
         std::cout<<"[backup] concluido"<<" | scanned="<<stats.scanned<<" added="<<stats.added<<" unchanged="<<stats.reused<<" bytes="<<stats.bytesRead<<" warnings="<<stats.warnings<<"\n";
         std::cout<<"[agent] backup finalizado. Agente segue online aguardando comandos.\n";
     }catch(const std::exception& e){

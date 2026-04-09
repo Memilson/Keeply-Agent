@@ -155,11 +155,12 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
     progressEmit(progressCallback, progress);
     const bool cbtEnabled = readArchiveBoolConfig(archivePath, "scan.cbt.enabled", false);
     const auto prevSnapshotId = arc.latestSnapshotId();
+    const std::string backupType = prevSnapshotId.has_value() ? "incremental" : "full";
     const auto lastCbtToken = arc.latestSnapshotCbtToken().value_or(0);
     const auto prevMap = arc.loadLatestSnapshotFileMap();
     arc.begin();
     try {
-        sqlite3_int64 snapshotId = arc.createSnapshot(sourceRoot.string(), label);
+        sqlite3_int64 snapshotId = arc.createSnapshot(sourceRoot.string(), label, backupType);
         std::uint64_t newCbtToken = 0;
         std::vector<fs::path> files;
         std::unordered_set<std::string> snapshotPaths;
@@ -183,7 +184,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 progress.phase = "discovery";
                 progressEmit(progressCallback, progress);
                 arc.begin();
-                snapshotId = arc.createSnapshot(sourceRoot.string(), label);
+                snapshotId = arc.createSnapshot(sourceRoot.string(), label, backupType);
                 newCbtToken = 0;
                 files = discoverFiles(sourceRoot, progress, progressCallback);}
         } else {
