@@ -35,13 +35,26 @@ WebSocket/            ── cliente WS, comandos backup / restore / fs
 
 ## Formato do repositório local
 
-O agente mantém três bancos SQLite em `KEEPLY_DATA_DIR` (default `~/.local/share/keeply`):
+O agente separa estado canônico e efêmero em dois diretórios distintos:
+
+- **`KEEPLY_DATA_DIR`** (default `~/.local/share/keeply`) — estado **canônico**: o arquivo `.kipy` (sqlite do arquivo de backup) + pack `.klyp`. É o que vai pra cloud.
+- **`KEEPLY_STATE_DIR`** (default `~/.local/state/keeply`) — estado **efêmero**: bancos do CBT (`.cbtdb`). Podem ser apagados a qualquer momento; o pior caso é uma varredura full na próxima execução.
+
+Convenção de extensões:
+
+| Extensão | Onde vive | Papel |
+|---|---|---|
+| `.kipy` | `share/keeply/` | Arquivo principal (sqlite): `snapshots`, `files`, `file_chunks`, `chunks` dedupadas por BLAKE3, `meta`. Canônico — vai pra cloud junto com o pack. |
+| `.klyp` (+ `.klyp.idx`) | `share/keeply/` | Pack append-only com chunks comprimidos (zstd) e opcionalmente cifrados (AES-GCM). Companheiro do `.kipy`. |
+| `.cbtdb` | `state/keeply/` | Banco efêmero do CBT. **Não** vai pra cloud. Reconstrutível. |
+
+Arquivos concretos:
 
 | Arquivo | Papel |
 |---|---|
-| `keeply.kipy` (`.kply`) + `keeply.klyp` | Repositório principal: `snapshots`, `files`, `file_chunks`, `chunks` (deduplicadas por BLAKE3), `meta`. O pack `.klyp` contém os chunks comprimidos/cifrados. |
-| `keeply_state.kipy` | Estado do scanner CBT nativo (`cbt_state_roots`, `cbt_state_files` com `size/mtime`). |
-| `keeplyintf.kipy` | Log append-only de eventos do daemon CBT (`cbt_events`) + `cbt_event_roots`. |
+| `keeply.kipy` + `keeply.klyp` (+ `.klyp.idx`) | Repositório principal (canônico). |
+| `keeply_cbt_state.cbtdb` | Estado do scanner CBT nativo (`cbt_state_roots`, `cbt_state_files` com `size/mtime`). |
+| `keeply_cbt_events.cbtdb` | Log append-only de eventos do daemon CBT (`cbt_events` + `cbt_event_roots`). Limpo via `ackConsumedUpTo` após cada backup. |
 | `keeply_agent.pid` | Lock (`flock`) — garante uma única instância. |
 | `agent_identity/` | Chave/cert do agente e fingerprint persistida. |
 
@@ -69,7 +82,7 @@ Ativado quando **(a)** `scan.cbt.enabled = 1` na `meta` do `.kply` **e** **(b)**
 
 O pipeline usa `CompositeChangeTracker` (`Backup/Rastreamento/rastreamento_mudancas.cpp`), que combina dois backends:
 
-1. **`daemon_events`** — lê `cbt_events` do `keeplyintf.kipy` alimentado pelo daemon inotify (`BackgroundCbtWatcher` ou `keeply_cbt_daemon` via systemd). Dá eventos quase em tempo real.
+1. **`daemon_events`** — lê `cbt_events` do `keeply_cbt_events.cbtdb` alimentado pelo daemon inotify (`BackgroundCbtWatcher` ou `keeply_cbt_daemon` via systemd). Dá eventos quase em tempo real.
 2. **`linux_state_sqlite`** (fallback) — re-scan do FS comparando contra `cbt_state_files` persistido. Não é "CBT verdadeiro", mas é determinístico.
 
 O token retornado ao final é um `uint64` com 4 bits de backend + 60 bits de valor, persistido em `snapshots.cbt_token`. Na próxima execução, `decodeToken` decide qual backend consumir.
@@ -170,4 +183,4 @@ O agente também bate em dois endpoints HTTP (mesma origem do WS):
 
 `keeply.cpp` integra o código do daemon via `#include "Backup/Rastreamento/Linux/daemon.cpp"` e roteia `keeply cbt ...` pro `main` renomeado (`keeply_cbt_main`). Em produção o daemon é empacotado em binário separado (`keeply_cbt_daemon`) e iniciado por `systemd` (`keeply-cbt-daemon.service`). Se o systemd não estiver disponível, `ensureLinuxCbtDaemon` faz `fork+exec` do binário irmão; se nem isso der, cai pro `BackgroundCbtWatcher` in-process.
 
-O daemon apenas grava eventos em `keeplyintf.kipy`; a materialização em backup ainda depende de `runBackupCommand_` ser chamado (manualmente, via scheduler do plano, ou — no futuro — por um coalescer CDP).
+O daemon apenas grava eventos em `keeply_cbt_events.cbtdb`; a materialização em backup ainda depende de `runBackupCommand_` ser chamado (manualmente, via scheduler do plano, ou — no futuro — por um coalescer CDP). Após cada backup bem-sucedido, `ScanEngine::backupFolderToKply` chama `ackConsumedUpTo(newCbtToken)` e o EventStore poda os eventos já consumidos (mantendo o watermark `last_seq` pra não reusar sequências).

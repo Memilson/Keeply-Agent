@@ -105,6 +105,13 @@ std::string Compactador::blake3Hex(const void* data, std::size_t len) {
     blake3_hasher_update(&hasher, data, len);
     blake3_hasher_finalize(&hasher, digest, sizeof(digest));
     return hexOfBytes(digest, sizeof(digest));}
+ChunkHash Compactador::blake3Hash(const void* data, std::size_t len) {
+    ChunkHash out{};
+    blake3_hasher hasher;
+    blake3_hasher_init(&hasher);
+    blake3_hasher_update(&hasher, data, len);
+    blake3_hasher_finalize(&hasher, out.data(), out.size());
+    return out;}
 void Compactador::zlibCompress(
     const unsigned char* data,
     std::size_t len,

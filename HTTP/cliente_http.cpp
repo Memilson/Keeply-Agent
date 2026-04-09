@@ -1,6 +1,7 @@
 #include "../WebSocket/websocket_interno.hpp"
 #include "../Cloud/fila_upload.hpp"
 #include "../Core/tls_context.hpp"
+#include "../Storage/backend_armazenamento.hpp"
 #include "http_util.hpp"
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -419,17 +420,24 @@ std::vector<std::string> splitPipe(const std::string& value) {
 BackupStoragePolicy parseBackupStoragePolicy(const std::string& raw) {
     BackupStoragePolicy policy;
     const std::string normalized = toLower(trim(raw));
-    static_cast<void>(normalized);
+    if (normalized.empty()) return policy;
+    const auto contains = [&](const char* needle) {
+        return normalized.find(needle) != std::string::npos;
+    };
+    const bool localOnly = contains("local_only") || contains("local-only") ||
+                           contains("no_cloud")   || contains("no-cloud")   || contains("nocloud");
+    const bool keepLocal = localOnly || contains("keep_local") || contains("keep-local") || contains("keeplocal");
+    if (localOnly) policy.uploadCloud = false;
+    if (keepLocal) {
+        policy.keepLocal = true;
+        policy.deleteLocalAfterUpload = false;}
     return policy;}
 void deleteLocalArchiveArtifacts(const fs::path& archivePath) {
+    const ArchiveStoragePaths paths = describeArchiveStorage(archivePath);
     std::error_code ec;
-    fs::remove(archivePath, ec);
-    ec.clear();
-    fs::path packPath = archivePath;
-    packPath.replace_extension(".klyp");
-    fs::remove(packPath, ec);
-    ec.clear();
-    fs::remove(fs::path(packPath.string() + ".idx"), ec);}
+    fs::remove(paths.archivePath, ec); ec.clear();
+    fs::remove(paths.packPath,    ec); ec.clear();
+    fs::remove(paths.indexPath,   ec);}
 std::string httpUrlFromWsUrl(const std::string& wsUrl, const std::string& path) {
     ParsedUrl parsed = parseUrlCommon(wsUrl);
     if (parsed.scheme == "ws") parsed.scheme = "http";

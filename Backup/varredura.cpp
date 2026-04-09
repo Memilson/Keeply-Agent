@@ -11,23 +11,12 @@
 #include <sstream>
 namespace keeply {
 namespace {
-static Blob hexToBlob(const std::string& hex) {
-    return keeply::hexDecode(hex);}
-static ChunkHash hexToChunkHash(const std::string& hex) {
-    if (hex.size() != 64) throw std::runtime_error("Chunk hash hex invalido.");
-    ChunkHash out{};
-    for (std::size_t i = 0; i < out.size(); ++i) {
-        out[i] = static_cast<unsigned char>(
-            (keeply::hexNibble(hex[i * 2]) << 4) | keeply::hexNibble(hex[i * 2 + 1]));}return out;}
 static Blob buildFileHashFromChunkSequence(const std::vector<ChunkHash>& hashes) {
     Blob seq;
     seq.reserve(hashes.size() * ChunkHash{}.size());
     for (const auto& h : hashes) seq.insert(seq.end(), h.begin(), h.end());
-    return hexToBlob(Compactador::blake3Hex(seq.data(), seq.size()));}
-static void setFileMtime(const fs::path& p, sqlite3_int64 unixSecs) {
-    std::error_code ec;
-    const auto tp = fs::file_time_type::clock::now() + std::chrono::seconds(unixSecs - fileTimeToUnixSeconds(fs::file_time_type::clock::now()));
-    fs::last_write_time(p, tp, ec);}
+    const ChunkHash digest = Compactador::blake3Hash(seq.data(), seq.size());
+    return Blob(digest.begin(), digest.end());}
 static void progressEmit(const std::function<void(const BackupProgress&)>& cb, const BackupProgress& p) {
     if (cb) cb(p);}
 static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_point& lastEmit,
@@ -156,27 +145,7 @@ static std::optional<std::uint64_t> captureBaselineToken(const fs::path& root) {
         return newToken;
     } catch (...) {
         return std::nullopt;}}
-static Blob readWholeFile(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) throw std::runtime_error("Falha abrindo arquivo: " + p.string());
-    in.seekg(0, std::ios::end);
-    const auto sz = in.tellg();
-    in.seekg(0, std::ios::beg);
-    if (sz < 0) throw std::runtime_error("Falha lendo tamanho do arquivo: " + p.string());
-    Blob out(static_cast<std::size_t>(sz));
-    if (!out.empty()) in.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
-    if (!in && !out.empty()) throw std::runtime_error("Falha lendo arquivo inteiro: " + p.string());
-    return out;}
-static void restoreChunksToFile(StorageArchive& arc, sqlite3_int64 fileId, const fs::path& outPath) {
-    auto chunks = arc.loadFileChunks(fileId);
-    std::error_code ec;
-    fs::create_directories(outPath.parent_path(), ec);
-    if (ec) throw std::runtime_error("Falha criando diretorio de restore: " + ec.message());
-    std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
-    if (!out) throw std::runtime_error("Falha criando arquivo restaurado: " + outPath.string());
-    for (const auto& c : chunks) {
-        if (!c.blob.empty()) out.write(reinterpret_cast<const char*>(c.blob.data()), static_cast<std::streamsize>(c.blob.size()));
-        if (!out) throw std::runtime_error("Falha escrevendo arquivo restaurado: " + outPath.string());}}}
+}
 BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs::path& archivePath, const std::string& label, const std::function<void(const BackupProgress&)>& progressCallback) {
     ensureDefaults();
     if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot)) throw std::runtime_error("sourceRoot invalido.");
@@ -266,8 +235,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                     if (got <= 0) break;
                     ++progress.stats.chunks;
                     progress.stats.bytesRead += static_cast<std::uintmax_t>(got);
-                    const std::string chunkHex = Compactador::blake3Hex(raw.data(), static_cast<std::size_t>(got));
-                    const ChunkHash ch = hexToChunkHash(chunkHex);
+                    const ChunkHash ch = Compactador::blake3Hash(raw.data(), static_cast<std::size_t>(got));
                     chunkSeq.push_back(ch);
                     Blob comp;
                     Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
@@ -312,6 +280,13 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
             } else if (auto baseline = captureBaselineToken(sourceRoot); baseline.has_value()) {
                 arc.updateSnapshotCbtToken(snapshotId, *baseline);}}
         arc.commit();
+        if (cbtEnabled && newCbtToken != 0) {
+            try {
+                auto ackTracker = createPlatformChangeTracker();
+                if (ackTracker) {
+                    ackTracker->startTracking(sourceRoot);
+                    ackTracker->ackConsumedUpTo(newCbtToken);}
+            } catch (...) {}}
         progress.phase = "done";
         progressEmit(progressCallback, progress);
         return progress.stats;

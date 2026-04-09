@@ -306,11 +306,10 @@ bool Stmt::stepRow() { return stepRowOrDoneOrThrow(db_, stmt_); }
 void Stmt::stepDone() { stepDoneOrThrow(db_, stmt_); }
 DB::DB(const fs::path& p) {
     ensureArchiveStorageParent(p);
-    if (sqlite3_open_path(p, &db_) != SQLITE_OK) {
-        std::string err = sqlite3_errmsg(db_);
-        sqlite3_close(db_);
-        throw SqliteError("sqlite open: " + err);}
-    exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY;");
+    try {
+        db_ = openKeeplyDb(p, "sqlite open");
+    } catch (const std::exception& ex) {
+        throw SqliteError(ex.what());}
     initSchema();}
 DB::~DB() {
     if (db_) sqlite3_close(db_);}
@@ -704,6 +703,32 @@ std::vector<StoredChunkRow> StorageArchive::loadFileChunks(sqlite3_int64 fileId)
         row.blob = readPackAt(packOffset, ch, row.rawSize, row.compSize, row.algo, row.encryptIv);
         out.push_back(std::move(row));}
     return out;}
+void StorageArchive::streamFileChunks(sqlite3_int64 fileId,
+                                      const std::function<void(const ChunkHash&, const Blob&)>& cb) {
+    Stmt st(db_.raw(),
+        "SELECT fc.raw_size, c.comp_size, c.comp_algo, "
+               "c.pack_id, c.pack_offset, c.storage_state, fc.chunk_hash, c.encrypt_iv "
+        "FROM file_chunks fc JOIN chunks c ON c.chunk_hash = fc.chunk_hash "
+        "WHERE fc.file_id=? ORDER BY fc.chunk_index ASC;");
+    st.bindInt64(1, fileId);
+    while (st.stepRow()) {
+        const std::size_t rawSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 0));
+        const std::size_t compSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
+        const std::string algo = colText(st.get(), 2);
+        const std::string packId = colText(st.get(), 3);
+        const sqlite3_int64 packOffset = sqlite3_column_int64(st.get(), 4);
+        const std::string storageState = colText(st.get(), 5);
+        const void* hp = sqlite3_column_blob(st.get(), 6);
+        const int hb = sqlite3_column_bytes(st.get(), 6);
+        const Blob encryptIv = colBlob(st.get(), 7);
+        if (storageState != "ready") throw std::runtime_error("Chunk ainda nao esta pronto para leitura.");
+        if (packOffset < 0) throw std::runtime_error("Chunk com pack_offset invalido.");
+        if (packId.empty()) throw std::runtime_error("Chunk sem pack_id.");
+        if (!hp || hb != static_cast<int>(ChunkHash{}.size())) throw std::runtime_error("chunk_hash invalido vindo do SQLite.");
+        ChunkHash ch{};
+        std::memcpy(ch.data(), hp, ch.size());
+        Blob raw = readPackAt(packOffset, ch, rawSize, compSize, algo, encryptIv);
+        cb(ch, raw);}}
 std::vector<std::string> StorageArchive::listSnapshotPaths(sqlite3_int64 snapshotId) {
     std::vector<std::string> paths;
     Stmt st(db_.raw(), "SELECT path FROM files WHERE snapshot_id=? ORDER BY path;");

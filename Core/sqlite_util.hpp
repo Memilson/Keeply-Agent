@@ -1,8 +1,11 @@
 #pragma once
 #include <sqlite3.h>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 namespace keeply {
+namespace fs = std::filesystem;
+int sqlite3_open_path(const fs::path& path, sqlite3** db);
 class SharedSqlTransaction {
     sqlite3* db_ = nullptr;
     bool committed_ = false;
@@ -44,4 +47,26 @@ inline void execSqlOrThrow(sqlite3* db, const char* sql, const char* ctx = nullp
         std::string msg = err ? err : "erro sqlite";
         if (err) sqlite3_free(err);
         if (ctx) msg = std::string(ctx) + ": " + msg;
-        throw std::runtime_error(msg);}}}
+        throw std::runtime_error(msg);}}
+// Opens a sqlite3 DB at `path` and applies Keeply's standard PRAGMAs
+// (incremental auto_vacuum, WAL, normal sync, foreign keys, in-memory temp store).
+// On failure throws std::runtime_error with `errorCtx` prepended.
+// Caller owns the returned handle and must sqlite3_close() it.
+inline sqlite3* openKeeplyDb(const fs::path& path, const char* errorCtx = "sqlite open") {
+    sqlite3* db = nullptr;
+    if (sqlite3_open_path(path, &db) != SQLITE_OK) {
+        std::string msg = db ? sqlite3_errmsg(db) : "sqlite open failed";
+        if (db) sqlite3_close(db);
+        throw std::runtime_error(std::string(errorCtx) + ": " + msg);}
+    // auto_vacuum só tem efeito se setado antes de qualquer CREATE TABLE em DB novo;
+    // em DBs existentes é no-op silencioso (intencional).
+    sqlite3_exec(db, "PRAGMA auto_vacuum=INCREMENTAL;", nullptr, nullptr, nullptr);
+    try {
+        execSqlOrThrow(db, "PRAGMA journal_mode=WAL;", errorCtx);
+        execSqlOrThrow(db, "PRAGMA synchronous=NORMAL;", errorCtx);
+        execSqlOrThrow(db, "PRAGMA foreign_keys=ON;", errorCtx);
+        execSqlOrThrow(db, "PRAGMA temp_store=MEMORY;", errorCtx);
+    } catch (...) {
+        sqlite3_close(db);
+        throw;}
+    return db;}}

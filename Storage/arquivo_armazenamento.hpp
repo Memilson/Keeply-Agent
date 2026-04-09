@@ -64,6 +64,8 @@ public:
     std::optional<RestorableFileRef> findFileBySnapshotAndPath(sqlite3_int64 snapshotId,
                                                                const std::string& relPath);
     std::vector<StoredChunkRow> loadFileChunks(sqlite3_int64 fileId);
+    void streamFileChunks(sqlite3_int64 fileId,
+                          const std::function<void(const ChunkHash&, const Blob&)>& cb);
     std::vector<std::string> listSnapshotPaths(sqlite3_int64 snapshotId);
     void updateSnapshotCbtToken(sqlite3_int64 snapshotId, std::uint64_t token);
     void setChunkEncryptIv(const ChunkHash& hash, const Blob& iv);

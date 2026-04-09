@@ -26,6 +26,7 @@ public:
     std::vector<ChangedFile> loadChangesSince(const fs::path& rootPath,
                                               std::uint64_t lastToken,
                                               std::uint64_t& newToken) const;
+    void pruneEventsUpTo(const fs::path& rootPath, std::uint64_t upToSeq);
 private:
     class Db;
     void prepareStatements();
@@ -44,6 +45,7 @@ public:
     virtual void startTracking(const fs::path& rootPath) = 0;
     virtual std::vector<ChangedFile> getChanges(std::uint64_t lastToken,
                                                 std::uint64_t& newToken) = 0;
+    virtual void ackConsumedUpTo(std::uint64_t /*consumedToken*/) {}
 };
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker();
 fs::path defaultEventStorePath();

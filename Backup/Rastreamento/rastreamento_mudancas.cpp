@@ -54,14 +54,9 @@ class EventStore::Db {
     sqlite3* db_ = nullptr;
 public:
     explicit Db(const fs::path& path) {
-        if (sqlite3_open_path(path, &db_) != SQLITE_OK) {
-            std::string msg = db_ ? sqlite3_errmsg(db_) : "sqlite open failed";
-            if (db_) sqlite3_close(db_);
-            throw std::runtime_error("Falha abrindo banco do daemon: " + msg);}
-        execSql(db_, "PRAGMA journal_mode=WAL;", "Falha configurando journal_mode");
-        execSql(db_, "PRAGMA synchronous=NORMAL;", "Falha configurando synchronous");
-        execSql(db_, "PRAGMA foreign_keys=ON;", "Falha configurando foreign_keys");
-        execSql(db_, "CREATE TABLE IF NOT EXISTS cbt_event_roots(id INTEGER PRIMARY KEY AUTOINCREMENT,root_path TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);", "Falha criando cbt_event_roots");
+        db_ = openKeeplyDb(path, "Falha abrindo banco do daemon");
+        execSql(db_, "CREATE TABLE IF NOT EXISTS cbt_event_roots(id INTEGER PRIMARY KEY AUTOINCREMENT,root_path TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,last_seq INTEGER NOT NULL DEFAULT 0);", "Falha criando cbt_event_roots");
+        sqlite3_exec(db_, "ALTER TABLE cbt_event_roots ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0;", nullptr, nullptr, nullptr);
         execSql(db_, "CREATE TABLE IF NOT EXISTS cbt_events(id INTEGER PRIMARY KEY AUTOINCREMENT,root_id INTEGER NOT NULL,seq INTEGER NOT NULL,event_type TEXT NOT NULL,rel_path TEXT NOT NULL,is_dir INTEGER NOT NULL DEFAULT 0,event_time INTEGER NOT NULL,FOREIGN KEY(root_id) REFERENCES cbt_event_roots(id) ON DELETE CASCADE);", "Falha criando cbt_events");
         execSql(db_, "CREATE INDEX IF NOT EXISTS idx_cbt_events_root_seq ON cbt_events(root_id, seq);", "Falha criando idx_cbt_events_root_seq");}
     ~Db() {
@@ -99,7 +94,7 @@ void EventStore::ensureRoot(const fs::path& rootPath) {
         sqlite3_bind_int64(st.get(), 2, ts);
         sqlite3_bind_int64(st.get(), 3, ts);
         if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando root do daemon.");}{
-        SqlStmt st(db_->raw(), "SELECT r.id, COALESCE(MAX(e.seq), 0) + 1 FROM cbt_event_roots r LEFT JOIN cbt_events e ON e.root_id = r.id WHERE r.root_path=? GROUP BY r.id;");
+        SqlStmt st(db_->raw(), "SELECT r.id, MAX(COALESCE(r.last_seq, 0), COALESCE((SELECT MAX(seq) FROM cbt_events WHERE root_id=r.id), 0)) + 1 FROM cbt_event_roots r WHERE r.root_path=?;");
         sqlite3_bind_text(st.get(), 1, root.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(st.get()) != SQLITE_ROW) throw std::runtime_error("Root do daemon nao encontrado.");
         rootId_ = sqlite3_column_int64(st.get(), 0);
@@ -146,14 +141,36 @@ std::vector<ChangedFile> EventStore::loadChangesSince(const fs::path& rootPath, 
         const std::string eventType = typeText ? normalizeEventType(reinterpret_cast<const char*>(typeText)) : std::string{};
         out.push_back({relPath, eventType == "delete", eventType});}
     return out;}
+void EventStore::pruneEventsUpTo(const fs::path& rootPath, std::uint64_t upToSeq) {
+    if (upToSeq == 0) return;
+    const std::string root = normalizePath(rootPath);
+    sqlite3_int64 rootId = 0;
+    sqlite3_int64 maxSeq = 0;{
+        SqlStmt st(db_->raw(), "SELECT r.id, COALESCE((SELECT MAX(seq) FROM cbt_events WHERE root_id=r.id), 0) FROM cbt_event_roots r WHERE r.root_path=?;");
+        sqlite3_bind_text(st.get(), 1, root.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st.get()) != SQLITE_ROW) return;
+        rootId = sqlite3_column_int64(st.get(), 0);
+        maxSeq = sqlite3_column_int64(st.get(), 1);}
+    SqlTransaction tx(db_->raw());{
+        SqlStmt st(db_->raw(), "UPDATE cbt_event_roots SET last_seq=MAX(last_seq, ?) WHERE id=?;");
+        sqlite3_bind_int64(st.get(), 1, maxSeq);
+        sqlite3_bind_int64(st.get(), 2, rootId);
+        if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha atualizando last_seq do root.");}{
+        SqlStmt st(db_->raw(), "DELETE FROM cbt_events WHERE root_id=? AND seq<=?;");
+        sqlite3_bind_int64(st.get(), 1, rootId);
+        sqlite3_bind_int64(st.get(), 2, static_cast<sqlite3_int64>(upToSeq));
+        if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha apagando eventos consumidos.");}
+    tx.commit();
+    sqlite3_exec(db_->raw(), "PRAGMA incremental_vacuum;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db_->raw(), "PRAGMA wal_checkpoint(TRUNCATE);", nullptr, nullptr, nullptr);}
 fs::path defaultEventStorePath() {
-    return defaultKeeplyStateDir() / "keeplyintf.kipy";}
+    return defaultKeeplyStateDir() / "keeply_cbt_events.cbtdb";}
 fs::path defaultEventStorePidPath() {
-    return defaultEventStorePath().parent_path() / "keeplyintf.pid";}
+    return defaultEventStorePath().parent_path() / "keeply_cbt_events.pid";}
 fs::path defaultEventStoreRootPath() {
-    return defaultEventStorePath().parent_path() / "keeplyintf.root";}
+    return defaultEventStorePath().parent_path() / "keeply_cbt_events.root";}
 fs::path defaultNativeStateStorePath() {
-    return defaultKeeplyStateDir() / "keeply_state.kipy";}
+    return defaultKeeplyStateDir() / "keeply_cbt_state.cbtdb";}
 namespace {
 bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
     const fs::path base = normalizeAbsolutePath(baseInput);
@@ -313,13 +330,7 @@ class LinuxTrackerDb {
     sqlite3* db_ = nullptr;
 public:
     explicit LinuxTrackerDb(const fs::path& path) {
-        if (sqlite3_open_path(path, &db_) != SQLITE_OK) {
-            std::string msg = db_ ? sqlite3_errmsg(db_) : "sqlite open failed";
-            if (db_) sqlite3_close(db_);
-            throw std::runtime_error("Falha abrindo banco CBT Linux: " + msg);}
-        execSql(db_, "PRAGMA journal_mode=WAL;", "Falha configurando journal_mode CBT Linux");
-        execSql(db_, "PRAGMA synchronous=NORMAL;", "Falha configurando synchronous CBT Linux");
-        execSql(db_, "PRAGMA foreign_keys=ON;", "Falha configurando foreign_keys CBT Linux");
+        db_ = openKeeplyDb(path, "Falha abrindo banco CBT Linux");
         execSql(db_, "CREATE TABLE IF NOT EXISTS cbt_state_roots(id INTEGER PRIMARY KEY AUTOINCREMENT,root_path TEXT NOT NULL UNIQUE,token INTEGER NOT NULL DEFAULT 0);", "Falha criando cbt_state_roots");
         execSql(db_, "CREATE TABLE IF NOT EXISTS cbt_state_files(root_id INTEGER NOT NULL,rel_path TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,PRIMARY KEY(root_id, rel_path),FOREIGN KEY(root_id) REFERENCES cbt_state_roots(id) ON DELETE CASCADE);", "Falha criando cbt_state_files");}
     ~LinuxTrackerDb() {
@@ -389,24 +400,37 @@ class LinuxStateTracker : public ChangeTracker {
             if (!relText) continue;
             files.emplace(reinterpret_cast<const char*>(relText), LinuxTrackedFile{sqlite3_column_int64(st.get(), 1), sqlite3_column_int64(st.get(), 2)});}
         return files;}
-    void persistCurrentState(const std::unordered_map<std::string, LinuxTrackedFile>& files, sqlite3_int64 newToken) {
+    void persistCurrentState(const std::unordered_map<std::string, LinuxTrackedFile>& previousFiles,
+                             const std::unordered_map<std::string, LinuxTrackedFile>& currentFiles,
+                             sqlite3_int64 newToken) {
         SqlTransaction tx(db_->raw());{
             SqlStmt st(db_->raw(), "UPDATE cbt_state_roots SET token=? WHERE id=?;");
             sqlite3_bind_int64(st.get(), 1, newToken);
             sqlite3_bind_int64(st.get(), 2, rootId_);
             if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha atualizando token do CBT Linux.");}{
-            SqlStmt st(db_->raw(), "DELETE FROM cbt_state_files WHERE root_id=?;");
-            sqlite3_bind_int64(st.get(), 1, rootId_);
-            if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha limpando arquivos do CBT Linux.");}{
-            SqlStmt st(db_->raw(), "INSERT INTO cbt_state_files(root_id, rel_path, size, mtime) VALUES(?,?,?,?);");
-            for (const auto& [relPath, info] : files) {
-                sqlite3_reset(st.get());
-                sqlite3_clear_bindings(st.get());
-                sqlite3_bind_int64(st.get(), 1, rootId_);
-                sqlite3_bind_text(st.get(), 2, relPath.c_str(), -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int64(st.get(), 3, info.size);
-                sqlite3_bind_int64(st.get(), 4, info.mtime);
-                if (sqlite3_step(st.get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando arquivos do CBT Linux.");}}
+            SqlStmt upsert(db_->raw(),
+                "INSERT INTO cbt_state_files(root_id, rel_path, size, mtime) VALUES(?,?,?,?) "
+                "ON CONFLICT(root_id, rel_path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime;");
+            for (const auto& [relPath, info] : currentFiles) {
+                const auto prevIt = previousFiles.find(relPath);
+                if (prevIt != previousFiles.end() &&
+                    prevIt->second.size == info.size &&
+                    prevIt->second.mtime == info.mtime) continue;
+                sqlite3_reset(upsert.get());
+                sqlite3_clear_bindings(upsert.get());
+                sqlite3_bind_int64(upsert.get(), 1, rootId_);
+                sqlite3_bind_text(upsert.get(), 2, relPath.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(upsert.get(), 3, info.size);
+                sqlite3_bind_int64(upsert.get(), 4, info.mtime);
+                if (sqlite3_step(upsert.get()) != SQLITE_DONE) throw std::runtime_error("Falha gravando arquivos do CBT Linux.");}}{
+            SqlStmt del(db_->raw(), "DELETE FROM cbt_state_files WHERE root_id=? AND rel_path=?;");
+            for (const auto& [relPath, _] : previousFiles) {
+                if (currentFiles.find(relPath) != currentFiles.end()) continue;
+                sqlite3_reset(del.get());
+                sqlite3_clear_bindings(del.get());
+                sqlite3_bind_int64(del.get(), 1, rootId_);
+                sqlite3_bind_text(del.get(), 2, relPath.c_str(), -1, SQLITE_TRANSIENT);
+                if (sqlite3_step(del.get()) != SQLITE_DONE) throw std::runtime_error("Falha removendo arquivos do CBT Linux.");}}
         tx.commit();
         storedToken_ = newToken;}
 public:
@@ -432,7 +456,7 @@ public:
         for (const auto& [relPath, _] : previousFiles) {
             if (currentFiles.find(relPath) == currentFiles.end()) changes.push_back({relPath, true, "delete"});}
         const sqlite3_int64 nextToken = storedToken_ + 1;
-        persistCurrentState(currentFiles, nextToken);
+        persistCurrentState(previousFiles, currentFiles, nextToken);
         newToken = static_cast<std::uint64_t>(nextToken);
         return changes;}
 };
@@ -506,6 +530,12 @@ public:
         auto changes = platform_->getChanges(decoded.backend == TokenBackend::Native ? decoded.value : 0, platformToken);
         newToken = encodeToken(TokenBackend::Native, platformToken);
         return changes;}
+    void ackConsumedUpTo(std::uint64_t consumedToken) override {
+        const auto decoded = decodeToken(consumedToken);
+        if (decoded.backend == TokenBackend::Daemon && daemonStore_ && decoded.value != 0) {
+            try { daemonStore_->pruneEventsUpTo(root_, decoded.value); }
+            catch (const std::exception& ex) { daemonError_ = ex.what(); }}
+        if (platform_) platform_->ackConsumedUpTo(consumedToken);}
 };}
 std::unique_ptr<ChangeTracker> createPlatformChangeTracker() {
     return std::make_unique<CompositeChangeTracker>();}}

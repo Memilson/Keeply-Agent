@@ -171,7 +171,8 @@ struct SnapshotRow {
     std::string createdAt;
     std::string sourceRoot;
     std::string label;
-    sqlite3_int64 fileCount{}};
+    sqlite3_int64 fileCount{};
+};
 struct ChangeEntry {
     std::string path;
     std::string status;
