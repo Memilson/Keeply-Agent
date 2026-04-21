@@ -373,8 +373,8 @@ void KeeplyAgentWsClient::executeCommand_(const WsCommand& cmd){
         KeyEnvGuard guard(cmd.encryptionKey);
         runBackupCommand_(cmd.label,cmd.storage);
         return;}
-    if(cmd.type=="restore.file"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreFileCommand_(cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
-    if(cmd.type=="restore.snapshot"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreSnapshotCommand_(cmd.snapshot,cmd.outRoot);return;}
+    if(cmd.type=="restore.file"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreFileCommand_(cmd.requestId,cmd.snapshot,cmd.relPath,cmd.outRoot);return;}
+    if(cmd.type=="restore.snapshot"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreSnapshotCommand_(cmd.requestId,cmd.snapshot,cmd.outRoot);return;}
     if(cmd.type=="restore.cloud.snapshot"){KeyEnvGuard guard(cmd.encryptionKey);runRestoreCloudSnapshotCommand_(cmd);return;}
     throw std::runtime_error("Comando websocket nao suportado: "+(cmd.type.empty()?cmd.raw:cmd.type));}
 void KeeplyAgentWsClient::sendHello_(){
@@ -543,4 +543,3 @@ std::size_t KeeplyAgentWsClient::readRaw_(void* data,std::size_t size){
 void KeeplyAgentWsClient::ensureConnected_() const{
     if(!connected_||sockfd_<0) throw std::runtime_error("Cliente websocket do agente nao esta conectado.");}
 }
-

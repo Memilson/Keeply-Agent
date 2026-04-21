@@ -30,7 +30,8 @@ Core/                 ── compactação (zstd/zlib/AES-GCM), BLAKE3, utilitá
 Storage/              ── StorageArchive (SQLite .kply + pack .klyp)
 Cloud/                ── fila de upload (backend HTTP)
 HTTP/                 ── cliente HTTP/TLS, upload multipart, URL builder
-WebSocket/            ── cliente WS, comandos backup / restore / fs
+..WebSocket/            ── cliente WS, comandos backup / restore / fs
+GUI/                  ── janela GTK3 para testes locais de backup e restore
 ```
 
 ## Formato do repositório local
@@ -124,6 +125,24 @@ keeply --url wss://host/ws/agent
        --root /home/user
        --no-tray --insecure-tls
 keeply cbt --root /home/user --foreground   # roda só o daemon CBT
+keeply_gui                            # janela GTK local para testar backup/restore
+```
+
+O alvo `keeply_gui` usa `KeeplyApi` direto, sem WebSocket nem frontend web. Ele existe apenas para testes locais de:
+
+- escolher origem do backup
+- escolher arquivo `.kipy`
+- escolher pasta de restore
+- disparar backup manual
+- listar snapshots
+- ver arquivos do snapshot
+- restaurar snapshot inteiro
+- restaurar um arquivo especifico
+
+Para compilar esse binário, o ambiente precisa ter os headers de desenvolvimento do GTK3:
+
+```bash
+sudo apt install pkg-config libgtk-3-dev
 ```
 
 `SingleInstanceGuard` usa `flock(LOCK_EX|LOCK_NB)` em `keeply_agent.pid`; se outra instância estiver rodando, o segundo processo sai com erro.

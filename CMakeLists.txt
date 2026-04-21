@@ -19,12 +19,20 @@ else()
     message(STATUS "librsync NAO encontrada. Instale librsync-dev para suporte a deltas byte-level.")
 endif()
 include(FetchContent)
-FetchContent_Declare(
-    blake3_src
-    GIT_REPOSITORY https://github.com/BLAKE3-team/BLAKE3.git
-    GIT_TAG 1.5.1
-    GIT_SHALLOW TRUE)
-FetchContent_MakeAvailable(blake3_src)
+set(KEEPLY_BLAKE3_SOURCE_DIR "")
+set(KEEPLY_BLAKE3_LOCAL_CACHE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/blake3_src-src")
+if(EXISTS "${KEEPLY_BLAKE3_LOCAL_CACHE_DIR}/c/blake3.c")
+    message(STATUS "Usando cache local do BLAKE3 em ${KEEPLY_BLAKE3_LOCAL_CACHE_DIR}")
+    set(KEEPLY_BLAKE3_SOURCE_DIR "${KEEPLY_BLAKE3_LOCAL_CACHE_DIR}")
+else()
+    FetchContent_Declare(
+        blake3_src
+        GIT_REPOSITORY https://github.com/BLAKE3-team/BLAKE3.git
+        GIT_TAG 1.5.1
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(blake3_src)
+    set(KEEPLY_BLAKE3_SOURCE_DIR "${blake3_src_SOURCE_DIR}")
+endif()
 set(KEEPLY_CBT_PLATFORM_SOURCES)
 list(APPEND KEEPLY_CBT_PLATFORM_SOURCES
     Backup/Rastreamento/Linux/daemon.cpp)
@@ -38,9 +46,9 @@ set(KEEPLY_CORE
     Backup/restauracao.cpp
     Backup/varredura.cpp
     Storage/arquivo_armazenamento.cpp
-    ${blake3_src_SOURCE_DIR}/c/blake3.c
-    ${blake3_src_SOURCE_DIR}/c/blake3_dispatch.c
-    ${blake3_src_SOURCE_DIR}/c/blake3_portable.c)
+    ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3.c
+    ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_dispatch.c
+    ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_portable.c)
 if(RSYNC_LIB AND RSYNC_INCLUDE_DIR)
     list(APPEND KEEPLY_CORE Backup/delta_rsync.cpp)
 endif()
@@ -57,17 +65,17 @@ set(KEEPLY_API_WS
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|i[3-6]86)$"
    AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     list(APPEND KEEPLY_CORE
-        ${blake3_src_SOURCE_DIR}/c/blake3_sse2.c
-        ${blake3_src_SOURCE_DIR}/c/blake3_sse41.c
-        ${blake3_src_SOURCE_DIR}/c/blake3_avx2.c)
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_sse2.c
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_sse41.c
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_avx2.c)
     set_source_files_properties(
-        ${blake3_src_SOURCE_DIR}/c/blake3_sse2.c
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_sse2.c
         PROPERTIES COMPILE_OPTIONS "-msse2")
     set_source_files_properties(
-        ${blake3_src_SOURCE_DIR}/c/blake3_sse41.c
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_sse41.c
         PROPERTIES COMPILE_OPTIONS "-msse4.1")
     set_source_files_properties(
-        ${blake3_src_SOURCE_DIR}/c/blake3_avx2.c
+        ${KEEPLY_BLAKE3_SOURCE_DIR}/c/blake3_avx2.c
         PROPERTIES COMPILE_OPTIONS "-mavx2;-msse4.1")
 endif()
 set(KEEPLY_INCLUDE_DIRS
@@ -79,7 +87,7 @@ set(KEEPLY_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/HTTP
     ${CMAKE_CURRENT_SOURCE_DIR}/WebSocket
     ${CMAKE_CURRENT_SOURCE_DIR}/Cloud
-    ${blake3_src_SOURCE_DIR}/c)
+    ${KEEPLY_BLAKE3_SOURCE_DIR}/c)
 set(KEEPLY_COMMON_LIBS
     OpenSSL::SSL
     OpenSSL::Crypto

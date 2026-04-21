@@ -48,30 +48,6 @@ static Blob colBlob(sqlite3_stmt* st, int idx) {
     const auto* b = static_cast<const unsigned char*>(p);
     return Blob(b, b + n);}
 using SqlTxn = keeply::SharedSqlTransaction;
-static bool tableHasColumn(sqlite3* db, const char* table, const char* colName) {
-    std::string sql = "PRAGMA table_info(" + std::string(table) + ");";
-    sqlite3_stmt* st = nullptr;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
-    bool found = false;
-    while (sqlite3_step(st) == SQLITE_ROW) {
-        const unsigned char* name = sqlite3_column_text(st, 1);
-        if (name && std::string(reinterpret_cast<const char*>(name)) == colName) {
-            found = true;
-            break;}}
-    sqlite3_finalize(st);
-    return found;}
-static bool fileChunksReferencesTable(sqlite3* db, const char* tableName) {
-    sqlite3_stmt* st = nullptr;
-    if (sqlite3_prepare_v2(db, "PRAGMA foreign_key_list(file_chunks);", -1, &st, nullptr) != SQLITE_OK) {
-        throw SqliteError(sqlite3_errmsg(db));}
-    bool found = false;
-    while (sqlite3_step(st) == SQLITE_ROW) {
-        const unsigned char* target = sqlite3_column_text(st, 2);
-        if (target && std::string(reinterpret_cast<const char*>(target)) == tableName) {
-            found = true;
-            break;}}
-    sqlite3_finalize(st);
-    return found;}
 static int readSchemaVersion(sqlite3* db) {
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db, "SELECT version FROM schema_version LIMIT 1;", -1, &st, nullptr) != SQLITE_OK) throw SqliteError(sqlite3_errmsg(db));
@@ -213,85 +189,73 @@ void DB::exec(const std::string& sql) {
 sqlite3_int64 DB::lastInsertId() const { return sqlite3_last_insert_rowid(db_); }
 int DB::changes() const { return sqlite3_changes(db_); }
 void DB::initSchema() {
+    constexpr int kTargetSchemaVersion = 11;
     exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);");
     exec("INSERT OR IGNORE INTO schema_version(rowid,version) SELECT 1,0 WHERE NOT EXISTS (SELECT 1 FROM schema_version);");
     const int ver = readSchemaVersion(db_);
-    if (ver < 1) {
-        exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);");
-        exec("CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,source_root TEXT NOT NULL,label TEXT,backup_type TEXT NOT NULL DEFAULT 'full');");
-        exec("CREATE TABLE IF NOT EXISTS chunks(chunk_hash BLOB PRIMARY KEY,raw_size INTEGER NOT NULL,comp_size INTEGER NOT NULL,comp_algo TEXT NOT NULL,pack_id TEXT NOT NULL DEFAULT 'main',pack_offset INTEGER NOT NULL,storage_state TEXT NOT NULL DEFAULT 'ready');");
-        exec("CREATE TABLE IF NOT EXISTS files(id INTEGER PRIMARY KEY AUTOINCREMENT,snapshot_id INTEGER NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,file_hash BLOB,FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,UNIQUE(snapshot_id, path));");
-        exec("CREATE TABLE IF NOT EXISTS file_chunks(file_id INTEGER NOT NULL,chunk_index INTEGER NOT NULL,chunk_hash BLOB NOT NULL,raw_size INTEGER NOT NULL,PRIMARY KEY(file_id,chunk_index),FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,FOREIGN KEY(chunk_hash) REFERENCES chunks(chunk_hash));");
-        writeSchemaVersion(db_, 1);}
-    if (ver < 2) {
-        if (!tableHasColumn(db_, "snapshots", "cbt_token")) exec("ALTER TABLE snapshots ADD COLUMN cbt_token INTEGER NOT NULL DEFAULT 0;");
-        writeSchemaVersion(db_, 2);}
-    if (ver < 3) {
-        if (tableHasColumn(db_, "chunks", "hash_sha256")) {
-            SqlTxn tx(db_);
-            exec("ALTER TABLE file_chunks RENAME TO _fc_old;");
-            exec("ALTER TABLE chunks RENAME TO _ch_old;");
-            exec("CREATE TABLE chunks(chunk_hash BLOB PRIMARY KEY,raw_size INTEGER NOT NULL,comp_size INTEGER NOT NULL,comp_algo TEXT NOT NULL,pack_offset INTEGER NOT NULL);");
-            exec("INSERT INTO chunks SELECT hash_sha256,raw_size,comp_size,comp_algo,pack_offset FROM _ch_old;");
-            exec("CREATE TABLE file_chunks(file_id INTEGER NOT NULL,chunk_index INTEGER NOT NULL,chunk_hash BLOB NOT NULL,raw_size INTEGER NOT NULL,PRIMARY KEY(file_id,chunk_index),FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,FOREIGN KEY(chunk_hash) REFERENCES chunks(chunk_hash));");
-            exec("INSERT INTO file_chunks SELECT file_id,chunk_index,chunk_hash_sha256,raw_size FROM _fc_old;");
-            exec("DROP TABLE _fc_old;");
-            exec("DROP TABLE _ch_old;");
-            tx.commit();}
-        writeSchemaVersion(db_, 3);}
-    if (ver < 4) {
-        if (!tableHasColumn(db_, "chunks", "pack_id")) exec("ALTER TABLE chunks ADD COLUMN pack_id TEXT NOT NULL DEFAULT 'main';");
-        writeSchemaVersion(db_, 4);}
-    if (ver < 5) {
-        if (!tableHasColumn(db_, "chunks", "storage_state")) exec("ALTER TABLE chunks ADD COLUMN storage_state TEXT NOT NULL DEFAULT 'ready';");
-        writeSchemaVersion(db_, 5);}
-    if (ver < 6) {
-        SqlTxn tx(db_);
-        exec("ALTER TABLE files RENAME TO _files_old;");
-        exec("CREATE TABLE files(id INTEGER PRIMARY KEY AUTOINCREMENT,snapshot_id INTEGER NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,file_hash BLOB,FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,UNIQUE(snapshot_id, path));");
-        exec("INSERT INTO files(id,snapshot_id,path,size,mtime,file_hash) SELECT id,snapshot_id,path,size,mtime,file_hash FROM _files_old;");
-        exec("DROP TABLE _files_old;");
-        tx.commit();
-        writeSchemaVersion(db_, 6);}
-    if (fileChunksReferencesTable(db_, "_files_old")) {
-        SqlTxn tx(db_);
-        exec("ALTER TABLE file_chunks RENAME TO _fc_fix_old;");
-        exec("CREATE TABLE file_chunks(file_id INTEGER NOT NULL,chunk_index INTEGER NOT NULL,chunk_hash BLOB NOT NULL,raw_size INTEGER NOT NULL,PRIMARY KEY(file_id,chunk_index),FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,FOREIGN KEY(chunk_hash) REFERENCES chunks(chunk_hash));");
-        exec("INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) SELECT file_id,chunk_index,chunk_hash,raw_size FROM _fc_fix_old;");
-        exec("DROP TABLE _fc_fix_old;");
-        tx.commit();}
-    if (ver < 7) {
-        if (!tableHasColumn(db_, "chunks", "encrypt_iv"))
-            exec("ALTER TABLE chunks ADD COLUMN encrypt_iv BLOB;");
-        writeSchemaVersion(db_, 7);}
-    if (ver < 8) {
-        exec("CREATE TABLE IF NOT EXISTS file_signatures("
-             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-             "snapshot_id INTEGER NOT NULL,"
-             "path TEXT NOT NULL,"
-             "sig_blob BLOB NOT NULL,"
-             "created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
-             "UNIQUE(snapshot_id, path),"
-             "FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE);");
-        exec("CREATE INDEX IF NOT EXISTS idx_filesig_snapshot_path ON file_signatures(snapshot_id, path);");
-        writeSchemaVersion(db_, 8);}
-    if (ver < 9) {
-        exec("CREATE TABLE IF NOT EXISTS upload_parts("
-             "bundle_id TEXT NOT NULL,"
-             "part_index INTEGER NOT NULL,"
-             "upload_id  TEXT NOT NULL,"
-             "etag       TEXT NOT NULL,"
-             "uploaded_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
-             "PRIMARY KEY(bundle_id, part_index));");
-        writeSchemaVersion(db_, 9);}
-    if (ver < 10) {
-        if (!tableHasColumn(db_, "snapshots", "backup_type"))
-            exec("ALTER TABLE snapshots ADD COLUMN backup_type TEXT NOT NULL DEFAULT 'full';");
-        exec("UPDATE snapshots SET backup_type=CASE WHEN id=(SELECT MIN(id) FROM snapshots) THEN 'full' ELSE 'incremental' END WHERE TRIM(COALESCE(backup_type,''))='';");
-        writeSchemaVersion(db_, 10);}
+    if (ver != kTargetSchemaVersion) {
+        exec("DROP TABLE IF EXISTS file_signatures;");
+        exec("DROP TABLE IF EXISTS upload_parts;");
+        exec("DROP TABLE IF EXISTS file_chunks;");
+        exec("DROP TABLE IF EXISTS files;");
+        exec("DROP TABLE IF EXISTS chunks;");
+        exec("DROP TABLE IF EXISTS snapshots;");
+        exec("DROP TABLE IF EXISTS meta;");}
+    exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);");
+    exec("CREATE TABLE IF NOT EXISTS snapshots("
+         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+         "created_at TEXT NOT NULL,"
+         "source_root TEXT NOT NULL,"
+         "label TEXT,"
+         "backup_type TEXT NOT NULL DEFAULT 'full',"
+         "cbt_token INTEGER NOT NULL DEFAULT 0);");
+    exec("CREATE TABLE IF NOT EXISTS chunks("
+         "chunk_hash BLOB PRIMARY KEY,"
+         "raw_size INTEGER NOT NULL,"
+         "comp_size INTEGER NOT NULL,"
+         "comp_algo TEXT NOT NULL,"
+         "pack_id TEXT NOT NULL DEFAULT 'main',"
+         "pack_offset INTEGER NOT NULL,"
+         "storage_state TEXT NOT NULL DEFAULT 'ready',"
+         "encrypt_iv BLOB);");
+    exec("CREATE TABLE IF NOT EXISTS files("
+         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+         "snapshot_id INTEGER NOT NULL,"
+         "path TEXT NOT NULL,"
+         "size INTEGER NOT NULL,"
+         "mtime INTEGER NOT NULL,"
+         "file_hash BLOB,"
+         "FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,"
+         "UNIQUE(snapshot_id, path));");
+    exec("CREATE TABLE IF NOT EXISTS file_chunks("
+         "file_id INTEGER NOT NULL,"
+         "chunk_index INTEGER NOT NULL,"
+         "chunk_hash BLOB NOT NULL,"
+         "raw_size INTEGER NOT NULL,"
+         "offset_in_chunk INTEGER NOT NULL DEFAULT 0,"
+         "PRIMARY KEY(file_id,chunk_index),"
+         "FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,"
+         "FOREIGN KEY(chunk_hash) REFERENCES chunks(chunk_hash));");
+    exec("CREATE TABLE IF NOT EXISTS file_signatures("
+         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+         "snapshot_id INTEGER NOT NULL,"
+         "path TEXT NOT NULL,"
+         "sig_blob BLOB NOT NULL,"
+         "created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+         "UNIQUE(snapshot_id, path),"
+         "FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE);");
+    exec("CREATE TABLE IF NOT EXISTS upload_parts("
+         "bundle_id TEXT NOT NULL,"
+         "part_index INTEGER NOT NULL,"
+         "upload_id TEXT NOT NULL,"
+         "etag TEXT NOT NULL,"
+         "uploaded_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),"
+         "PRIMARY KEY(bundle_id, part_index));");
     exec("CREATE INDEX IF NOT EXISTS idx_files_snapshot ON files(snapshot_id);");
     exec("CREATE INDEX IF NOT EXISTS idx_fc_file ON file_chunks(file_id);");
-    exec("CREATE INDEX IF NOT EXISTS idx_chunks_state_hash ON chunks(storage_state, chunk_hash);");}
+    exec("CREATE INDEX IF NOT EXISTS idx_filesig_snapshot_path ON file_signatures(snapshot_id, path);");
+    exec("CREATE INDEX IF NOT EXISTS idx_chunks_state_hash ON chunks(storage_state, chunk_hash);");
+    writeSchemaVersion(db_, kTargetSchemaVersion);}
 StorageArchive::StorageArchive(const fs::path& path) : path_(path), db_(path) {
     prepareHotStatements();}
 StorageArchive::~StorageArchive() {
@@ -344,10 +308,10 @@ void StorageArchive::prepareHotStatements() {
     prepare(hot_.updateSnapshotCbtToken, "UPDATE snapshots SET cbt_token=? WHERE id=?;");
     prepare(hot_.insertFilePlaceholder, "INSERT INTO files(snapshot_id,path,size,mtime,file_hash) VALUES(?,?,?,?,NULL);");
     prepare(hot_.cloneFileInsert, "INSERT INTO files(snapshot_id,path,size,mtime,file_hash) VALUES(?,?,?,?,?);");
-    prepare(hot_.cloneFileChunks, "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) SELECT ?,chunk_index,chunk_hash,raw_size FROM file_chunks WHERE file_id=? ORDER BY chunk_index;");
+    prepare(hot_.cloneFileChunks, "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size,offset_in_chunk) SELECT ?,chunk_index,chunk_hash,raw_size,offset_in_chunk FROM file_chunks WHERE file_id=? ORDER BY chunk_index;");
     prepare(hot_.insertChunkIfMissing, "INSERT OR IGNORE INTO chunks(chunk_hash,raw_size,comp_size,comp_algo,pack_id,pack_offset,storage_state) VALUES(?,?,?,?,?,-1,'pending');");
     prepare(hot_.updateChunkOffset, "UPDATE chunks SET pack_id=?, pack_offset=?, storage_state='ready' WHERE chunk_hash=? AND storage_state='pending';");
-    prepare(hot_.addFileChunk, "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) VALUES(?,?,?,?);");}
+    prepare(hot_.addFileChunk, "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size,offset_in_chunk) VALUES(?,?,?,?,?);");}
 void StorageArchive::finalizeHotStatements() {
     hot_.insertSnapshot.reset();
     hot_.updateSnapshotCbtToken.reset();
@@ -493,23 +457,25 @@ bool StorageArchive::hasChunk(const ChunkHash& hash) {
     Stmt chk(db_.raw(), "SELECT 1 FROM chunks WHERE chunk_hash=? AND storage_state='ready' AND pack_offset>=0 LIMIT 1;");
     chk.bindBlob(1, hash.data(), static_cast<int>(hash.size()));
     return chk.stepRow();}
-void StorageArchive::addFileChunk(sqlite3_int64 fileId, int chunkIdx, const ChunkHash& chunkHash, std::size_t rawSize) {
+void StorageArchive::addFileChunk(sqlite3_int64 fileId, int chunkIdx, const ChunkHash& chunkHash, std::size_t rawSize, std::size_t offsetInChunk) {
     Stmt& st = *hot_.addFileChunk;
     st.reset();
     st.bindInt64(1, fileId);
     st.bindInt(2, chunkIdx);
     st.bindBlob(3, chunkHash.data(), static_cast<int>(chunkHash.size()));
     st.bindInt64(4, static_cast<sqlite3_int64>(rawSize));
+    st.bindInt64(5, static_cast<sqlite3_int64>(offsetInChunk));
     st.stepDone();}
 void StorageArchive::addFileChunksBulk(sqlite3_int64 fileId, const std::vector<PendingFileChunk>& rows) {
     if (rows.empty()) return;
-    Stmt st(db_.raw(), "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size) VALUES(?,?,?,?);");
+    Stmt st(db_.raw(), "INSERT INTO file_chunks(file_id,chunk_index,chunk_hash,raw_size,offset_in_chunk) VALUES(?,?,?,?,?);");
     for (const auto& r : rows) {
         st.reset();
         st.bindInt64(1, fileId);
         st.bindInt(2, r.chunkIdx);
         st.bindBlob(3, r.chunkHash.data(), static_cast<int>(r.chunkHash.size()));
         st.bindInt64(4, static_cast<sqlite3_int64>(r.rawSize));
+        st.bindInt64(5, static_cast<sqlite3_int64>(r.offsetInChunk));
         st.stepDone();}}
 std::optional<RestorableFileRef> StorageArchive::findFileBySnapshotAndPath(sqlite3_int64 snapshotId, const std::string& relPath) {
     Stmt st(db_.raw(), "SELECT id,size,mtime,file_hash FROM files WHERE snapshot_id=? AND path=?;");
@@ -573,7 +539,8 @@ std::vector<unsigned char> StorageArchive::readPackAt(sqlite3_int64 recordOffset
 std::vector<StoredChunkRow> StorageArchive::loadFileChunks(sqlite3_int64 fileId) {
     std::vector<StoredChunkRow> out;
     Stmt st(db_.raw(),
-        "SELECT fc.chunk_index, fc.raw_size, c.comp_size, c.comp_algo, "
+        "SELECT fc.chunk_index, fc.raw_size, fc.offset_in_chunk, "
+               "c.raw_size, c.comp_size, c.comp_algo, "
                "c.pack_id, c.pack_offset, c.storage_state, fc.chunk_hash, c.encrypt_iv "
         "FROM file_chunks fc JOIN chunks c ON c.chunk_hash = fc.chunk_hash "
         "WHERE fc.file_id=? ORDER BY fc.chunk_index ASC;");
@@ -581,50 +548,63 @@ std::vector<StoredChunkRow> StorageArchive::loadFileChunks(sqlite3_int64 fileId)
     while (st.stepRow()) {
         StoredChunkRow row;
         row.chunkIndex = sqlite3_column_int(st.get(), 0);
-        row.rawSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
-        row.compSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 2));
-        row.algo = colText(st.get(), 3);
-        const std::string packId = colText(st.get(), 4);
-        const sqlite3_int64 packOffset = sqlite3_column_int64(st.get(), 5);
-        const std::string storageState = colText(st.get(), 6);
-        const void* hp = sqlite3_column_blob(st.get(), 7);
-        const int hb = sqlite3_column_bytes(st.get(), 7);
-        row.encryptIv = colBlob(st.get(), 8);
+        const std::size_t sliceSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
+        const std::size_t sliceOffset = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 2));
+        const std::size_t chunkRawSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 3));
+        row.rawSize = sliceSize;
+        row.compSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 4));
+        row.algo = colText(st.get(), 5);
+        const std::string packId = colText(st.get(), 6);
+        const sqlite3_int64 packOffset = sqlite3_column_int64(st.get(), 7);
+        const std::string storageState = colText(st.get(), 8);
+        const void* hp = sqlite3_column_blob(st.get(), 9);
+        const int hb = sqlite3_column_bytes(st.get(), 9);
+        row.encryptIv = colBlob(st.get(), 10);
         if (storageState != "ready") throw std::runtime_error("Chunk ainda nao esta pronto para leitura.");
         if (packOffset < 0) throw std::runtime_error("Chunk com pack_offset invalido.");
         if (packId.empty()) throw std::runtime_error("Chunk sem pack_id.");
         if (!hp || hb != static_cast<int>(ChunkHash{}.size())) throw std::runtime_error("chunk_hash invalido vindo do SQLite.");
+        if (sliceOffset + sliceSize > chunkRawSize) throw std::runtime_error("Slice de file_chunks fora dos limites do chunk.");
         ChunkHash ch{};
         std::memcpy(ch.data(), hp, ch.size());
-        row.blob = readPackAt(packOffset, ch, row.rawSize, row.compSize, row.algo, row.encryptIv);
+        Blob full = readPackAt(packOffset, ch, chunkRawSize, row.compSize, row.algo, row.encryptIv);
+        if (sliceOffset == 0 && sliceSize == chunkRawSize) row.blob = std::move(full);
+        else row.blob.assign(full.begin() + sliceOffset, full.begin() + sliceOffset + sliceSize);
         out.push_back(std::move(row));}
     return out;}
 void StorageArchive::streamFileChunks(sqlite3_int64 fileId,
                                       const std::function<void(const ChunkHash&, const Blob&)>& cb) {
     Stmt st(db_.raw(),
-        "SELECT fc.raw_size, c.comp_size, c.comp_algo, "
+        "SELECT fc.raw_size, fc.offset_in_chunk, c.raw_size, c.comp_size, c.comp_algo, "
                "c.pack_id, c.pack_offset, c.storage_state, fc.chunk_hash, c.encrypt_iv "
         "FROM file_chunks fc JOIN chunks c ON c.chunk_hash = fc.chunk_hash "
         "WHERE fc.file_id=? ORDER BY fc.chunk_index ASC;");
     st.bindInt64(1, fileId);
     while (st.stepRow()) {
-        const std::size_t rawSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 0));
-        const std::size_t compSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
-        const std::string algo = colText(st.get(), 2);
-        const std::string packId = colText(st.get(), 3);
-        const sqlite3_int64 packOffset = sqlite3_column_int64(st.get(), 4);
-        const std::string storageState = colText(st.get(), 5);
-        const void* hp = sqlite3_column_blob(st.get(), 6);
-        const int hb = sqlite3_column_bytes(st.get(), 6);
-        const Blob encryptIv = colBlob(st.get(), 7);
+        const std::size_t sliceSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 0));
+        const std::size_t sliceOffset = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 1));
+        const std::size_t chunkRawSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 2));
+        const std::size_t compSize = static_cast<std::size_t>(sqlite3_column_int64(st.get(), 3));
+        const std::string algo = colText(st.get(), 4);
+        const std::string packId = colText(st.get(), 5);
+        const sqlite3_int64 packOffset = sqlite3_column_int64(st.get(), 6);
+        const std::string storageState = colText(st.get(), 7);
+        const void* hp = sqlite3_column_blob(st.get(), 8);
+        const int hb = sqlite3_column_bytes(st.get(), 8);
+        const Blob encryptIv = colBlob(st.get(), 9);
         if (storageState != "ready") throw std::runtime_error("Chunk ainda nao esta pronto para leitura.");
         if (packOffset < 0) throw std::runtime_error("Chunk com pack_offset invalido.");
         if (packId.empty()) throw std::runtime_error("Chunk sem pack_id.");
         if (!hp || hb != static_cast<int>(ChunkHash{}.size())) throw std::runtime_error("chunk_hash invalido vindo do SQLite.");
+        if (sliceOffset + sliceSize > chunkRawSize) throw std::runtime_error("Slice de file_chunks fora dos limites do chunk.");
         ChunkHash ch{};
         std::memcpy(ch.data(), hp, ch.size());
-        Blob raw = readPackAt(packOffset, ch, rawSize, compSize, algo, encryptIv);
-        cb(ch, raw);}}
+        Blob full = readPackAt(packOffset, ch, chunkRawSize, compSize, algo, encryptIv);
+        if (sliceOffset == 0 && sliceSize == chunkRawSize) {
+            cb(ch, full);
+        } else {
+            Blob slice(full.begin() + sliceOffset, full.begin() + sliceOffset + sliceSize);
+            cb(ch, slice);}}}
 std::vector<std::string> StorageArchive::listSnapshotPaths(sqlite3_int64 snapshotId) {
     std::vector<std::string> paths;
     Stmt st(db_.raw(), "SELECT path FROM files WHERE snapshot_id=? ORDER BY path;");
@@ -727,11 +707,8 @@ StorageArchive::CloudUploadPlan StorageArchive::prepareCloudUpload(const std::st
     return plan;}
 std::vector<unsigned char> StorageArchive::readPackRecord(const CloudChunkRef& ref) const {
     const fs::path packPath = describeArchiveStorage(path_).packPath;
-    if (!packIn_ || !packIn_->is_open()) {
-        packIn_ = std::make_unique<std::ifstream>(packPath, std::ios::binary);
-        if (!packIn_ || !*packIn_) throw std::runtime_error("Falha abrindo pack para leitura cloud.");}
-    auto& in = *packIn_;
-    in.clear();
+    std::ifstream in(packPath, std::ios::binary);
+    if (!in) throw std::runtime_error("Falha abrindo pack para leitura cloud.");
     in.seekg(static_cast<std::streamoff>(ref.packOffset), std::ios::beg);
     if (!in) throw std::runtime_error("Falha posicionando no pack para leitura de record.");
     std::vector<unsigned char> out(static_cast<std::size_t>(ref.recordSize));

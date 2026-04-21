@@ -33,4 +33,4 @@ Thumbs.db
 .idea/
 .vscode/
 /build_win
-/cmake
+.codex

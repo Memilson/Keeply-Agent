@@ -1,6 +1,6 @@
 #pragma once
 #include "utilitarios.hpp"
-#include "sqlite_util.hpp"  // Lightweight ad-hoc helpers complementing DB/Stmt below.
+#include "sqlite_util.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +48,8 @@ FILE* fopenPath(const fs::path& path, const char* mode);
 int sqlite3_open_path(const fs::path& path, sqlite3** db);
 int sqlite3_open_v2_path(const fs::path& path, sqlite3** db, int flags, const char* vfs);
 inline constexpr std::size_t CHUNK_SIZE = 8 * 1024 * 1024;
+inline constexpr std::size_t BUNDLE_FILE_THRESHOLD = 1 * 1024 * 1024;
+inline constexpr std::size_t BUNDLE_FLUSH_TARGET = 7 * 1024 * 1024;
 using ChunkHash = std::array<unsigned char, 32>;
 using Blob = std::vector<unsigned char>;
 struct ChunkHashHasher {

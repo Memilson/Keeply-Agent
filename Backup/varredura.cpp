@@ -5,18 +5,60 @@
 #endif
 #include "../Core/utilitarios.hpp"
 #include <algorithm>
+#include <blake3.h>
 #include <chrono>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 namespace keeply {
 namespace {
-static Blob buildFileHashFromChunkSequence(const std::vector<ChunkHash>& hashes) {
-    Blob seq;
-    seq.reserve(hashes.size() * ChunkHash{}.size());
-    for (const auto& h : hashes) seq.insert(seq.end(), h.begin(), h.end());
-    const ChunkHash digest = Compactador::blake3Hash(seq.data(), seq.size());
+static Blob hashFileContent(const unsigned char* data, std::size_t len) {
+    const ChunkHash digest = Compactador::blake3Hash(data, len);
     return Blob(digest.begin(), digest.end());}
+struct BundlerMember {
+    sqlite3_int64 fileId{};
+    std::size_t offset{};
+    std::size_t length{};
+    Blob fileHash;
+    std::string relPath;};
+class SmallFileBundler {
+public:
+    bool wouldOverflow(std::size_t incoming) const {
+        return !buffer_.empty() && (buffer_.size() + incoming) > CHUNK_SIZE;}
+    void addFile(sqlite3_int64 fileId, const std::string& relPath, const Blob& fileHash, const unsigned char* data, std::size_t len) {
+        const std::size_t offset = buffer_.size();
+        buffer_.insert(buffer_.end(), data, data + len);
+        members_.push_back(BundlerMember{fileId, offset, len, fileHash, relPath});}
+    bool empty() const { return members_.empty(); }
+    std::size_t bufferSize() const { return buffer_.size(); }
+    bool shouldFlush() const { return buffer_.size() >= BUNDLE_FLUSH_TARGET; }
+    void flush(StorageArchive& arc, BackupProgress& progress) {
+        if (members_.empty()) return;
+        const ChunkHash bundleHash = Compactador::blake3Hash(buffer_.data(), buffer_.size());
+        Blob comp;
+        Compactador::zstdCompress(buffer_.data(), buffer_.size(), 3, comp);
+        std::array<unsigned char, 32> encKey{};
+        const bool encEnabled = Compactador::deriveKeyFromEnv(encKey);
+        bool inserted = false;
+        if (encEnabled) {
+            const auto iv = Compactador::generateIv();
+            Blob encComp = Compactador::aesGcmEncrypt(encKey, iv, comp.data(), comp.size());
+            inserted = arc.insertChunkIfMissing(bundleHash, buffer_.size(), encComp, "zstd");
+            if (inserted) arc.setChunkEncryptIv(bundleHash, Blob(iv.begin(), iv.end()));
+        } else {
+            inserted = arc.insertChunkIfMissing(bundleHash, buffer_.size(), comp, "zstd");}
+        if (inserted) ++progress.stats.uniqueChunksInserted;
+        ++progress.stats.chunks;
+        progress.stats.bytesRead += buffer_.size();
+        for (const auto& m : members_) {
+            arc.addFileChunk(m.fileId, 0, bundleHash, m.length, m.offset);
+            arc.updateFileHash(m.fileId, m.fileHash);}
+        buffer_.clear();
+        members_.clear();}
+private:
+    Blob buffer_;
+    std::vector<BundlerMember> members_;
+};
 static void progressEmit(const std::function<void(const BackupProgress&)>& cb, const BackupProgress& p) {
     if (cb) cb(p);}
 static bool shouldEmitDiscoveryProgress(const std::chrono::steady_clock::time_point& lastEmit,
@@ -189,6 +231,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 files = discoverFiles(sourceRoot, progress, progressCallback);}
         } else {
             files = discoverFiles(sourceRoot, progress, progressCallback);}
+        SmallFileBundler bundler;
         for (const auto& filePath : files) {
             progress.currentFile = filePath.string();
             ++progress.stats.scanned;
@@ -222,42 +265,60 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
             sqlite3_int64 fileId = 0;
             try {
                 fileId = arc.insertFilePlaceholder(snapshotId, rel, size, mtime);
-                std::ifstream in(filePath, std::ios::binary);
-                if (!in) throw std::runtime_error("Falha abrindo arquivo para backup: " + filePath.string());
-                Blob raw(CHUNK_SIZE);
-                std::vector<StorageArchive::PendingFileChunk> rows;
-                std::vector<ChunkHash> chunkSeq;
-                int chunkIdx = 0;
-                std::array<unsigned char, 32> encKey{};
-                const bool encEnabled = Compactador::deriveKeyFromEnv(encKey);
-                while (in) {
-                    in.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
-                    const std::streamsize got = in.gcount();
-                    if (got <= 0) break;
-                    ++progress.stats.chunks;
-                    progress.stats.bytesRead += static_cast<std::uintmax_t>(got);
-                    const ChunkHash ch = Compactador::blake3Hash(raw.data(), static_cast<std::size_t>(got));
-                    chunkSeq.push_back(ch);
-                    Blob comp;
-                    Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
-                    if (encEnabled) {
-                        const auto iv = Compactador::generateIv();
-                        Blob encComp = Compactador::aesGcmEncrypt(encKey, iv, comp.data(), comp.size());
-                        if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), encComp, "zstd")) {
-                            ++progress.stats.uniqueChunksInserted;
-                            Blob ivBlob(iv.begin(), iv.end());
-                            arc.setChunkEncryptIv(ch, ivBlob);}
+                if (static_cast<std::size_t>(size) < BUNDLE_FILE_THRESHOLD) {
+                    Blob content(static_cast<std::size_t>(size));
+                    if (size > 0) {
+                        std::ifstream in(filePath, std::ios::binary);
+                        if (!in) throw std::runtime_error("Falha abrindo arquivo para backup: " + filePath.string());
+                        in.read(reinterpret_cast<char*>(content.data()), static_cast<std::streamsize>(content.size()));
+                        if (in.gcount() != static_cast<std::streamsize>(content.size())) throw std::runtime_error("Leitura curta em arquivo pequeno: " + filePath.string());}
+                    const Blob fileHash = hashFileContent(content.data(), content.size());
+                    if (size == 0) {
+                        arc.updateFileHash(fileId, fileHash);
                     } else {
-                    if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
-                        ++progress.stats.uniqueChunksInserted;}}
-                    StorageArchive::PendingFileChunk row;
-                    row.chunkIdx = chunkIdx++;
-                    row.chunkHash = ch;
-                    row.rawSize = static_cast<std::size_t>(got);
-                    rows.push_back(row);}
-                const Blob fileHash = buildFileHashFromChunkSequence(chunkSeq);
-                arc.addFileChunksBulk(fileId, rows);
-                arc.updateFileHash(fileId, fileHash);
+                        if (bundler.wouldOverflow(content.size())) bundler.flush(arc, progress);
+                        bundler.addFile(fileId, rel, fileHash, content.data(), content.size());
+                        if (bundler.shouldFlush()) bundler.flush(arc, progress);}
+                } else {
+                    std::ifstream in(filePath, std::ios::binary);
+                    if (!in) throw std::runtime_error("Falha abrindo arquivo para backup: " + filePath.string());
+                    Blob raw(CHUNK_SIZE);
+                    std::vector<StorageArchive::PendingFileChunk> rows;
+                    blake3_hasher fileHasher;
+                    blake3_hasher_init(&fileHasher);
+                    int chunkIdx = 0;
+                    std::array<unsigned char, 32> encKey{};
+                    const bool encEnabled = Compactador::deriveKeyFromEnv(encKey);
+                    while (in) {
+                        in.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
+                        const std::streamsize got = in.gcount();
+                        if (got <= 0) break;
+                        ++progress.stats.chunks;
+                        progress.stats.bytesRead += static_cast<std::uintmax_t>(got);
+                        blake3_hasher_update(&fileHasher, raw.data(), static_cast<std::size_t>(got));
+                        const ChunkHash ch = Compactador::blake3Hash(raw.data(), static_cast<std::size_t>(got));
+                        Blob comp;
+                        Compactador::zstdCompress(raw.data(), static_cast<std::size_t>(got), 3, comp);
+                        if (encEnabled) {
+                            const auto iv = Compactador::generateIv();
+                            Blob encComp = Compactador::aesGcmEncrypt(encKey, iv, comp.data(), comp.size());
+                            if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), encComp, "zstd")) {
+                                ++progress.stats.uniqueChunksInserted;
+                                Blob ivBlob(iv.begin(), iv.end());
+                                arc.setChunkEncryptIv(ch, ivBlob);}
+                        } else {
+                            if (arc.insertChunkIfMissing(ch, static_cast<std::size_t>(got), comp, "zstd")) {
+                                ++progress.stats.uniqueChunksInserted;}}
+                        StorageArchive::PendingFileChunk row;
+                        row.chunkIdx = chunkIdx++;
+                        row.chunkHash = ch;
+                        row.rawSize = static_cast<std::size_t>(got);
+                        row.offsetInChunk = 0;
+                        rows.push_back(row);}
+                    ChunkHash fileDigest{};
+                    blake3_hasher_finalize(&fileHasher, fileDigest.data(), fileDigest.size());
+                    arc.addFileChunksBulk(fileId, rows);
+                    arc.updateFileHash(fileId, Blob(fileDigest.begin(), fileDigest.end()));}
 #if KEEPLY_HAVE_RSYNC
                 try {
                     const Blob sig = rsyncGenerateSignature(filePath);
@@ -273,6 +334,7 @@ BackupStats ScanEngine::backupFolderToKply(const fs::path& sourceRoot, const fs:
                 ++progress.stats.warnings;}
             ++progress.filesCompleted;
             progressEmit(progressCallback, progress);}
+        bundler.flush(arc, progress);
         progress.phase = "commit";
         progressEmit(progressCallback, progress);
         if (cbtEnabled) {
