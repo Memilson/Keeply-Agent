@@ -81,16 +81,40 @@ bool hasSnapshotPathPrefix(const std::string& path,const std::string& prefix){
     if(path.size() <= prefix.size()) return false;
     return path.rfind(prefix + "/", 0) == 0;}}
 namespace keeply {
-void KeeplyAgentWsClient::runRestoreFileCommand_(const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw){
+void KeeplyAgentWsClient::runRestoreFileCommand_(const std::string& requestId,const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw){
     if(snapshot.empty()||relPath.empty()) throw std::runtime_error("Formato restore.file invalido. Use restore.file:snapshot|relPath|outRoot(opcional)");
-    const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
-    api_->restoreFile(snapshot,relPath,outRoot);
-    sendJson_(std::string("{\"type\":\"restore.file.finished\",\"snapshot\":\"")+escapeJson(snapshot)+"\",\"path\":\""+escapeJson(relPath)+"\"}");}
-void KeeplyAgentWsClient::runRestoreSnapshotCommand_(const std::string& snapshot,const std::string& outRootRaw){
+    const std::string resolvedOutRoot=!outRootRaw.empty()?outRootRaw:api_->state().restoreRoot;
+    std::ostringstream startedJson;
+    startedJson<<"{"<<"\"type\":\"restore.file.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("path",relPath)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+    sendJson_(startedJson.str());
+    try{
+        const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
+        api_->restoreFile(snapshot,relPath,outRoot);
+        std::ostringstream finishedJson;
+        finishedJson<<"{"<<"\"type\":\"restore.file.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("path",relPath)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+        sendJson_(finishedJson.str());
+    }catch(const std::exception& e){
+        std::ostringstream failedJson;
+        failedJson<<"{"<<"\"type\":\"restore.file.failed\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("path",relPath)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("message",e.what())<<"}";
+        sendJson_(failedJson.str());
+        throw;}}
+void KeeplyAgentWsClient::runRestoreSnapshotCommand_(const std::string& requestId,const std::string& snapshot,const std::string& outRootRaw){
     if(snapshot.empty()) throw std::runtime_error("Formato restore.snapshot invalido. Use restore.snapshot:snapshot|outRoot(opcional)");
-    const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
-    api_->restoreSnapshot(snapshot,outRoot);
-    sendJson_(std::string("{\"type\":\"restore.snapshot.finished\",\"snapshot\":\"")+escapeJson(snapshot)+"\"}");}
+    const std::string resolvedOutRoot=!outRootRaw.empty()?outRootRaw:api_->state().restoreRoot;
+    std::ostringstream startedJson;
+    startedJson<<"{"<<"\"type\":\"restore.snapshot.started\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+    sendJson_(startedJson.str());
+    try{
+        const std::optional<fs::path> outRoot=!outRootRaw.empty()?std::optional<fs::path>(fs::path(outRootRaw)):std::nullopt;
+        api_->restoreSnapshot(snapshot,outRoot);
+        std::ostringstream finishedJson;
+        finishedJson<<"{"<<"\"type\":\"restore.snapshot.finished\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<"}";
+        sendJson_(finishedJson.str());
+    }catch(const std::exception& e){
+        std::ostringstream failedJson;
+        failedJson<<"{"<<"\"type\":\"restore.snapshot.failed\","<<jsonStrField("requestId",requestId)<<","<<jsonStrField("snapshot",snapshot)<<","<<jsonStrField("outRoot",resolvedOutRoot)<<","<<jsonStrField("message",e.what())<<"}";
+        sendJson_(failedJson.str());
+        throw;}}
 void KeeplyAgentWsClient::runRestoreCloudSnapshotCommand_(const WsCommand& cmd){
     if(cmd.snapshot.empty()) throw std::runtime_error("restore.cloud.snapshot requer snapshot.");
     if(cmd.downloadPathBase.empty()) throw std::runtime_error("restore.cloud.snapshot requer downloadPathBase.");

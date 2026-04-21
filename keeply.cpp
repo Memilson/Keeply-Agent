@@ -3,6 +3,7 @@
 #include "Backup/Rastreamento/Linux/daemon.cpp"
 #undef main
 #undef KEEPLY_DAEMON_PROGRAM
+#include "HTTP/servidor_rest.hpp"
 #include "WebSocket/websocket_agente.hpp"
 #include "Backup/Rastreamento/rastreamento_mudancas.hpp"
 #include <atomic>
@@ -496,10 +497,8 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
 #endif
     if (options.foreground && cbtStarted) cbtLogger.start(watchRoot);
-    constexpr int kBackoffInitialMs = 1000;
-    constexpr int kBackoffMaxMs     = 60000;
-    constexpr double kBackoffJitterFactor = 0.25;
-    int backoffMs = kBackoffInitialMs;
+    constexpr int kReconnectIntervalMs = 5000;
+    constexpr double kBackoffJitterFactor = 0.1;
     bool printedStartup = false;
     for (;;) {
         try {
@@ -530,17 +529,15 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
                 std::cerr << "[keeply][tls][warn] verificacao TLS desabilitada por configuracao explicita.\n";
             keeply::KeeplyAgentWsClient client(api, identity);
             client.connect(config);
-            backoffMs = kBackoffInitialMs;
             client.run();
-            std::cerr << "Conexao websocket encerrada. Reconectando em " << backoffMs << "ms...\n";
+            std::cerr << "Conexao websocket encerrada. Reconectando em " << kReconnectIntervalMs << "ms...\n";
         } catch (const std::exception& loopEx) {
             std::cerr << "Loop websocket falhou: " << loopEx.what() << "\n";
-            std::cerr << "Reconectando em " << backoffMs << "ms...\n";}
-        const int jitterRange = static_cast<int>(backoffMs * kBackoffJitterFactor);
+            std::cerr << "Reconectando em " << kReconnectIntervalMs << "ms...\n";}
+        const int jitterRange = static_cast<int>(kReconnectIntervalMs * kBackoffJitterFactor);
         const int jitter = jitterRange > 0 ? (std::rand() % (jitterRange * 2 + 1)) - jitterRange : 0;
-        const int sleepMs = std::max(100, backoffMs + jitter);
-        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-        backoffMs = std::min(backoffMs * 2, kBackoffMaxMs);}}
+        const int sleepMs = std::max(100, kReconnectIntervalMs + jitter);
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));}}
 int main(int argc, char** argv) {
     try {
 #ifdef __linux__

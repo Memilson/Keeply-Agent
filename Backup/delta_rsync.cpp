@@ -7,6 +7,13 @@
 #  include <unistd.h>
 namespace keeply {
 namespace {
+#if defined(RS_DEFAULT_STRONG_LEN)
+static constexpr int kKeeplyRsyncStrongLen = RS_DEFAULT_STRONG_LEN;
+#elif defined(RS_DEFAULT_MIN_STRONG_LEN)
+static constexpr int kKeeplyRsyncStrongLen = RS_DEFAULT_MIN_STRONG_LEN;
+#else
+static constexpr int kKeeplyRsyncStrongLen = 12;
+#endif
 static FILE* openTempFile(char outPath[256]) {
     std::strcpy(outPath, "/tmp/keeply_rsync_XXXXXX");
     const int fd = ::mkstemp(outPath);
@@ -37,7 +44,7 @@ Blob rsyncGenerateSignature(const fs::path& baseFile) {
     char sigPath[256];
     FILE* sigOut = openTempFile(sigPath);
     const rs_result r = rs_sig_file(inFile, sigOut,
-                                    RS_DEFAULT_BLOCK_LEN, RS_DEFAULT_STRONG_LEN,
+                                    RS_DEFAULT_BLOCK_LEN, kKeeplyRsyncStrongLen,
                                     RS_MD4_SIG_MAGIC, nullptr);
     std::fclose(inFile);
     if (r != RS_DONE) { std::fclose(sigOut); std::remove(sigPath); rsCheck(r, "rs_sig_file"); }

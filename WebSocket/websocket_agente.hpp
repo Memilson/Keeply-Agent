@@ -115,8 +115,8 @@ private:
     void executeCommand_(const WsCommand& cmd);
     void runBackupCommand_(const std::string& label,const std::string& storage);
     void runBackupUpload_(const std::string& label,const ws_internal::BackupStoragePolicy& storagePolicy);
-    void runRestoreFileCommand_(const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw);
-    void runRestoreSnapshotCommand_(const std::string& snapshot,const std::string& outRootRaw);
+    void runRestoreFileCommand_(const std::string& requestId,const std::string& snapshot,const std::string& relPath,const std::string& outRootRaw);
+    void runRestoreSnapshotCommand_(const std::string& requestId,const std::string& snapshot,const std::string& outRootRaw);
     void runRestoreCloudSnapshotCommand_(const WsCommand& cmd);
     void sendBackupProgress_(const std::string& label,const BackupProgress& progress);
     void sendBackupFinished_(const std::string& label,const BackupStats& stats);

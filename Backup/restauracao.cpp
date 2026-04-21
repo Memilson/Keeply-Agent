@@ -1,5 +1,6 @@
 #include "../keeply.hpp"
 #include <algorithm>
+#include <blake3.h>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -88,19 +89,23 @@ static void restoreFileFromArc(StorageArchive& arc, sqlite3_int64 snapshotId, co
     std::ofstream out(tempTarget, std::ios::binary | std::ios::trunc);
     if (!out)
         throw std::runtime_error("Falha ao abrir destino temporario de restore: " + tempTarget.string());
-    Blob chunkHashSeq;
-    arc.streamFileChunks(fileId, [&](const ChunkHash& ch, const Blob& raw) {
-        chunkHashSeq.insert(chunkHashSeq.end(), ch.begin(), ch.end());
-        if (!raw.empty())
-            out.write(reinterpret_cast<const char*>(raw.data()), static_cast<std::streamsize>(raw.size()));
+    blake3_hasher contentHasher;
+    blake3_hasher_init(&contentHasher);
+    bool sawAny = false;
+    arc.streamFileChunks(fileId, [&](const ChunkHash&, const Blob& raw) {
+        sawAny = true;
+        if (!raw.empty()) {
+            blake3_hasher_update(&contentHasher, raw.data(), raw.size());
+            out.write(reinterpret_cast<const char*>(raw.data()), static_cast<std::streamsize>(raw.size()));}
         if (!out)
             throw std::runtime_error("Erro escrevendo arquivo restaurado: " + tempTarget.string());
     });
     out.close();
     if (!out)
         throw std::runtime_error("Falha ao fechar arquivo restaurado: " + tempTarget.string());
-    if (!found->fileHash.empty() && !chunkHashSeq.empty()) {
-        const ChunkHash computed = Compactador::blake3Hash(chunkHashSeq.data(), chunkHashSeq.size());
+    if (!found->fileHash.empty() && (sawAny || found->size == 0)) {
+        ChunkHash computed{};
+        blake3_hasher_finalize(&contentHasher, computed.data(), computed.size());
         if (found->fileHash.size() != computed.size() ||
             !std::equal(computed.begin(), computed.end(), found->fileHash.begin()))
             throw std::runtime_error("Verificacao de integridade BLAKE3 falhou: hash divergente apos restaurar '" + rp + "'");}

@@ -47,11 +47,13 @@ public:
         int chunkIdx{};
         ChunkHash chunkHash{};
         std::size_t rawSize{};
+        std::size_t offsetInChunk{};
     };
     void addFileChunk(sqlite3_int64 fileId,
                       int chunkIdx,
                       const ChunkHash& chunkSha,
-                      std::size_t rawSize);
+                      std::size_t rawSize,
+                      std::size_t offsetInChunk);
     void addFileChunksBulk(sqlite3_int64 fileId, const std::vector<PendingFileChunk>& rows);
     std::vector<SnapshotRow> listSnapshots();
     std::vector<ChangeEntry> diffSnapshots(sqlite3_int64 olderSnapshotId, sqlite3_int64 newerSnapshotId);

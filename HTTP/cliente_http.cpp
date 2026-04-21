@@ -14,6 +14,7 @@
 #ifdef __linux__
 #include <sys/stat.h>
 #endif
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -385,24 +386,6 @@ fs::path writeTempUploadFile(const std::string& prefix,const std::string& suffix
     return path;}
 fs::path writeTempUploadFile(const std::string& prefix,const std::string& suffix,const std::string& content){
     return writeTempUploadFile(prefix,suffix,reinterpret_cast<const unsigned char*>(content.data()),content.size());}
-fs::path compressArchiveForUpload(const fs::path& archivePath){
-    std::ifstream in(archivePath,std::ios::binary);
-    if(!in) throw std::runtime_error("Falha abrindo archive para compactar: "+archivePath.string());
-    in.seekg(0,std::ios::end);
-    const std::streamoff endPos=in.tellg();
-    if(endPos<0) throw std::runtime_error("Falha lendo tamanho do archive para compactar.");
-    const std::size_t rawSize=static_cast<std::size_t>(endPos);
-    in.seekg(0,std::ios::beg);
-    std::vector<unsigned char> raw(rawSize);
-    if(rawSize>0) in.read(reinterpret_cast<char*>(raw.data()),static_cast<std::streamsize>(rawSize));
-    if(!in&&rawSize>0) throw std::runtime_error("Falha lendo archive para compactar.");
-    std::vector<unsigned char> comp;
-    Compactador::zstdCompress(raw.data(),raw.size(),9,comp);
-    std::vector<unsigned char> payload(sizeof(std::uint64_t)+comp.size());
-    const std::uint64_t rawSize64=static_cast<std::uint64_t>(raw.size());
-    std::memcpy(payload.data(),&rawSize64,sizeof(rawSize64));
-    if(!comp.empty()) std::memcpy(payload.data()+sizeof(rawSize64),comp.data(),comp.size());
-    return writeTempUploadFile("archive",".kipy.zst",payload.data(),payload.size());}
 std::string jsonStringArray(const std::vector<std::string>& values){
     std::ostringstream oss;
     oss<<"[";
@@ -420,15 +403,23 @@ std::vector<std::string> requestMissingHashes(const std::string& url,
                                               const std::vector<std::string>& hashes,
                                               bool allowInsecureTls){
     if(hashes.empty()) return {};
-    std::ostringstream body;
-    body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(hashes)<<"}";
-    const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
-    if(response.status==404) return hashes;
-    if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
-    auto missing=extractJsonStringArrayField(response.body,"missingHashes");
-    if(missing.empty()) missing=extractJsonStringArrayField(response.body,"missing");
-    if(missing.empty()) missing=extractJsonStringArrayField(response.body,"hashes");
-    return missing;}
+    constexpr std::size_t kBatchSize=1000;
+    std::vector<std::string> missingAll;
+    for(std::size_t offset=0;offset<hashes.size();offset+=kBatchSize){
+        const std::size_t end=std::min(offset+kBatchSize,hashes.size());
+        const std::vector<std::string> batch(hashes.begin()+offset,hashes.begin()+end);
+        std::ostringstream body;
+        body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(batch)<<"}";
+        const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
+        if(response.status==404){
+            missingAll.insert(missingAll.end(),batch.begin(),batch.end());
+            continue;}
+        if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
+        auto missing=extractJsonStringArrayField(response.body,"missingHashes");
+        if(missing.empty()) missing=extractJsonStringArrayField(response.body,"missing");
+        if(missing.empty()) missing=extractJsonStringArrayField(response.body,"hashes");
+        missingAll.insert(missingAll.end(),missing.begin(),missing.end());}
+    return missingAll;}
 std::map<std::string,std::string> requestChunkKeys(const std::string& url,
                                                    const AgentIdentity& identity,
                                                    const AppState& state,
@@ -438,15 +429,21 @@ std::map<std::string,std::string> requestChunkKeys(const std::string& url,
                                                    const std::vector<std::string>& hashes,
                                                    bool allowInsecureTls){
     if(hashes.empty()) return {};
-    std::ostringstream body;
-    body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(hashes)<<"}";
-    const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
-    if(response.status==404) return {};
-    if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
-    auto out=extractJsonStringMapField(response.body,"keys");
-    if(out.empty()) out=extractJsonStringMapField(response.body,"chunkKeys");
-    if(out.empty()) out=extractJsonStringMapField(response.body,"s3Keys");
-    return out;}
+    constexpr std::size_t kBatchSize=1000;
+    std::map<std::string,std::string> outAll;
+    for(std::size_t offset=0;offset<hashes.size();offset+=kBatchSize){
+        const std::size_t end=std::min(offset+kBatchSize,hashes.size());
+        const std::vector<std::string> batch(hashes.begin()+offset,hashes.begin()+end);
+        std::ostringstream body;
+        body<<"{"<<"\"userId\":\""<<escapeJson(identity.userId)<<"\","<<"\"agentId\":\""<<escapeJson(identity.deviceId)<<"\","<<"\"folderName\":\""<<escapeJson(label)<<"\","<<"\"sourcePath\":\""<<escapeJson(state.source)<<"\","<<"\"bundleId\":\""<<escapeJson(bundleId)<<"\","<<"\"snapshotId\":"<<latestSnapshotId<<","<<"\"hashes\":"<<jsonStringArray(batch)<<"}";
+        const HttpResponse response=httpPostJson(url,body.str(),std::nullopt,std::nullopt,allowInsecureTls);
+        if(response.status==404) continue;
+        if(response.status<200||response.status>=300) throw std::runtime_error("HTTP "+std::to_string(response.status)+" | body="+response.body);
+        auto out=extractJsonStringMapField(response.body,"keys");
+        if(out.empty()) out=extractJsonStringMapField(response.body,"chunkKeys");
+        if(out.empty()) out=extractJsonStringMapField(response.body,"s3Keys");
+        for(auto& kv:out) outAll.insert(std::move(kv));}
+    return outAll;}
 std::string hexEncode(const unsigned char* data, std::size_t size) {
     return keeply::hexEncode(data, size);}
 std::string base64Encode(const unsigned char* data, std::size_t size) {
@@ -689,15 +686,7 @@ UploadBundleResult uploadArchiveBackup(const WsClientConfig& config,
                 onProgress(UploadProgressSnapshot{
                     completed,filesTotal,blobPartIndex,missingChunks.size(),uploadName,role
                 });}};
-        const fs::path archiveUploadPath=compressArchiveForUpload(plan.archiveDbPath);
-        try{
-            uploadFile(archiveUploadPath,plan.archiveDbPath.filename().string()+".zst","archive",0,{{"snapshotId",std::to_string(plan.latestSnapshotId)},{"contentEncoding","zstd"}},1,"application/octet-stream");
-        }catch(...){
-            std::error_code cleanupEc;
-            fs::remove(archiveUploadPath,cleanupEc);
-            throw;}
-        std::error_code archiveCleanupEc;
-        fs::remove(archiveUploadPath,archiveCleanupEc);
+        uploadFile(plan.archiveDbPath,plan.archiveDbPath.filename().string(),"archive",0,{{"snapshotId",std::to_string(plan.latestSnapshotId)}},1,"application/octet-stream");
         const std::size_t uploadWorkers=computeUploadWorkerCount(missingChunks.size());
         std::cout << "[keeply][upload] workers=" << uploadWorkers
                   << " | missing_chunks=" << missingChunks.size()
