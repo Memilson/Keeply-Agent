@@ -16,7 +16,9 @@
 namespace keeply {
 namespace {
 fs::path detectHomeDir() {
-    return normalizeAbsolutePath(homeDirectoryPath());}
+    if (const auto home = knownDirectoryPath(KnownDirectory::Home)) {
+        return normalizeAbsolutePath(*home);}
+    return normalizeAbsolutePath(defaultSourceRootPath());}
 bool isPathWithin(const fs::path& baseInput, const fs::path& candidateInput) {
     const fs::path base = normalizeAbsolutePath(baseInput);
     const fs::path candidate = normalizeAbsolutePath(candidateInput);

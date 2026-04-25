@@ -509,10 +509,20 @@ AgentIdentity KeeplyAgentBootstrap::ensureRegistered(const WsClientConfig& confi
         identity.fingerprintSha256 = computeFingerprintFromFile(identity.certPemPath);}
     ensureIdentityPermissions(identity);
     if(!identity.userId.empty()){
-        identity.pairingCode.clear();
-        ws_internal::saveIdentityMeta(identity);
-        tightenPermissions(identity.metaPath, false);
-        return identity;}
+        const auto persisted = pollPairingStatus(config, identity, "");
+        if (persisted.isActive()) {
+            if (!persisted.deviceId.empty()) identity.deviceId = persisted.deviceId;
+            if (!persisted.userId.empty()) identity.userId = persisted.userId;
+            identity.pairingCode.clear();
+            ws_internal::saveIdentityMeta(identity);
+            tightenPermissions(identity.metaPath, false);
+            return identity;}
+        const std::string configuredPairingCode = trim(config.pairingCode);
+        identity.userId.clear();
+        identity.pairingCode = configuredPairingCode.empty() ? ws_internal::randomDigits(8) : configuredPairingCode;
+        std::cerr << "Dispositivo persistido nao encontrado no backend para deviceId=" << identity.deviceId
+                  << ". Gerando novo codigo de ativacao.\n";
+    }
     for (;;) {
         if (identity.pairingCode.empty()) identity.pairingCode = trim(config.pairingCode);
         if (identity.pairingCode.empty()) identity.pairingCode = ws_internal::randomDigits(8);

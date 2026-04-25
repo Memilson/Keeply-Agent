@@ -71,7 +71,7 @@ O Keeply Agent é o componente cliente da plataforma Keeply. Ele:
 
 | Tecnologia | Uso |
 |---|---|
-| **WebSocket (RFC 6455)** | Comunicação bidirecional persistente com o backend; reconexão exponencial com jitter (1s → 60s) |
+| **WebSocket (RFC 6455)** | Comunicação bidirecional persistente com o backend; reconexão fixa a cada 2s |
 | **HTTP/1.1 + TLS** | Upload de bundles (multipart), download de `.kply` anterior, registro de agente |
 | **mTLS** | Autenticação mútua via certificado X.509 do agente (par chave/cert em `agent_identity/`) |
 | **inotify** (Linux) | Monitoramento de filesystem em tempo real para Change Block Tracking (CBT) |
@@ -316,7 +316,7 @@ O agente nunca derruba o loop principal por falha de upload ou de CBT — ele co
 
 ## Protocolo WebSocket
 
-O agente abre uma conexão WSS persistente com reconexão exponencial + jitter (1s → 60s). Comandos relevantes enviados pelo backend:
+O agente abre uma conexão WSS persistente com reconexão fixa a cada 2s. Se existir `userId` persistido, ele valida o `deviceId` no backend; se o dispositivo não existir mais, gera um novo código de ativação e reaproveita a identidade local. Comandos relevantes enviados pelo backend:
 
 | Comando | Handler |
 |---|---|

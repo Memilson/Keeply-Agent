@@ -1,6 +1,8 @@
 #include "../keeply.hpp"
+#include <cerrno>
 #include <cstdlib>
 #include <fstream>
+#include <pwd.h>
 #include <system_error>
 #include <unistd.h>
 namespace keeply {
@@ -44,6 +46,47 @@ inline std::optional<std::string> readXdgUserDir(const fs::path& homeDir, const 
 inline std::optional<fs::path> homeFromEnvironment() {
     if (const auto fromHome = envValue("HOME")) return normalizedOrEmpty(pathFromUtf8(*fromHome));
     return std::nullopt;}
+inline fs::path fallbackCurrentPath();
+inline std::optional<fs::path> homeFromPasswdUid(uid_t uid) {
+    passwd* entry = ::getpwuid(uid);
+    if (!entry || !entry->pw_dir || !*entry->pw_dir) return std::nullopt;
+    return normalizedOrEmpty(pathFromUtf8(entry->pw_dir));}
+inline std::optional<fs::path> homeFromPasswdUser(const std::string& user) {
+    if (user.empty() || user == "root") return std::nullopt;
+    passwd* entry = ::getpwnam(user.c_str());
+    if (!entry || !entry->pw_dir || !*entry->pw_dir) return std::nullopt;
+    return normalizedOrEmpty(pathFromUtf8(entry->pw_dir));}
+inline std::optional<fs::path> homeFromUidEnv(const char* key) {
+    const auto raw = envValue(key);
+    if (!raw || raw->empty()) return std::nullopt;
+    char* end = nullptr;
+    errno = 0;
+    const unsigned long parsed = std::strtoul(raw->c_str(), &end, 10);
+    if (errno != 0 || !end || *end != '\0') return std::nullopt;
+    return homeFromPasswdUid(static_cast<uid_t>(parsed));}
+inline std::optional<fs::path> homeFromCurrentPath() {
+    std::error_code ec;
+    const fs::path cwd = fs::current_path(ec);
+    if (ec || cwd.empty()) return std::nullopt;
+    std::vector<std::string> parts;
+    for (const auto& part : normalizedOrEmpty(cwd)) parts.push_back(part.string());
+    if (parts.size() >= 3 && parts[1] == "home" && !parts[2].empty() && parts[2] != "root") {
+        return normalizedOrEmpty(fs::path("/home") / parts[2]);}
+    return std::nullopt;}
+inline fs::path sourceHomeDirectoryPath() {
+    if (::geteuid() == 0) {
+        if (const auto fromUid = homeFromUidEnv("SUDO_UID")) return *fromUid;
+        if (const auto fromUser = envValue("SUDO_USER")) {
+            if (const auto resolved = homeFromPasswdUser(*fromUser)) return *resolved;}
+        if (const auto fromUid = homeFromUidEnv("PKEXEC_UID")) return *fromUid;
+        if (const auto fromPath = homeFromCurrentPath()) return *fromPath;
+        if (const auto fromUser = envValue("LOGNAME")) {
+            if (const auto resolved = homeFromPasswdUser(*fromUser)) return *resolved;}
+        if (const auto fromUser = envValue("USER")) {
+            if (const auto resolved = homeFromPasswdUser(*fromUser)) return *resolved;}}
+    if (const auto fromHome = homeFromEnvironment()) return *fromHome;
+    if (const auto fromPasswd = homeFromPasswdUid(::geteuid())) return *fromPasswd;
+    return fallbackCurrentPath();}
 inline fs::path fallbackCurrentPath() {
     std::error_code ec;
     const fs::path cwd = fs::current_path(ec);
@@ -53,44 +96,45 @@ std::string pathToUtf8(const fs::path& path) {
 fs::path pathFromUtf8(const std::string& utf8Path) {
     return fs::u8path(utf8Path);}
 std::optional<fs::path> knownDirectoryPath(KnownDirectory dir) {
-    const fs::path home = homeDirectoryPath();
+    const fs::path sourceHome = detail::sourceHomeDirectoryPath();
+    const fs::path runtimeHome = homeDirectoryPath();
     switch (dir) {
         case KnownDirectory::Home:
-            if (const auto value = detail::homeFromEnvironment()) return *value;
-            return detail::fallbackCurrentPath();
+            return sourceHome;
         case KnownDirectory::Desktop:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_DESKTOP_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Desktop");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_DESKTOP_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Desktop");
         case KnownDirectory::Documents:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_DOCUMENTS_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Documents");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_DOCUMENTS_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Documents");
         case KnownDirectory::Downloads:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_DOWNLOAD_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Downloads");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_DOWNLOAD_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Downloads");
         case KnownDirectory::Pictures:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_PICTURES_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Pictures");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_PICTURES_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Pictures");
         case KnownDirectory::Music:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_MUSIC_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Music");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_MUSIC_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Music");
         case KnownDirectory::Videos:
-            if (const auto value = detail::readXdgUserDir(home, "XDG_VIDEOS_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / "Videos");
+            if (const auto value = detail::readXdgUserDir(sourceHome, "XDG_VIDEOS_DIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
+            return detail::normalizedOrEmpty(sourceHome / "Videos");
         case KnownDirectory::LocalData:
             if (const auto value = detail::envValue("XDG_DATA_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / ".local" / "share");
+            return detail::normalizedOrEmpty(runtimeHome / ".local" / "share");
         case KnownDirectory::StateData:
             if (const auto value = detail::envValue("XDG_STATE_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / ".local" / "state");
+            return detail::normalizedOrEmpty(runtimeHome / ".local" / "state");
         case KnownDirectory::CacheData:
             if (const auto value = detail::envValue("XDG_CACHE_HOME")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
-            return detail::normalizedOrEmpty(home / ".cache");
+            return detail::normalizedOrEmpty(runtimeHome / ".cache");
         case KnownDirectory::Temp:
             if (const auto value = detail::envValue("TMPDIR")) return detail::normalizedOrEmpty(pathFromUtf8(*value));
             return std::nullopt;}
     return std::nullopt;}
 fs::path homeDirectoryPath() {
     if (const auto home = detail::homeFromEnvironment()) return *home;
+    if (const auto home = detail::homeFromPasswdUid(::geteuid())) return *home;
     return detail::fallbackCurrentPath();}
 fs::path defaultKeeplyDataDir() {
     if (const auto base = knownDirectoryPath(KnownDirectory::LocalData)) {
@@ -112,7 +156,8 @@ fs::path defaultKeeplyTempDir() {
 fs::path defaultCloudBundleExportRoot() {
     return defaultKeeplyTempDir() / "cloud_bundle_export";}
 fs::path defaultSourceRootPath() {
-    return homeDirectoryPath();}
+    if (const auto home = knownDirectoryPath(KnownDirectory::Home)) return *home;
+    return detail::sourceHomeDirectoryPath();}
 fs::path defaultArchivePath() {
     return defaultKeeplyDataDir() / "keeply.kipy";}
 fs::path defaultRestoreRootPath() {
@@ -150,7 +195,7 @@ fs::path normalizeAbsolutePath(const fs::path& p) {
 bool sourceRootUsesSystemExclusionPolicy(const fs::path& sourceRoot) {
     const fs::path normalized = normalizeAbsolutePath(sourceRoot);
     if (isFilesystemRootPath(normalized)) return true;
-    const fs::path home = homeDirectoryPath();
+    const fs::path home = defaultSourceRootPath();
     return normalized == normalizeAbsolutePath(home);}
 bool isExcludedBySystemPolicy(const fs::path& sourceRoot, const fs::path& candidatePath) {
     if (!sourceRootUsesSystemExclusionPolicy(sourceRoot)) return false;

@@ -173,6 +173,12 @@ public:
         if (ec) throw std::runtime_error("Falha criando diretorio do PID file: " + ec.message());
         fd_ = ::open(pidFile_.c_str(), O_CREAT | O_RDWR, 0644);
         if (fd_ < 0) throw std::runtime_error("Falha abrindo PID file para lock: " + pidFile_.string());
+        const int fdFlags = ::fcntl(fd_, F_GETFD);
+        if (fdFlags < 0 || ::fcntl(fd_, F_SETFD, fdFlags | FD_CLOEXEC) != 0) {
+            const std::string message = "Falha configurando close-on-exec do PID file do agente.";
+            ::close(fd_);
+            fd_ = -1;
+            throw std::runtime_error(message);}
         if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
             const std::string reason = errno == EWOULDBLOCK
                 ? "Ja existe outra instancia do Keeply Agent em execucao."
@@ -345,12 +351,12 @@ class OptionalTrayIndicator {
 public:
     void start() {
         const std::string zenity = findExecutableOnPath("zenity");
-        if (zenity.empty()) return;
+        if (zenity.empty() || !hasGraphicalSession_() || !hasSessionBus_()) return;
         pid_ = fork();
         if (pid_ < 0) { pid_ = -1; return; }
         if (pid_ == 0) {
             execlp(zenity.c_str(), zenity.c_str(), "--notification",
-                   "--text=Keeply Agent ativo", "--window-icon=network-workgroup",
+                   "--text=Keeply Agent ativo", "--icon=network-workgroup",
                    static_cast<char*>(nullptr));
             _exit(127);}}
     void stop() noexcept {
@@ -361,6 +367,18 @@ public:
             pid_ = -1;}}
     ~OptionalTrayIndicator() { stop(); }
 private:
+    static bool hasGraphicalSession_() {
+        const char* display = std::getenv("DISPLAY");
+        if (display && *display) return true;
+        const char* wayland = std::getenv("WAYLAND_DISPLAY");
+        return wayland && *wayland;}
+    static bool hasSessionBus_() {
+        const char* dbusAddress = std::getenv("DBUS_SESSION_BUS_ADDRESS");
+        if (dbusAddress && *dbusAddress) return true;
+        const char* runtimeDir = std::getenv("XDG_RUNTIME_DIR");
+        if (!runtimeDir || !*runtimeDir) return false;
+        std::error_code ec;
+        return fs::exists(fs::path(runtimeDir) / "bus", ec) && !ec;}
     pid_t pid_ = -1;
 };
 #else
@@ -497,8 +515,7 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
     catch (const std::exception& ex) { std::cerr << "[keeply][cbt][warn] watcher local desativado: " << ex.what() << "\n"; }
 #endif
     if (options.foreground && cbtStarted) cbtLogger.start(watchRoot);
-    constexpr int kReconnectIntervalMs = 5000;
-    constexpr double kBackoffJitterFactor = 0.1;
+    constexpr int kReconnectIntervalMs = 2000;
     bool printedStartup = false;
     for (;;) {
         try {
@@ -534,10 +551,7 @@ static void runAgentLoop(const AgentRuntimeOptions& options) {
         } catch (const std::exception& loopEx) {
             std::cerr << "Loop websocket falhou: " << loopEx.what() << "\n";
             std::cerr << "Reconectando em " << kReconnectIntervalMs << "ms...\n";}
-        const int jitterRange = static_cast<int>(kReconnectIntervalMs * kBackoffJitterFactor);
-        const int jitter = jitterRange > 0 ? (std::rand() % (jitterRange * 2 + 1)) - jitterRange : 0;
-        const int sleepMs = std::max(100, kReconnectIntervalMs + jitter);
-        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));}}
+        std::this_thread::sleep_for(std::chrono::milliseconds(kReconnectIntervalMs));}}
 int main(int argc, char** argv) {
     try {
 #ifdef __linux__
